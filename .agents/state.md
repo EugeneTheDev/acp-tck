@@ -67,11 +67,10 @@ Registry: **57 requirements** in `src/tck/requirements.py` (see `AGENTS.md` for 
 
 ## In flight
 Nothing. Slice 7b was completed and committed in this flush. Spot checks that completed before the
-pause: full suite 125 passed; `conforming_full.py` and `conforming.py` full runs CONFORMANT. The
-programmer additionally reported (not independently re-run by orchestrator): `gated_by_auth.py
---auth-method wrong` → exit 1 blocked_by_auth; `supports_v1_and_v2.py` INIT-003 PASS;
-`echoes_any_version.py` INIT-003 FAIL; `rejects_second_initialize.py` CONFORMANT; `--collect-only` exit 0.
-Re-run these first if anything looks off.
+pause: full suite 125 passed; `conforming_full.py` and `conforming.py` full runs CONFORMANT. Orchestrator also
+re-ran: `gated_by_auth.py --auth-method wrong` → exit 1 blocked by authentication; `supports_v1_and_v2.py`
+INIT-003 PASS. Programmer-reported only: `echoes_any_version.py` INIT-003 FAIL; `rejects_second_initialize.py`
+CONFORMANT; `--collect-only` exit 0.
 
 ## Open questions / deferred
 - Deferred nits from review-slices-5-6: N12 (pytester-based plugin test), N20 (O(n²) `transcript.index`).
