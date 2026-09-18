@@ -78,7 +78,11 @@ Every requirement has a **tier**:
   If the agent *did* advertise it, though, a failure does count against conformance -- advertised
   capabilities must work.
 - `ADVISORY` -- a spec SHOULD. Always reported, never affects the verdict.
-- `INFORMATIONAL` -- spec silent, or reference implementations disagree. Reported only.
+- `INFORMATIONAL` -- spec silent, or reference implementations disagree. The test never asserts on
+  the probed behaviour itself (so it always reports `PASS`); it records what was observed via
+  `record_property`, and that note is surfaced alongside the status in both the terminal table
+  (e.g. `ACP-INFO-PARSE-001   PASS  (silent; conn after: usable (sessionId=...))`) and the JSON
+  report's `properties` field. Never affects the verdict.
 
 Each test produces one of `PASS` / `FAIL` / `SKIPPED`; a setup/teardown error (including a
 harness-level agent timeout or crash) is reported as `FAIL`. A requirement's status is the worst
@@ -105,6 +109,14 @@ Capability-conditional coverage now includes `session/load`, `session/resume`, `
 `promptCapabilities` (`image`/`audio`/`embeddedContext`), and the authentication surface
 (`authMethods`, `authenticate`, `logout`); MCP/terminal/fs capabilities are still to come -- see
 `AGENTS.md` for the current requirement registry and what's implemented so far.
+
+Also covered: `MANDATORY` negative tests asserting the agent never calls `fs/*`, `terminal/*`, or
+`elicitation/create` during a prompt turn when the client didn't advertise the matching capability
+(`ACP-CLIENTCAP-001`/`002`/`003`); an `ADVISORY`/`INFORMATIONAL` extensibility and hygiene family
+covering unknown custom methods, `_meta` passthrough, unknown top-level response keys, error
+message shape, shutdown promptness, and stderr volume; and the `INFORMATIONAL` family above
+covering malformed JSON, structurally-invalid requests, and unknown session ids -- areas where the
+spec is silent or reference agents disagree.
 
 ## Contributing
 

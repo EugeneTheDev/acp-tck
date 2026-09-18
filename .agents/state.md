@@ -1,6 +1,6 @@
 # State
 
-**Last updated:** 2026-09-18 (session 1, after slice 6b)
+**Last updated:** 2026-09-18 (session 1, after slice 7)
 **Last commit pushed:** see `git log -1` (each slice commits this file)
 
 ## Deliverable shape (decided)
@@ -104,8 +104,18 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
   `terminal_auth_unadvertised.py`, `gated_by_auth.py`. `conforming_full.py` with `--cancel-prompt __hang__
   --auth-method tck` → 43 PASS.
 
+- **Slice 7** (123 passed; 57 requirements): `conformance/test_client_capabilities.py` (CLIENTCAP-001/002/003 as
+  one sweep test — to be split in 7b), `test_extensibility.py` (EXT-001 MANDATORY "must respond to `_` custom
+  request", META-001, SCHEMA-002 via `validation.find_unknown_root_keys`), `test_diagnostics.py` (ERROR-001,
+  SHUTDOWN-001, STDERR-001), `test_informational.py` (ACP-INFO-PARSE/INVALIDREQ/UNKNOWNSESSION-001, record-only).
+  Terminal table shows one-line notes for INFORMATIONAL ids. Fixtures: `calls_fs_unadvertised.py`,
+  `calls_terminal_unadvertised.py`, `calls_elicitation_unadvertised.py`, `noisy_stderr_and_parse_error_reply.py`;
+  `_base.py` gained `SendsClientRequestAgent`. Registry id pattern allows multi-segment areas.
+- Review: `.agents/research/review-slices-5-6.md` — 2 blockers (AUTH-001 double initialize; INIT-003 too strict
+  for multi-version agents), 9 should-fix, 14 nits → slice 7b.
+
 ## In flight
-- **Programmer — Slice 7** (advisory/informational tier, client-capability negative tests).
+- **Programmer — Slice 7b** (hardening).
 
 
 ## Open questions / blockers
@@ -113,5 +123,5 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
 - Transcript format choice (conductor `.jsons` compatibility) before slice 5.
 
 ## Next actions
-1. On slice 7 return: verify, commit + push.
-2. Slice 8 (cross-check script vs testy/echo_agent), then a second review pass, then v0.1 tag decision.
+1. On slice 7b return: verify (full suite > 120 s: run in background), commit + push.
+2. Slice 8 (cross-check script vs testy/echo_agent), then v0.1 readiness review.

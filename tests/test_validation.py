@@ -192,6 +192,47 @@ def test_unknown_root_field_is_permitted_by_the_vendored_schema() -> None:
     assert validate_agent_response("initialize", msg) == []
 
 
+# --- ACP-SCHEMA-002: hand-written unknown-root-key comparison ---
+
+
+def test_find_unknown_root_keys_flags_a_bogus_field_the_schema_cannot_reject() -> None:
+    """Direct counterpart to `test_unknown_root_field_is_permitted_by_the_vendored_schema`
+    above: `find_unknown_root_keys` catches exactly what plain jsonschema validation cannot,
+    since the vendored schema has no `additionalProperties: false` anywhere."""
+    obj = {"protocolVersion": 1, "bogusRootField": True}
+    assert validation.find_unknown_root_keys("InitializeResponse", obj) == ["bogusRootField"]
+
+
+def test_find_unknown_root_keys_permits_known_fields_and_meta() -> None:
+    obj = {"protocolVersion": 1, "agentCapabilities": {}, "_meta": {"tck": True}}
+    assert validation.find_unknown_root_keys("InitializeResponse", obj) == []
+
+
+def test_find_unknown_root_keys_on_a_union_type_permits_each_variants_own_fields() -> None:
+    """`ContentBlock` is a `oneOf` union of variants (`TextContent`, `ImageContent`, ...), each
+    carrying its own `type` const plus its own detail fields (e.g. `TextContent`'s `text`,
+    `annotations`) via an `allOf` `$ref` -- `_allowed_root_properties` must walk `oneOf`/`allOf`
+    and union every variant's properties, not just the first branch it finds."""
+    valid = {"type": "text", "text": "hi"}
+    assert validation.find_unknown_root_keys("ContentBlock", valid) == []
+
+    invalid = {"type": "text", "text": "hi", "extraKey": "nope"}
+    assert validation.find_unknown_root_keys("ContentBlock", invalid) == ["extraKey"]
+
+
+def test_find_unknown_root_keys_on_a_scalar_union_skips_the_check() -> None:
+    """`RequestId` (`null | integer | string`) has no `properties` anywhere in its `anyOf`
+    branches -- there is nothing meaningful to compare an object's keys against, so the check
+    must skip (return `[]`) rather than flag every key as unknown."""
+    assert validation._allowed_root_properties("RequestId") is None
+    assert validation.find_unknown_root_keys("RequestId", {"anything": 1}) == []
+
+
+def test_find_unknown_root_keys_on_a_non_dict_object_returns_empty() -> None:
+    assert validation.find_unknown_root_keys("InitializeResponse", None) == []
+    assert validation.find_unknown_root_keys("InitializeResponse", "not a dict") == []
+
+
 # --- registry completeness ---
 
 

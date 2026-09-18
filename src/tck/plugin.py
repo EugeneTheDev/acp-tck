@@ -552,6 +552,27 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         session.exitstatus = pytest.ExitCode.OK if report.verdict.conformant else pytest.ExitCode.TESTS_FAILED
 
 
+def _informational_note(result: Any) -> str:
+    """A short, one-line note for an INFORMATIONAL-tier result, drawn from whatever
+    `record_property(...)` values its test(s) recorded (`behaviour`, `acp_tck_stderr_bytes`,
+    `connection_usable_after`) -- e.g. `ACP-INFO-PARSE-001  PASS  (silent)`. `""` for any other
+    tier, or if no test bound to this id recorded anything recognized."""
+    if result.tier is not Tier.INFORMATIONAL:
+        return ""
+    parts: list[str] = []
+    for test in result.tests:
+        behaviour = test.properties.get("behaviour")
+        if behaviour:
+            parts.append(behaviour)
+        stderr_bytes = test.properties.get("acp_tck_stderr_bytes")
+        if stderr_bytes is not None:
+            parts.append(f"{stderr_bytes} stderr byte(s)")
+        usable = test.properties.get("connection_usable_after")
+        if usable:
+            parts.append(f"conn after: {usable}")
+    return "; ".join(parts)
+
+
 def pytest_terminal_summary(
     terminalreporter: Any, exitstatus: int, config: pytest.Config
 ) -> None:
@@ -559,7 +580,7 @@ def pytest_terminal_summary(
     if report is None:
         return  # e.g. --collect-only: sessionfinish still ran, but nothing was ever executed
 
-    aggregated = {result.id: result.status for result in report.requirements}
+    results_by_id = {result.id: result for result in report.requirements}
 
     terminalreporter.section("ACP TCK requirement summary")
     for tier in _TIER_ORDER:
@@ -568,9 +589,12 @@ def pytest_terminal_summary(
             continue
         terminalreporter.write_line(f"[{tier.value}]")
         for req_id in ids:
-            status = aggregated[req_id]
+            result = results_by_id[req_id]
+            status = result.status
             label = "NOT TESTED" if status is Status.NOT_TESTED else status.value
-            terminalreporter.write_line(f"  {req_id:<20} {label}")
+            note = _informational_note(result)
+            suffix = f"  ({note})" if note else ""
+            terminalreporter.write_line(f"  {req_id:<20} {label}{suffix}")
 
     verdict = report.verdict
     mandatory = verdict.tier_counts[Tier.MANDATORY.value]

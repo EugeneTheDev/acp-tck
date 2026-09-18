@@ -649,6 +649,175 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         ),
         source_report="acp-v1-authentication.md",
     ),
+    Requirement(
+        id="ACP-CLIENTCAP-001",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "The agent MUST NOT call `fs/read_text_file` or `fs/write_text_file` during a "
+            "session/prompt turn when the client did not advertise `fs` support -- the mock "
+            "client always advertises `clientCapabilities: {}`, so no `fs/*` request may ever "
+            "be observed. PASS is vacuous for an agent that never needs file access."
+        ),
+        citation=_cite("docs/protocol/v1/file-system.mdx:10,28; schema/v1/schema.json:4550-4573 (Req 29)"),
+        source_report="acp-v1-protocol-surface.md",
+    ),
+    Requirement(
+        id="ACP-CLIENTCAP-002",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "The agent MUST NOT call any `terminal/*` method during a session/prompt turn when "
+            "the client did not advertise `clientCapabilities.terminal === true`. PASS is "
+            "vacuous for an agent that never needs a terminal."
+        ),
+        citation=_cite("docs/protocol/v1/terminals.mdx:10,25 (Req 30)"),
+        source_report="acp-v1-protocol-surface.md",
+    ),
+    Requirement(
+        id="ACP-CLIENTCAP-003",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "The agent MUST NOT call `elicitation/create` during a session/prompt turn when "
+            "the client did not advertise any elicitation mode. PASS is vacuous for an agent "
+            "that never elicits."
+        ),
+        citation=_cite("docs/protocol/v1/elicitation.mdx:54,107-108 (Req 32)"),
+        source_report="acp-v1-protocol-surface.md",
+    ),
+    Requirement(
+        id="ACP-EXT-001",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "A request to an unknown, `_`-prefixed custom method receives *some* response -- "
+            "a result or any error, not necessarily `-32601`. Judgment call: Req 42's "
+            "\"recipients must respond to custom requests\" (extensibility.mdx:43,52,65,109) is "
+            "phrased as a MUST, distinct from the separate SHOULD about which error *code* an "
+            "unrecognised method gets in general (extensibility.mdx:80-92, ACP-JSONRPC-004) -- "
+            "so \"responds at all\" is MANDATORY here, while the specific `-32601` code remains "
+            "ACP-JSONRPC-004's ADVISORY concern (not duplicated)."
+        ),
+        citation=_cite("docs/protocol/v1/extensibility.mdx:43,52,65,109 (Req 42)"),
+        source_report="acp-v1-protocol-surface.md",
+    ),
+    Requirement(
+        id="ACP-META-001",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "A `session/prompt` carrying `_meta` (e.g. a `traceparent` key, SHOULD-reserved by "
+            "Req 43) is accepted and resolves with a normal, defined `stopReason`."
+        ),
+        citation=_cite("docs/protocol/v1/extensibility.mdx:10,33-37,39 (Reqs 41, 43)"),
+        source_report="acp-v1-protocol-surface.md",
+    ),
+    Requirement(
+        id="ACP-ERROR-001",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "Every error object's `message` is non-empty and free of embedded newlines (E3: "
+            "\"should be limited to a concise single sentence\" -- checked leniently, exact "
+            "wording is never asserted); `data`, if present, needs no further shape check "
+            "beyond already being valid JSON. Evidence comes from errors already provoked "
+            "elsewhere in the suite (an unrecognised method, an invalid-params request); "
+            "passes vacuously if the agent returns none."
+        ),
+        citation=_cite(
+            "agent-client-protocol-schema/src/v1/error.rs:149-224 (E3)"
+        ),
+        source_report="acp-v1-transport-and-jsonrpc.md",
+    ),
+    Requirement(
+        id="ACP-SHUTDOWN-001",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "After the client closes stdin, the agent process exits on its own within a "
+            "lenient window, without needing SIGTERM/SIGKILL. Warning-level only (Testability "
+            "note 11): the spec defines no shutdown method, only that the client closes stdin "
+            "then kills the process if needed."
+        ),
+        citation=_cite(
+            "docs/protocol/v1/overview.mdx (no shutdown method defined; Testability note 11)"
+        ),
+        source_report="acp-v1-transport-and-jsonrpc.md",
+    ),
+    Requirement(
+        id="ACP-SCHEMA-002",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "No agent-emitted spec object (a request/notification `params`, or a successful "
+            "response `result`) carries a root-level key outside its `$def`'s resolved "
+            "`properties` union (following `allOf`/`anyOf`/`oneOf`/`$ref`), other than `_meta` "
+            "-- Req 41 says implementations MUST NOT add custom root fields, but the vendored "
+            "schema has no `additionalProperties: false` anywhere so mandatory schema "
+            "validation (ACP-SCHEMA-001) cannot enforce it; this is a hand-written comparison "
+            "instead (see `tck.validation.find_unknown_root_keys`)."
+        ),
+        citation=_cite("docs/protocol/v1/extensibility.mdx:39 (Req 41)"),
+        source_report="acp-v1-protocol-surface.md",
+    ),
+    Requirement(
+        id="ACP-STDERR-001",
+        tier=Tier.INFORMATIONAL,
+        capability=None,
+        text=(
+            "The byte count of stderr output observed during a full exchange is reported for "
+            "informational purposes; never asserted on, never fails (Testability note T6: the "
+            "spec places no MUST on stderr content)."
+        ),
+        citation=_cite("docs/protocol/v1/transports.mdx (Testability note T6)"),
+        source_report="acp-v1-transport-and-jsonrpc.md",
+    ),
+    Requirement(
+        id="ACP-INFO-PARSE-001",
+        tier=Tier.INFORMATIONAL,
+        capability=None,
+        text=(
+            "Behaviour on a malformed (non-JSON) stdin line is recorded -- reply `-32700` with "
+            "`id: null`, reply otherwise, or stay silent -- along with whether the connection "
+            "remains usable afterwards (a subsequent `session/new` still succeeds). Spec "
+            "silent; reference SDKs disagree (rust-sdk replies -32700, python-sdk silently "
+            "drops the line). Always PASSes."
+        ),
+        citation=_cite(
+            "agent-client-protocol-schema (spec silent); rust-sdk vs python-sdk divergence "
+            "(Assertable only as warnings/informational)"
+        ),
+        source_report="acp-v1-transport-and-jsonrpc.md",
+    ),
+    Requirement(
+        id="ACP-INFO-INVALIDREQ-001",
+        tier=Tier.INFORMATIONAL,
+        capability=None,
+        text=(
+            "Behaviour on a syntactically-valid JSON value that is not a JSON-RPC envelope "
+            "(`{\"foo\": \"bar\"}`) is recorded, same shape as ACP-INFO-PARSE-001. Spec silent; "
+            "reference SDKs disagree (rust-sdk replies -32600, python-sdk silently drops it). "
+            "Always PASSes."
+        ),
+        citation=_cite(
+            "agent-client-protocol-schema (spec silent); rust-sdk vs python-sdk divergence "
+            "(Assertable only as warnings/informational)"
+        ),
+        source_report="acp-v1-transport-and-jsonrpc.md",
+    ),
+    Requirement(
+        id="ACP-INFO-UNKNOWNSESSION-001",
+        tier=Tier.INFORMATIONAL,
+        capability=None,
+        text=(
+            "The error code (if any) returned for `session/prompt` against a `sessionId` the "
+            "agent never created is recorded, never asserted -- v1 does not specify one "
+            "(Discrepancy 6). Even a successful result is only recorded. Always PASSes."
+        ),
+        citation=_cite("docs/error.mdx (stub; Discrepancy 6)"),
+        source_report="acp-v1-protocol-surface.md",
+    ),
 )
 
 REGISTRY: dict[str, Requirement] = {requirement.id: requirement for requirement in _DECLARATIONS}

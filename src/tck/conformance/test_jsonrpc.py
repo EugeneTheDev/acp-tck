@@ -67,9 +67,12 @@ async def test_response_envelope_is_result_xor_error_with_valid_shape(agent_laun
 
 @pytest.mark.requirement("ACP-JSONRPC-004")
 async def test_unknown_method_yields_method_not_found(agent_launch):
-    """ACP-JSONRPC-004 (ADVISORY -- spec wording is "should"). Replying to an unrecognised
-    method at all is optional, so an agent that never replies SKIPs this check instead of
-    failing it -- only an agent that *does* reply is held to the `-32601` code (review S3)."""
+    """ACP-JSONRPC-004 (ADVISORY -- spec wording is "should"). This test only concerns the
+    specific `-32601` code once a reply exists, so an agent that never replies SKIPs this check
+    instead of failing it (review S3) -- whether the agent responds *at all* to an unrecognised
+    method is a separate, stronger concern for `_`-prefixed custom methods specifically (Req
+    42's MUST, not the general SHOULD this test is about): see ACP-EXT-001, which is MANDATORY
+    and does not skip on silence."""
     async with connected_agent(agent_launch) as agent:
         req_id = await agent.send_request("_tck/does_not_exist")
         try:

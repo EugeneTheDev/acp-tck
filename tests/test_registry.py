@@ -15,7 +15,12 @@ from tck import requirements as req_module
 from tck.protocol import SCHEMA_REVISION
 from tck.requirements import REGISTRY, Tier
 
-_ID_PATTERN = re.compile(r"^ACP-[A-Z]+-\d{3}$")
+_ID_PATTERN = re.compile(r"^ACP-[A-Z]+(?:-[A-Z]+)*-\d{3}$")
+"""`ACP-<AREA>-<NNN>`, where `<AREA>` may itself be hyphen-segmented (e.g.
+`ACP-INFO-PARSE-001`, `ACP-INFO-UNKNOWNSESSION-001`) -- the INFORMATIONAL-tier ids introduced in
+slice 7 group under a shared `ACP-INFO-*` prefix rather than inventing an unrelated area name per
+id, since they are a related family of "record, never assert" probes (see
+`tck/conformance/test_informational.py`)."""
 _SPEC_REVISION_PATTERN = re.compile(r"@ [0-9a-f]{40}$")
 
 

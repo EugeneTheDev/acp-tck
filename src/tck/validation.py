@@ -312,6 +312,65 @@ def validate_response_envelope(msg: dict[str, Any]) -> list[ValidationIssue]:
     return issues
 
 
+def _allowed_root_properties(def_name: str) -> set[str] | None:
+    """The set of property names permitted at the root of `#/$defs/{def_name}`, resolved by
+    walking `allOf`/`anyOf`/`oneOf`/`$ref` (needed for ACP-SCHEMA-002: the vendored schema has
+    no `additionalProperties: false` anywhere -- see `.agents/plan.md` "Open questions" -- so
+    this comparison has to be built by hand instead of relying on jsonschema to reject extras).
+
+    Returns `None` if no branch in the composition ever declares a non-empty `properties` map
+    (e.g. `def_name` is a bare scalar/array `$def` like `RequestId`) -- there is nothing
+    meaningful to compare an object's keys against in that case, and the caller should skip the
+    check rather than flag every key as unknown.
+    """
+    defs = load_schema()["$defs"]
+    seen: set[str] = set()
+    allowed: set[str] = set()
+    found_any_properties = False
+
+    def _walk(node: Any) -> None:
+        nonlocal found_any_properties
+        if not isinstance(node, dict):
+            return
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            name = ref.removeprefix("#/$defs/")
+            if name not in seen:
+                seen.add(name)
+                _walk(defs.get(name, {}))
+            return
+        props = node.get("properties")
+        if isinstance(props, dict) and props:
+            found_any_properties = True
+            allowed.update(props.keys())
+        for key in ("allOf", "anyOf", "oneOf"):
+            branches = node.get(key)
+            if isinstance(branches, list):
+                for branch in branches:
+                    _walk(branch)
+
+    _walk(defs.get(def_name, {}))
+    if not found_any_properties:
+        return None
+    allowed.add("_meta")
+    return allowed
+
+
+def find_unknown_root_keys(def_name: str, obj: Any) -> list[str]:
+    """ACP-SCHEMA-002 (ADVISORY): the root-level keys of an emitted spec object (`obj`, e.g. a
+    request/notification `params`, or a successful response `result`) that are not part of
+    `#/$defs/{def_name}`'s resolved `properties` union (`_meta` is always allowed, per Req 41's
+    "custom data goes in `_meta`" carve-out). Returns `[]` -- nothing to flag -- when `obj` is
+    not a dict, or when `def_name`'s schema has no resolvable `properties` at all.
+    """
+    if not isinstance(obj, dict):
+        return []
+    allowed = _allowed_root_properties(def_name)
+    if allowed is None:
+        return []
+    return sorted(key for key in obj if key not in allowed)
+
+
 def validate_agent_response(method: str, msg: dict[str, Any]) -> list[ValidationIssue]:
     """Validate a response the agent wrote to stdout, in reply to a `method` request it
     implements (e.g. `"initialize"`, `"session/prompt"`).

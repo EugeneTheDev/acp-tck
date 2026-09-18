@@ -310,3 +310,61 @@ class ConformingAgent:
     def _write(obj: dict[str, Any]) -> None:
         sys.stdout.write(json.dumps(obj, separators=(",", ":")) + "\n")
         sys.stdout.flush()
+
+
+class SendsClientRequestAgent(ConformingAgent):
+    """Shared base for the `ACP-CLIENTCAP-00*` defect fixtures: on `session/prompt`, sends one
+    agent -> client request (`_client_method`/`_client_params`, set by a subclass) mid-turn,
+    waits for whatever reply the mock client sends back (the TCK's mock client advertises
+    `clientCapabilities: {}` and answers with `-32601`, per `_helpers.run_prompt`, since none of
+    `fs`/`terminal`/`elicitation` is ever advertised in `test_client_capabilities.py`), and only
+    then completes the turn normally with `stopReason: "end_turn"` -- regardless of how the
+    client answered, since the point of the fixture is that the *request itself* should never
+    have been sent, not how the client reacts to it.
+
+    Modeled directly on `asks_permission.py`'s `AsksPermissionAgent`: same
+    intercept-ID-less-replies-in-`_handle`, same outstanding-request bookkeeping, same
+    cancel-notification passthrough.
+    """
+
+    _client_method: str = ""
+    _client_params: dict[str, Any] = {}
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._awaiting_client_reply: dict[str, Any] | None = None
+        self._req_id_counter = 0
+
+    def _handle(self, message: dict[str, Any]) -> None:
+        if message.get("method") is None:
+            self._handle_client_response(message)
+            return
+        super()._handle(message)
+
+    def _handle_client_response(self, message: dict[str, Any]) -> None:
+        pending = self._awaiting_client_reply
+        if pending is None or message.get("id") != pending["req_id"]:
+            return  # not a reply to our own outstanding request
+        self._awaiting_client_reply = None
+        self._reply(pending["prompt_id"], {"stopReason": "end_turn"})
+
+    def _handle_prompt(self, msg_id: Any, params: dict[str, Any]) -> None:
+        session_id = params.get("sessionId")
+        self._req_id_counter += 1
+        req_id = f"tck-clientcap-{self._req_id_counter}"
+        self._awaiting_client_reply = {"prompt_id": msg_id, "req_id": req_id}
+        client_params = dict(self._client_params)
+        client_params.setdefault("sessionId", session_id)
+        self._write(
+            {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "method": self._client_method,
+                "params": client_params,
+            }
+        )
+
+    def _handle_notification(self, method: str, params: dict[str, Any]) -> None:
+        if method == "session/cancel" and self._awaiting_client_reply is not None:
+            return  # nothing else to do; no reply expected before the client answers our request
+        super()._handle_notification(method, params)

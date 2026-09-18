@@ -45,6 +45,7 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   gating, `auth/login`, v2 prompt lifecycle are excluded; see transport report Discrepancies 1, 7.
 
 ## Done
+- Slice 7 — CLIENTCAP-001/002/003, EXT-001 (MANDATORY), META-001, ERROR-001, SHUTDOWN-001, SCHEMA-002 (unknown-root-keys checker), STDERR-001 + 3 ACP-INFO-* informational probes with terminal notes; 4 fixtures (123 passed; 57 requirements).
 - Slice 6b — MODES-001/002, CONFIG-001/002/003, PROMPTCAP-001/002/003, AUTH-001..004; `--auth-method`; `verdict.blocked_by_auth`; inferred gates for modes/configOptions; 5 fixtures (113 passed, 1 skipped; 43 requirements).
 - Slice 6a — INIT-003 strengthened; ACP-LOAD-001/002/003, RESUME-001/002, LIST-001/002, DELETE-001/002, CLOSE-001/002, ADDDIRS-001; `conforming_full.py` + 5 defect fixtures (102 passed, 1 skipped).
 - Slice 5b — hardening per review: 64 MiB line limit with lossless oversize handling, write deadline, per-test watchdog (`--test-timeout`), close() drains stdout, TRANSPORT-002 split, mock client everywhere, JSONRPC-002 evidence from mandatory paths, `_tck/` probes, capability marker boolean/object encodings (94 passed, 3 skipped).
@@ -58,7 +59,7 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   `research/a2a-tck-structure.md`, `research/reference-sdks-as-harness.md`.
 
 ## In progress
-- **Slice 7 — advisory/informational tier + client-capability negative tests** (programmer).
+- **Slice 7b — hardening from review-slices-5-6** (programmer).
 
 ## Next slices (in order)
 7b. **Hardening from `research/review-slices-5-6.md`** (2 blockers, 9 should-fix, 14 nits) — before slice 8:
@@ -70,6 +71,9 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
     session tests as blocked with a hint; `--collect-only` must not be overridden; `-k` deselection hint must not
     blame the agent; cap transcript size in the JSON report; `_base.py` validates `authenticate` params and
     prompt content blocks; runtime wins (wrong_id_echo run with tiny timeouts, shorter drain in watchdog test).
+    Also from slice 7: split CLIENTCAP-001/002/003 into per-id attribution (one fixture calling only `fs/*` must
+    fail only 001); `_base.py` should answer an unknown `sessionId` with an error, not a result; suite runtime
+    back under ~120 s.
 5b. **Hardening from `research/review-slices-1-4.md`** (1 blocker, 9 should-fix, 9 nits) — do before slice 6:
     raise asyncio stream `limit` (e.g. 64 MiB) and never lose bytes on overlong lines; deadline on `drain()`;
     per-test watchdog; `close()` drains remaining stdout into the transcript (post-response stdout garbage must

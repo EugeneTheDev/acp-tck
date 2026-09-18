@@ -14,7 +14,13 @@ import sys
 from pathlib import Path
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "agents"
-CLI_SUBPROCESS_TIMEOUT = 30
+CLI_SUBPROCESS_TIMEOUT = 60
+"""Wall-clock cap on one `_run_cli` subprocess. Slice 7 added a dozen more MANDATORY/ADVISORY/
+INFORMATIONAL requirement ids, each with their own `--timeout`-bounded wait -- against
+`wrong_id_echo.py` (every one of them fails/errors via a real timeout, since id-correlated waits
+never resolve) that pushes the full run past the old 30s cap; 60s leaves headroom without
+materially changing the overall suite's runtime budget, since every other self-test finishes in
+a small fraction of this."""
 
 _MANDATORY_IDS = {
     "ACP-TRANSPORT-001",
@@ -36,6 +42,10 @@ _MANDATORY_IDS = {
     "ACP-AUTH-001",
     "ACP-AUTH-002",
     "ACP-AUTH-003",
+    "ACP-CLIENTCAP-001",
+    "ACP-CLIENTCAP-002",
+    "ACP-CLIENTCAP-003",
+    "ACP-EXT-001",
 }
 _ADVISORY_IDS = {
     "ACP-JSONRPC-004",
@@ -44,6 +54,16 @@ _ADVISORY_IDS = {
     "ACP-PROMPT-003",
     "ACP-LOAD-003",
     "ACP-DELETE-002",
+    "ACP-META-001",
+    "ACP-ERROR-001",
+    "ACP-SHUTDOWN-001",
+    "ACP-SCHEMA-002",
+}
+_INFORMATIONAL_IDS = {
+    "ACP-STDERR-001",
+    "ACP-INFO-PARSE-001",
+    "ACP-INFO-INVALIDREQ-001",
+    "ACP-INFO-UNKNOWNSESSION-001",
 }
 _CAPABILITY_IDS = {
     "ACP-LOAD-001",
@@ -734,6 +754,56 @@ def test_report_json_for_banner_on_stdout_includes_a_nonempty_transcript_on_fail
     assert test_outcome["transcript"], "expected a non-empty transcript on a FAIL outcome"
     assert isinstance(test_outcome["transcript"], list)
     assert {"dir", "t", "raw"} <= set(test_outcome["transcript"][0])
+
+
+def test_calls_fs_unadvertised_fails_clientcap_001():
+    """`calls_fs_unadvertised.py` calls `fs/read_text_file` on every prompt turn even though the
+    TCK's mock client never advertised `fs` -- a MANDATORY (Req 29) FAIL that must flip the
+    exit code. Scoped to `clientcap` since this fixture's `_handle_prompt` override only ever
+    resolves a turn once the client has answered its one client-request, which is exactly what
+    the clientcap test's `run_prompt` call does; other prompt tests would work too, but scoping
+    keeps this self-test fast and focused."""
+    result = _run_cli("calls_fs_unadvertised.py", k="clientcap")
+    assert result.returncode != 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-CLIENTCAP-001") == "FAIL", result.stdout
+
+
+def test_calls_terminal_unadvertised_fails_clientcap_002():
+    """Same as above, for `terminal/create` (Req 30)."""
+    result = _run_cli("calls_terminal_unadvertised.py", k="clientcap")
+    assert result.returncode != 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-CLIENTCAP-002") == "FAIL", result.stdout
+
+
+def test_calls_elicitation_unadvertised_fails_clientcap_003():
+    """Same as above, for `elicitation/create` (Req 32)."""
+    result = _run_cli("calls_elicitation_unadvertised.py", k="clientcap")
+    assert result.returncode != 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-CLIENTCAP-003") == "FAIL", result.stdout
+
+
+def test_noisy_stderr_and_parse_error_reply_agent_informational_notes():
+    """`noisy_stderr_and_parse_error_reply.py` deterministically exercises two INFORMATIONAL
+    probes' non-default branches: it logs every line to stderr (ACP-STDERR-001's byte count
+    must be > 0) and replies `-32700`/`id: null` to malformed JSON instead of staying silent
+    (ACP-INFO-PARSE-001's recorded behaviour must say so) -- proving the terminal table actually
+    surfaces a recorded property as a note, not just that the always-PASS scaffolding runs."""
+    result = _run_cli("noisy_stderr_and_parse_error_reply.py")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    assert "ACP-STDERR-001" in result.stdout
+    assert "ACP-INFO-PARSE-001" in result.stdout
+    assert "replied -32700 with id:null" in result.stdout, result.stdout
+    assert "stderr byte(s)" in result.stdout, result.stdout
+    for line in result.stdout.splitlines():
+        if "ACP-STDERR-001" in line:
+            assert "0 stderr byte(s)" not in line, result.stdout
 
 
 def test_report_json_for_exits_immediately_has_no_crash_and_all_mandatory_fail_or_not_tested(

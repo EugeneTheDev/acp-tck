@@ -157,6 +157,7 @@ async def run_prompt(
     *,
     on_cancel: bool = False,
     cancel_wait: float = 0.5,
+    extra_params: dict[str, Any] | None = None,
     timeout: float,
 ) -> PromptTurn:
     """Drive one `session/prompt` turn, acting as a minimal mock ACP client for whatever the
@@ -187,10 +188,14 @@ async def run_prompt(
     cancel; if the
     response is already sitting there, we return it with `cancelled_at_index=None` (a race),
     exactly as if it had arrived before we ever considered cancelling.
+
+    `extra_params`, if given, is merged into the `session/prompt` request's own params
+    (e.g. `{"_meta": {...}}` for ACP-META-001) -- it never overrides `sessionId`/`prompt`.
     """
-    prompt_id = await agent.send_request(
-        "session/prompt", {"sessionId": session_id, "prompt": blocks}
-    )
+    params = {"sessionId": session_id, "prompt": blocks}
+    if extra_params:
+        params.update(extra_params)
+    prompt_id = await agent.send_request("session/prompt", params)
     updates: list[tuple[int, TranscriptEntry]] = []
     client_requests_seen: list[TranscriptEntry] = []
     cancelled_at_index: int | None = None

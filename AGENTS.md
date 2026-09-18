@@ -15,7 +15,12 @@ code), capability-conditional session-method tests: `session/load`, `session/res
 options (support *inferred* from `session/new`'s own response, not an `initialize` marker),
 prompt content capabilities (`image`/`audio`/`embeddedContext`), and the authentication surface
 (`authMethods`, `authenticate`, `logout`, plus a `--auth-method` option so the TCK can drive a
-real authenticate handshake before `session/new`).
+real authenticate handshake before `session/new`), and (slice 7) MANDATORY client-capability
+negative tests (`fs`/`terminal`/`elicitation` MUST NOT be called unadvertised), the extensibility/
+`_meta`/schema-hygiene ADVISORY family (`ACP-EXT-001` MANDATORY, `ACP-META-001`/`ACP-ERROR-001`/
+`ACP-SHUTDOWN-001`/`ACP-SCHEMA-002` ADVISORY), and an INFORMATIONAL tier of always-pass,
+report-only probes (`ACP-STDERR-001`, `ACP-INFO-PARSE-001`, `ACP-INFO-INVALIDREQ-001`,
+`ACP-INFO-UNKNOWNSESSION-001`) for behaviour the spec is silent on or SDKs disagree about.
 
 ## Layout
 
@@ -86,6 +91,24 @@ src/tck/
                             terminal-method client-capability gate, the `authenticate` ->
                             `session/new` flow (only when `--tck-auth-method` was given), and
                             `logout` (gated on the `agentCapabilities.auth.logout` object marker)
+    test_client_capabilities.py  ACP-CLIENTCAP-001..003 (MANDATORY) -- one sweep asserting no
+                            `fs/*`/`terminal/*`/`elicitation/create` request is ever observed
+                            during a prompt turn run against a mock client that advertises
+                            `clientCapabilities: {}` (Reqs 29, 30, 32)
+    test_extensibility.py  ACP-EXT-001 (MANDATORY -- Req 42's MUST-respond-to-custom-methods,
+                            distinct from ACP-JSONRPC-004's general SHOULD about the `-32601`
+                            code), ACP-META-001 (ADVISORY -- `_meta` on `session/prompt` is
+                            accepted), ACP-SCHEMA-002 (ADVISORY -- no unknown root-level keys on
+                            any agent-authored request/notification `params` or response
+                            `result`, via `validation.find_unknown_root_keys`)
+    test_diagnostics.py    ACP-ERROR-001 (ADVISORY -- error `message` non-empty, no embedded
+                            newline), ACP-SHUTDOWN-001 (ADVISORY -- `exited_on_stdin_close` after
+                            an ordinary close), ACP-STDERR-001 (INFORMATIONAL -- records stderr
+                            byte count, never fails)
+    test_informational.py  ACP-INFO-PARSE-001/INVALIDREQ-001/UNKNOWNSESSION-001 (INFORMATIONAL --
+                            malformed-JSON-line, structurally-invalid-request, and
+                            unknown-`sessionId` behaviour, each recorded via `record_property`
+                            and never asserted; the spec is silent and real SDKs disagree)
 
 tests/
   conftest.py              agent_launch() helper for spawning fixture agents (harness unit tests)
@@ -189,6 +212,17 @@ tests/
                           successfully called `authenticate` first with the advertised
                           `"tck"` method id -- self-test-only fixture for
                           `--auth-method`/`Verdict.blocked_by_auth`
+    calls_fs_unadvertised.py  `SendsClientRequestAgent` subclass (shared base added to `_base.py`
+                          for slice 7): sends `fs/read_text_file` mid-turn regardless of
+                          advertised client capabilities (ACP-CLIENTCAP-001, MANDATORY)
+    calls_terminal_unadvertised.py  same shape, `terminal/create` (ACP-CLIENTCAP-002, MANDATORY)
+    calls_elicitation_unadvertised.py  same shape, `elicitation/create` (ACP-CLIENTCAP-003,
+                          MANDATORY)
+    noisy_stderr_and_parse_error_reply.py  conforming, but logs every raw line to stderr and
+                          replies `{"id": null, "error": {"code": -32700, ...}}` to malformed
+                          JSON instead of silently swallowing it -- self-test-only fixture that
+                          deterministically exercises ACP-STDERR-001's/ACP-INFO-PARSE-001's
+                          non-default branches (see `tests/test_cli.py`)
 ```
 
 ## Running the TCK against an agent
@@ -501,8 +535,16 @@ never raises, always returns issues.
   accepted whenever the target response schema is an object type with zero required fields.
 - The vendored schema never sets `additionalProperties: false` anywhere (checked: zero
   occurrences), so it cannot reject an unknown root field on a spec type even though the
-  spec's prose (`extensibility.mdx`) says implementations MUST NOT add one; `validate_*` does
-  not flag this today (see `tests/test_validation.py::test_unknown_root_field_is_permitted_by_the_vendored_schema`).
+  spec's prose (`extensibility.mdx`) says implementations MUST NOT add one; `validate_agent_message`/
+  `validate_agent_response` do not flag this (see
+  `tests/test_validation.py::test_unknown_root_field_is_permitted_by_the_vendored_schema`).
+- `find_unknown_root_keys(def_name, obj) -> list[str]` (slice 7, backs ACP-SCHEMA-002) is the
+  hand-written check that fills that gap: `_allowed_root_properties(def_name)` walks
+  `allOf`/`anyOf`/`oneOf`/`$ref` to resolve the full property-name union a `$def`'s composition
+  permits (always including `_meta`), and `find_unknown_root_keys` flags any root key of `obj`
+  outside that set. Returns `[]` -- nothing to flag -- for a non-dict `obj`, or when the `$def`
+  resolves no `properties` anywhere (e.g. a bare scalar/array union like `RequestId`) since
+  there is nothing meaningful to compare keys against in that case.
 
 ## Conventions
 
