@@ -312,6 +312,7 @@ def validate_response_envelope(msg: dict[str, Any]) -> list[ValidationIssue]:
     return issues
 
 
+@lru_cache(maxsize=None)
 def _allowed_root_properties(def_name: str) -> set[str] | None:
     """The set of property names permitted at the root of `#/$defs/{def_name}`, resolved by
     walking `allOf`/`anyOf`/`oneOf`/`$ref` (needed for ACP-SCHEMA-002: the vendored schema has
@@ -338,7 +339,11 @@ def _allowed_root_properties(def_name: str) -> set[str] | None:
             if name not in seen:
                 seen.add(name)
                 _walk(defs.get(name, {}))
-            return
+            # JSON Schema 2020-12 allows keywords alongside `$ref` on the same node -- fall
+            # through to the sibling handling below instead of returning, so a `properties`/
+            # `allOf`/etc. next to a `$ref` is not silently dropped (review-slices-7.md N5).
+            # No-op today: a full walk of the vendored schema found no node carrying `$ref`
+            # alongside anything but `description`/`title`/`x-method`/`x-side`.
         props = node.get("properties")
         if isinstance(props, dict) and props:
             found_any_properties = True

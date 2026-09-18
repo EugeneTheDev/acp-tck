@@ -49,6 +49,10 @@ process per test, so one crash can't cascade into unrelated failures.
   any agent that gates `session/new` behind authentication -- without it, session-dependent
   tests report `SKIPPED` with an "AUTH-GATED" hint and the run is forced `NOT CONFORMANT`, since
   those requirements were never actually exercised.
+- `--close-grace S` -- grace period in seconds budgeted at each stage of the shutdown ladder
+  (close stdin, then SIGTERM, then SIGKILL) when tearing down the agent process after a test
+  (default 2.0). Each stage stops early as soon as the agent actually exits, rather than always
+  waiting out the full grace period, so raising this only matters for a slow-to-exit agent.
 - `--report-json PATH` -- write the full JSON report (see below).
 - `-k EXPR` -- run only tests matching a pytest `-k` expression.
 - `-v` -- verbose pytest output.
@@ -81,10 +85,13 @@ Every requirement has a **tier**:
   capabilities must work.
 - `ADVISORY` -- a spec SHOULD. Always reported, never affects the verdict.
 - `INFORMATIONAL` -- spec silent, or reference implementations disagree. The test never asserts on
-  the probed behaviour itself (so it always reports `PASS`); it records what was observed via
-  `record_property`, and that note is surfaced alongside the status in both the terminal table
-  (e.g. `ACP-INFO-PARSE-001   PASS  (silent; conn after: usable (sessionId=...))`) and the JSON
-  report's `properties` field. Never affects the verdict.
+  the probed behaviour itself; it records what was observed via `record_property`, and that note
+  is surfaced alongside the status in both the terminal table (e.g.
+  `ACP-INFO-PARSE-001   PASS  (silent; conn after: usable (sessionId=...))`) and the JSON report's
+  `properties` field. It can still `FAIL` if the prerequisite handshake it rides on top of (e.g.
+  `initialize`, or `session/new` for the unknown-`sessionId` probe) itself fails -- that is a real
+  conformance problem the probe correctly surfaces, not a probe bug. Never affects the verdict
+  either way.
 
 Each test produces one of `PASS` / `FAIL` / `SKIPPED`; a setup/teardown error (including a
 harness-level agent timeout or crash) is reported as `FAIL`. A requirement's status is the worst
@@ -114,10 +121,12 @@ Capability-conditional coverage now includes `session/load`, `session/resume`, `
 
 Also covered: `MANDATORY` negative tests asserting the agent never calls `fs/*`, `terminal/*`, or
 `elicitation/create` during a prompt turn when the client didn't advertise the matching capability
-(`ACP-CLIENTCAP-001`/`002`/`003`); an `ADVISORY`/`INFORMATIONAL` extensibility and hygiene family
-covering unknown custom methods, `_meta` passthrough, unknown top-level response keys, error
-message shape, shutdown promptness, and stderr volume; and the `INFORMATIONAL` family above
-covering malformed JSON, structurally-invalid requests, and unknown session ids -- areas where the
+(`ACP-CLIENTCAP-001`/`002`/`003`); a custom-methods-and-hygiene family -- `ACP-EXT-001`
+(`MANDATORY`: a `_`-prefixed custom method must get *some* response, result or error; distinct
+from `ACP-JSONRPC-004`'s `ADVISORY` concern about the specific `-32601` code for an unrecognised
+method in general) plus `ADVISORY` `_meta` passthrough, unknown top-level response keys, error
+message shape, and shutdown promptness; and the `INFORMATIONAL` family above covering malformed
+JSON, structurally-invalid requests, unknown session ids, and stderr volume -- areas where the
 spec is silent or reference agents disagree.
 
 ## Cross-checking against upstream agents

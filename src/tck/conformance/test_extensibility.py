@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from tck import validation
-from tck.harness import Direction
+from tck.harness import AgentExited, AgentTimeout, Direction
 from tck.protocol import STOP_REASONS
 
 from ._helpers import connected_agent, new_session, run_prompt
@@ -21,10 +21,21 @@ async def test_unknown_custom_method_receives_a_response(agent_launch):
     unrecognised method gets in general (extensibility.mdx:80-92, ACP-JSONRPC-004). This test
     only asserts that *some* response -- a result, or an error with any code -- arrives at all
     for a `_`-prefixed custom method; the `-32601` code specifically remains ACP-JSONRPC-004's
-    ADVISORY concern and is not re-checked here."""
+    ADVISORY concern and is not re-checked here.
+
+    An agent that never replies at all is caught explicitly (rather than letting
+    `wait_for_response` raise a bare `AgentTimeout`/`AgentExited`) so this -- the one MANDATORY
+    assertion in the module -- fails with the Req-42 wording, not a harness exception
+    (review-slices-7.md N7)."""
     async with connected_agent(agent_launch) as agent:
         req_id = await agent.send_request("_tck/unknown")
-        entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
+        try:
+            entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
+        except (AgentTimeout, AgentExited) as exc:
+            pytest.fail(
+                f"a `_`-prefixed custom method request must receive a response (Req 42): {exc}",
+                pytrace=False,
+            )
         msg = entry.parsed
         assert isinstance(msg, dict) and ("result" in msg or "error" in msg), (
             f"a `_`-prefixed custom method request must receive a response (Req 42), got {msg!r}"

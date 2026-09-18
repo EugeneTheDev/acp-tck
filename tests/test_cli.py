@@ -40,9 +40,7 @@ _MANDATORY_IDS = {
     "ACP-CANCEL-001",
     "ACP-CANCEL-002",
     "ACP-CONFIG-003",
-    "ACP-AUTH-001",
     "ACP-AUTH-002",
-    "ACP-AUTH-003",
     "ACP-CLIENTCAP-001",
     "ACP-CLIENTCAP-002",
     "ACP-CLIENTCAP-003",
@@ -60,6 +58,9 @@ _ADVISORY_IDS = {
     "ACP-SHUTDOWN-001",
     "ACP-SCHEMA-002",
     "ACP-AUTH-005",
+    # ACP-AUTH-001 (review-slices-7.md tier decision): its only assertion, AUTH-A5 (auth
+    # method ids are unique), is advisory in the auth research -- moved out of _MANDATORY_IDS.
+    "ACP-AUTH-001",
 }
 _INFORMATIONAL_IDS = {
     "ACP-STDERR-001",
@@ -86,6 +87,10 @@ _CAPABILITY_IDS = {
     "ACP-PROMPTCAP-002",
     "ACP-PROMPTCAP-003",
     "ACP-AUTH-004",
+    # ACP-AUTH-003 (review-slices-7.md tier decision): retiered CAPABILITY with
+    # capability="inferred:authMethods" -- runs only when `authMethods` is non-empty and
+    # `--tck-auth-method` was given, otherwise SKIPPED; moved out of _MANDATORY_IDS.
+    "ACP-AUTH-003",
 }
 _ALL_IDS = _MANDATORY_IDS | _ADVISORY_IDS | _CAPABILITY_IDS
 
@@ -97,14 +102,15 @@ immediately, same as `conforming.py`. So for all of them, `session/cancel` alway
 race and the cancel tests SKIP with "cancellation not exercised" rather than PASS or FAIL (see
 `.agents/plan.md` "Cancel tests and the race")."""
 
-_CAPABILITY_GATED_IDS = _CAPABILITY_IDS | {"ACP-LOAD-003", "ACP-DELETE-002", "ACP-AUTH-003"}
+_CAPABILITY_GATED_IDS = _CAPABILITY_IDS | {"ACP-LOAD-003", "ACP-DELETE-002"}
 """Every id that SKIPs (rather than PASSes) against `conforming.py`, which advertises
-`agentCapabilities: {}` and no modes/configOptions/authMethods -- every CAPABILITY-tier id, plus
-the two ADVISORY ids (`ACP-LOAD-003`, `ACP-DELETE-002`) that are still gated behind a
-`@pytest.mark.capability(...)` marker on their test function even though their
-`Requirement.tier` itself is ADVISORY, not CAPABILITY (see `test_session_capabilities.py`
-module docstring), plus the MANDATORY-but-conditional `ACP-AUTH-003` (SKIPs whenever
-`--tck-auth-method` was not given, regardless of tier -- see `test_authentication.py`)."""
+`agentCapabilities: {}` and no modes/configOptions/authMethods -- every CAPABILITY-tier id
+(which as of review-slices-7.md's tier decision now includes `ACP-AUTH-003`,
+`capability="inferred:authMethods"`, itself), plus the two ADVISORY ids (`ACP-LOAD-003`,
+`ACP-DELETE-002`) that are still gated behind a `@pytest.mark.capability(...)` marker on their
+test function even though their `Requirement.tier` itself is ADVISORY, not CAPABILITY (see
+`test_session_capabilities.py` module docstring). The explicit `ACP-AUTH-003` union member was
+dropped since it is now already a member of `_CAPABILITY_IDS`."""
 
 
 def _run_cli(
@@ -229,13 +235,34 @@ def test_exits_immediately_fails_gracefully():
     assert "INTERNALERROR" not in result.stderr
     statuses = _table_statuses(result.stdout)
     for req_id in _MANDATORY_IDS:
-        if req_id == "ACP-AUTH-003":
-            # Conditional on --tck-auth-method regardless of the agent's own behavior -- SKIPs
-            # even against a dead agent, since the TCK never even attempts to connect for it
-            # without a configured auth method (see test_authentication.py).
-            assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP without --auth-method"
-            continue
         assert statuses.get(req_id) == "FAIL", f"{req_id} should FAIL when the agent never responds"
+    # ACP-AUTH-003 is CAPABILITY-tier now (review-slices-7.md tier decision), not MANDATORY, so
+    # it is not covered by the loop above -- assert its SKIP explicitly instead: it is
+    # conditional on --tck-auth-method regardless of the agent's own behavior, and SKIPs even
+    # against a dead agent, since the TCK never even attempts to connect for it without a
+    # configured auth method (see test_authentication.py).
+    assert statuses.get("ACP-AUTH-003") == "SKIPPED", "ACP-AUTH-003 should SKIP without --auth-method"
+
+
+def test_scoped_k_run_prints_deselection_hint_not_no_mandatory_passed_hint():
+    """S4 (review-slices-7.md): the `-k`/deselection hint must print whenever any requirement is
+    NOT_TESTED because its tests were deselected, independent of whether any MANDATORY
+    requirement PASSed -- `conforming.py -k initialize` PASSes several MANDATORY requirements
+    (ACP-INIT-*, ACP-TRANSPORT-*, ...) yet is still NOT CONFORMANT overall (every other
+    MANDATORY id is NOT_TESTED, which counts as a failure), so this exercises the scoped-run
+    branch, not the older "no MANDATORY requirement passed at all" branch, and checks the
+    wording distinguishes deselection from an agent that never started."""
+    result = _run_cli("conforming.py", k="initialize")
+    assert result.returncode != 0
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+    assert "NOT TESTED" in result.stdout, result.stdout
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-INIT-001") == "PASS", result.stdout
+
+    assert "hint: this run was scoped" in result.stdout, result.stdout
+    assert "-k 'initialize'" in result.stdout, result.stdout
+    assert "no MANDATORY requirement passed" not in result.stdout, result.stdout
 
 
 def test_banner_on_stdout_fails_transport_001_but_passes_transport_002():

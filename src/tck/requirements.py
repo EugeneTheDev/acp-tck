@@ -542,7 +542,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "of `type: \"boolean\"`, at all."
         ),
         citation=_cite(
-            "schema/v1/schema.json:2975-3399 (SessionConfigOption boolean variant) "
+            "schema/v1/schema.json:2975-3399 (SessionConfigOption boolean variant); "
+            "docs/protocol/v1/session-config-options.mdx:119-121 (normative MUST NOT text) "
             "(Req 33; §7 boolean gating)"
         ),
         source_report="acp-v1-session-capabilities.md; acp-v1-protocol-surface.md",
@@ -595,19 +596,20 @@ _DECLARATIONS: tuple[Requirement, ...] = (
     ),
     Requirement(
         id="ACP-AUTH-001",
-        tier=Tier.MANDATORY,
+        tier=Tier.ADVISORY,
         capability=None,
         text=(
-            "When `initialize`'s `authMethods` is present, it is an array of schema-valid "
-            "`AuthMethod` objects with unique `id`s (AUTH-M1/M2 in the auth report's assertion "
-            "table). Schema shape itself is already covered by ACP-SCHEMA-001's full-exchange "
-            "validation; this test adds the id-uniqueness check that schema validation alone "
-            "does not express."
+            "When `initialize`'s `authMethods` is present, its entries' `id`s are unique "
+            "(AUTH-A5). Schema shape itself (array-ness, `id`/`name` being present) is already "
+            "covered by ACP-SCHEMA-001's full-exchange validation, and the test itself defers "
+            "shape to it -- so the only thing this requirement actually asserts is uniqueness. "
+            "ADVISORY, not MANDATORY: the schema only *describes* `id` as \"Unique identifier\" "
+            "(a description, not a MUST), so AUTH-A5 is itself filed Advisory in the auth "
+            "report's assertion table (review-slices-7.md S5 -- retiered from MANDATORY, where "
+            "an agent with duplicate ids was forced NOT CONFORMANT on the strength of a schema "
+            "description alone)."
         ),
-        citation=_cite(
-            "schema/v1/schema.json:2702-2735,2783-2810 (AuthMethod, AuthMethodAgent) "
-            "(AUTH-M1, AUTH-M2)"
-        ),
+        citation=_cite("schema/v1/schema.json:2740 (AuthMethod.id description) (AUTH-A5)"),
         source_report="acp-v1-authentication.md",
     ),
     Requirement(
@@ -620,25 +622,30 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "controlled MUST NOT, checked by connecting once without that capability."
         ),
         citation=_cite(
-            "schema/v1/schema.json:2736-2782 (AuthMethodTerminal) (Req 23; AUTH-M4)"
+            "schema/v1/schema.json:2736-2782 (AuthMethodTerminal); "
+            "docs/protocol/v1/authentication.mdx:126-128 (normative MUST NOT text) "
+            "(Req 23; AUTH-M4)"
         ),
         source_report="acp-v1-authentication.md",
     ),
     Requirement(
         id="ACP-AUTH-003",
-        tier=Tier.MANDATORY,
-        capability=None,
+        tier=Tier.CAPABILITY,
+        capability="inferred:authMethods",
         text=(
-            "Capability-conditional (AUTH-C4): only exercised when `authMethods` is non-empty "
-            "AND `--tck-auth-method <id>` was given -- SKIPs otherwise, since v1 never requires "
-            "an agent to expose a testable auth flow and the TCK cannot guess a valid "
-            "`methodId`. `authenticate` succeeding is NOT itself assertable (must-NOT list #10: "
-            "a real agent may legitimately reject bad/expired/cancelled credentials) -- an "
-            "`authenticate` error SKIPs with a distinct reason instead of failing. Only when "
-            "`authenticate` returns a result is anything asserted, and only two things: (AUTH-C3, "
-            "shape-only) the result is a JSON object; (AUTH-C4, the one hard assertion this "
-            "requirement makes) a subsequent `session/new` on the same connection does not fail "
-            "with `-32000`."
+            "Capability-conditional (AUTH-C4), same documentation-only encoding as "
+            "ACP-MODES-001/ACP-CONFIG-001 -- `capability=\"inferred:authMethods\"` is not a real "
+            "`initialize`-result path; support is inferred from `authMethods` being non-empty "
+            "AND `--tck-auth-method <id>` being given (review-slices-7.md S9: the entry's own "
+            "text already said \"capability-conditional\" while the tier field said MANDATORY). "
+            "SKIPs otherwise, since v1 never requires an agent to expose a testable auth flow "
+            "and the TCK cannot guess a valid `methodId`. `authenticate` succeeding is NOT "
+            "itself assertable (must-NOT list #10: a real agent may legitimately reject bad/"
+            "expired/cancelled credentials) -- an `authenticate` error SKIPs with a distinct "
+            "reason instead of failing. Only when `authenticate` returns a result is anything "
+            "asserted, and only two things: (AUTH-C3, shape-only) the result is a JSON object; "
+            "(AUTH-C4, the one hard assertion this requirement makes) a subsequent `session/new` "
+            "on the same connection does not fail with `-32000`."
         ),
         citation=_cite(
             "schema/v1/schema.json:4712-4734 (AuthenticateRequest/Response) (AUTH-C3, AUTH-C4); "
@@ -727,15 +734,23 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "A request to an unknown, `_`-prefixed custom method receives *some* response -- "
-            "a result or any error, not necessarily `-32601`. Judgment call: Req 42's "
-            "\"recipients must respond to custom requests\" (extensibility.mdx:43,52,65,109) is "
-            "phrased as a MUST, distinct from the separate SHOULD about which error *code* an "
-            "unrecognised method gets in general (extensibility.mdx:80-92, ACP-JSONRPC-004) -- "
-            "so \"responds at all\" is MANDATORY here, while the specific `-32601` code remains "
-            "ACP-JSONRPC-004's ADVISORY concern (not duplicated)."
+            "a result or any error, not necessarily `-32601`. Judgment call, resolved by the "
+            "orchestrator (`.agents/plan.md` \"Decisions (orchestrator) -- from "
+            "review-slices-7.md\"): Req 42's \"recipients must respond to custom requests\" "
+            "(extensibility.mdx:43,52,65,109) is phrased as a MUST and covers custom requests in "
+            "general, distinct from `acp-v1-transport-and-jsonrpc.md`'s J6, which tiers the "
+            "*specific* `-32601` error code an unrecognised method gets as SHOULD -- so "
+            "\"responds at all\" stays MANDATORY here (this is the one place the two research "
+            "reports look like they disagree; they do not, they cover different observables: "
+            "\"a response exists\" vs. \"which code it carries\"), while the specific code "
+            "remains ACP-JSONRPC-004's ADVISORY concern under J6 (not duplicated here)."
         ),
-        citation=_cite("docs/protocol/v1/extensibility.mdx:43,52,65,109 (Req 42)"),
-        source_report="acp-v1-protocol-surface.md",
+        citation=_cite(
+            "docs/protocol/v1/extensibility.mdx:43,52,65,109 (Req 42); cross-ref "
+            "acp-v1-transport-and-jsonrpc.md J6 (the `-32601` code, not \"responds at all\", "
+            "is what J6 tiers SHOULD)"
+        ),
+        source_report="acp-v1-protocol-surface.md; acp-v1-transport-and-jsonrpc.md",
     ),
     Requirement(
         id="ACP-META-001",
@@ -788,10 +803,13 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "No agent-emitted spec object (a request/notification `params`, or a successful "
             "response `result`) carries a root-level key outside its `$def`'s resolved "
             "`properties` union (following `allOf`/`anyOf`/`oneOf`/`$ref`), other than `_meta` "
-            "-- Req 41 says implementations MUST NOT add custom root fields, but the vendored "
-            "schema has no `additionalProperties: false` anywhere so mandatory schema "
-            "validation (ACP-SCHEMA-001) cannot enforce it; this is a hand-written comparison "
-            "instead (see `tck.validation.find_unknown_root_keys`)."
+            "-- Req 41 says implementations MUST NOT add custom root fields, a genuine MUST NOT. "
+            "Downgraded to ADVISORY not because the underlying rule is soft, but because the "
+            "check itself is: the vendored schema has no `additionalProperties: false` anywhere, "
+            "so this is a hand-written approximation of the allowed-keys union (see "
+            "`tck.validation.find_unknown_root_keys`), and a false positive against a genuinely "
+            "conforming agent would be an unrecoverable, unfair FAIL -- a testability-driven "
+            "downgrade (review-slices-7.md N4), not a claim that Req 41 is itself only SHOULD/MAY."
         ),
         citation=_cite("docs/protocol/v1/extensibility.mdx:39 (Req 41)"),
         source_report="acp-v1-protocol-surface.md",
@@ -802,8 +820,10 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "The byte count of stderr output observed during a full exchange is reported for "
-            "informational purposes; never asserted on, never fails (Testability note T6: the "
-            "spec places no MUST on stderr content)."
+            "informational purposes; never asserted on itself (Testability note T6: the spec "
+            "places no MUST on stderr content) -- but still FAILs if the prerequisite handshake "
+            "(`initialize`, `session/new`) itself fails, since that is a real conformance problem "
+            "the probe correctly surfaces (review-slices-7.md N2)."
         ),
         citation=_cite("docs/protocol/v1/transports.mdx (Testability note T6)"),
         source_report="acp-v1-transport-and-jsonrpc.md",
@@ -817,7 +837,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "`id: null`, reply otherwise, or stay silent -- along with whether the connection "
             "remains usable afterwards (a subsequent `session/new` still succeeds). Spec "
             "silent; reference SDKs disagree (rust-sdk replies -32700, python-sdk silently "
-            "drops the line). Always PASSes."
+            "drops the line). Never asserts on the probed behaviour itself, but still FAILs if "
+            "the prerequisite `initialize` handshake fails (review-slices-7.md N2)."
         ),
         citation=_cite(
             "agent-client-protocol-schema (spec silent); rust-sdk vs python-sdk divergence "
@@ -833,7 +854,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "Behaviour on a syntactically-valid JSON value that is not a JSON-RPC envelope "
             "(`{\"foo\": \"bar\"}`) is recorded, same shape as ACP-INFO-PARSE-001. Spec silent; "
             "reference SDKs disagree (rust-sdk replies -32600, python-sdk silently drops it). "
-            "Always PASSes."
+            "Never asserts on the probed behaviour itself, but still FAILs if the prerequisite "
+            "`initialize` handshake fails (review-slices-7.md N2)."
         ),
         citation=_cite(
             "agent-client-protocol-schema (spec silent); rust-sdk vs python-sdk divergence "
@@ -848,7 +870,9 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         text=(
             "The error code (if any) returned for `session/prompt` against a `sessionId` the "
             "agent never created is recorded, never asserted -- v1 does not specify one "
-            "(Discrepancy 6). Even a successful result is only recorded. Always PASSes."
+            "(Discrepancy 6). Even a successful result is only recorded. Never asserts on the "
+            "probed behaviour itself, but still FAILs if the prerequisite `initialize`/"
+            "`session/new` handshake fails (review-slices-7.md N2)."
         ),
         citation=_cite("docs/protocol/v1/error.mdx (stub; Discrepancy 6)"),
         source_report="acp-v1-protocol-surface.md",

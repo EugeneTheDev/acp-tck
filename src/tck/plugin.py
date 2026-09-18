@@ -692,7 +692,7 @@ def pytest_terminal_summary(
             label = "NOT TESTED" if status is Status.NOT_TESTED else status.value
             note = _informational_note(result)
             suffix = f"  ({note})" if note else ""
-            terminalreporter.write_line(f"  {req_id:<20} {label}{suffix}")
+            terminalreporter.write_line(f"  {req_id:<28} {label}{suffix}")
 
     verdict = report.verdict
     mandatory = verdict.tier_counts[Tier.MANDATORY.value]
@@ -715,23 +715,31 @@ def pytest_terminal_summary(
             bold=True,
             red=True,
         )
-        if mandatory[Status.PASS.value] == 0 and (n_fail + n_not_tested) > 0:
-            keyword = config.getoption("keyword", "") or ""
-            markexpr = config.getoption("markexpr", "") or ""
-            if keyword or markexpr:
-                selector = f"-k {keyword!r}" if keyword else f"-m {markexpr!r}"
-                terminalreporter.write_line(
-                    f"hint: this run was scoped ({selector}), so most requirements were "
-                    "deselected (NOT TESTED) rather than exercised at all -- this reflects the "
-                    "selection, not a failure of the agent under test; run the full suite "
-                    "(no -k/-m) for a real conformance verdict.",
-                )
-            else:
-                terminalreporter.write_line(
-                    "hint: no MANDATORY requirement passed -- the agent may have failed to start or "
-                    "never responded; check --agent-cwd/--timeout/--startup-timeout and the stderr "
-                    "captured in the JSON report (--report-json).",
-                )
+        keyword = config.getoption("keyword", "") or ""
+        markexpr = config.getoption("markexpr", "") or ""
+        selected = bool(keyword or markexpr)
+        if selected and n_not_tested > 0:
+            # Print whenever a selector was used and it left something NOT TESTED, independent
+            # of whether any MANDATORY requirement happened to pass -- the previous version only
+            # printed this when mandatory[PASS] == 0, which is exactly backwards: a `-k`-scoped
+            # run that *did* exercise a few requirements is the case most likely to be mistaken
+            # for a real verdict (`.agents/research/review-slices-7.md` S4).
+            selector = f"-k {keyword!r}" if keyword else f"-m {markexpr!r}"
+            terminalreporter.write_line(
+                f"hint: this run was scoped ({selector}), so some requirements were deselected "
+                "(NOT TESTED) rather than exercised at all -- this reflects the selection, not a "
+                "failure of the agent under test; run the full suite (no -k/-m) for a real "
+                "conformance verdict.",
+            )
+        elif mandatory[Status.PASS.value] == 0 and (n_fail + n_not_tested) > 0:
+            # Unscoped, and nothing MANDATORY passed at all -- distinct from the deselection case
+            # above: here every requirement genuinely ran (or tried to) and still produced
+            # nothing, which points at the agent under test, not at test selection.
+            terminalreporter.write_line(
+                "hint: no MANDATORY requirement passed -- the agent may have failed to start or "
+                "never responded; check --agent-cwd/--timeout/--startup-timeout and the stderr "
+                "captured in the JSON report (--report-json).",
+            )
         if verdict.blocked_by_auth:
             terminalreporter.write_line(
                 "hint: one or more session-dependent tests were SKIPPED because the agent "

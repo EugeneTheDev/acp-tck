@@ -1,12 +1,12 @@
 # State
 
-**Last updated:** 2026-09-18 (session 2, slice 8 + review of slices 7–7b in flight)
+**Last updated:** 2026-09-18 (session 2, after slice 8b — all planned slices done)
 **Last commit pushed:** see `git log -1` (each slice commits this file)
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md`, this file, `plan.md`. Research reports in `research/` are the only protocol truth
    the code may encode. Reviews are in `research/review-*.md`.
-2. Verify the tree: `uv run pytest -q` (≈118 s, run in background; expect 125 passed) and
+2. Verify the tree: `uv run pytest -q` (≈100 s; expect 135 passed) and
    `uv run acp-tck --cancel-prompt __hang__ --auth-method tck -- python tests/fixtures/agents/conforming_full.py`
    (expect exit 0, VERDICT: CONFORMANT, only ACP-AUTH-005 SKIPPED).
 3. Continue with **Slice 8** (see "Next actions").
@@ -39,7 +39,7 @@ pure-Python fixture agents. Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
 - `review-slices-1-4.md`, `review-slices-5-6.md` — code reviews; all blockers/should-fix addressed in
   slices 5b and 7b (deferred nits N12, N20 listed below).
 
-## Implemented and verified (all on `main`, suite green: 125 passed ≈118 s)
+## Implemented and verified (all on `main`, suite green: 135 passed ≈100 s)
 Registry: **56 requirements** in `src/tck/requirements.py` (see `AGENTS.md` for the catalogue).
 - Harness `src/tck/harness/` — `AgentLaunch` (command, cwd, env overrides, timeouts, `max_line_bytes`
   64 MiB, `close_grace`), `AgentProcess` (process-group spawn, raw/JSON send with drain deadline,
@@ -66,7 +66,7 @@ Registry: **56 requirements** in `src/tck/requirements.py` (see `AGENTS.md` for 
 - Docs: `AGENTS.md` (contributor guide, catalogue), `README.md` (user guide).
 
 ## In flight
-- **Programmer — Slice 8b** (fixes from `review-slices-7.md`: send_raw OSError→AgentExited, informational probes use quiet_period, close() checks exit per stage, -k hint, AUTH-001 advisory, AUTH-003 inferred capability, EXT-001 assertion scope, nits).
+Nothing.
 
 Slice 8 done and committed: `scripts/cross-check.sh` (builds testy `--no-default-features`, runs TCK with
 `--cancel-prompt wait_for_cancel`; runs echo_agent via `uv run --no-project --with agent-client-protocol==1.0.0rc1`),
@@ -74,7 +74,12 @@ Slice 8 done and committed: `scripts/cross-check.sh` (builds testy `--no-default
 CI: `.github/workflows/ci.yml` — `test` job (uv, Python 3.14) + informational `cross-check` job (clones upstream at
 pinned SHAs, cargo cache). pyproject has description + urls; license deliberately not set (user decision). Result: both upstream agents
 NOT CONFORMANT only because of INIT-003 (they echo 65535) and advisory INIT-004; echo_agent also fails advisory
-JSONRPC-004 (SDK returns `result: null` for unknown `_` methods). No TCK bug found. Spot checks that completed before the
+JSONRPC-004 (SDK returns `result: null` for unknown `_` methods). No TCK bug found.
+Slice 8b (review-slices-7 fixes) done: harness translates write-side OSError into AgentExited; informational
+probes bounded by quiet_period; close() stops at the first stage where the process is gone; deselection hint
+independent of pass counts; tiers: AUTH-001 ADVISORY, AUTH-003 CAPABILITY(inferred:authMethods), EXT-001
+MANDATORY "some response"; `tests/test_registry.py` cross-checks CLI self-test tier sets against REGISTRY.
+`research/upstream-issues.md` drafts 12 upstream issues (4 spec, 3 rust-sdk, 5 python-sdk). Spot checks that completed before the
 pause: full suite 125 passed; `conforming_full.py` and `conforming.py` full runs CONFORMANT. Orchestrator also
 re-ran: `gated_by_auth.py --auth-method wrong` → exit 1 blocked by authentication; `supports_v1_and_v2.py`
 INIT-003 PASS. Programmer-reported only: `echoes_any_version.py` INIT-003 FAIL; `rejects_second_initialize.py`
@@ -88,8 +93,9 @@ CONFORMANT; `--collect-only` exit 0.
 - v0.1 release/tag: decide after slice 8 and a final review pass.
 
 ## Next actions
-1. Read `review-slices-7.md` when it lands; spawn slice 8b (fix blockers/should-fix + release readiness:
-   pyproject metadata, license decision needs the user).
-2. Decide v0.1 tag; optional GitHub Actions workflow (pytest on 3.14; cross-check job with cached cargo).
-3. Consider filing upstream: INIT-003 echo behaviour in testy/echo_agent; `error.mdx` stub; baseline
-   content-type discrepancy (initialization.mdx vs content.mdx).
+1. **User decisions needed**: (a) license for the package (`pyproject.toml` has a TODO; no `LICENSE` file);
+   (b) whether to tag/publish v0.1.0; (c) whether to file the drafted upstream issues in
+   `research/upstream-issues.md`.
+2. After the license lands: `uv build`, tag `v0.1.0`, push tag; optionally publish to PyPI.
+3. Possible follow-ups (not planned): deferred nits N12/N20 from review-slices-5-6 and N9 from review-slices-7;
+   optional `testy` scenario tests behind an env flag; v2 support is explicitly separate work.

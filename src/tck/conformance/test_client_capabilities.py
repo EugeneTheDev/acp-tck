@@ -28,16 +28,22 @@ import pytest
 
 from ._helpers import connected_agent, new_session, run_prompt
 
-_PROMPT_TEXT = "Read the file README.md in the current directory and summarize it."
+# Each test uses its own capability-shaped prompt text rather than sharing one fs-flavoured
+# prompt across all three (review-slices-7.md S8): the shared prompt gave the terminal/
+# elicitation tests close to zero chance of ever provoking the behaviour they guard, making
+# their PASS vacuous by construction rather than by the agent's own choice not to try.
+_FS_PROMPT_TEXT = "Read the file README.md in the current directory and summarize it."
+_TERMINAL_PROMPT_TEXT = "Run `ls -la` in a shell and show me the output."
+_ELICITATION_PROMPT_TEXT = "Before you continue, ask me which of two options I'd prefer."
 
 
-async def _methods_called_with_no_client_capabilities(agent_launch, tmp_path) -> list[str]:
+async def _methods_called_with_no_client_capabilities(agent_launch, tmp_path, prompt_text: str) -> list[str]:
     async with connected_agent(agent_launch, client_capabilities={}) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         turn = await run_prompt(
             agent,
             session_id,
-            [{"type": "text", "text": _PROMPT_TEXT}],
+            [{"type": "text", "text": prompt_text}],
             timeout=agent_launch.default_timeout,
         )
     return [
@@ -50,7 +56,7 @@ async def _methods_called_with_no_client_capabilities(agent_launch, tmp_path) ->
 @pytest.mark.requirement("ACP-CLIENTCAP-001")
 async def test_no_unadvertised_clientcap_fs_call(agent_launch, tmp_path):
     """ACP-CLIENTCAP-001 (Req 29). See module docstring."""
-    methods_seen = await _methods_called_with_no_client_capabilities(agent_launch, tmp_path)
+    methods_seen = await _methods_called_with_no_client_capabilities(agent_launch, tmp_path, _FS_PROMPT_TEXT)
     fs_calls = [m for m in methods_seen if isinstance(m, str) and m.startswith("fs/")]
     assert not fs_calls, f"ACP-CLIENTCAP-001: fs/* called without fs advertised: {fs_calls!r}"
 
@@ -58,7 +64,9 @@ async def test_no_unadvertised_clientcap_fs_call(agent_launch, tmp_path):
 @pytest.mark.requirement("ACP-CLIENTCAP-002")
 async def test_no_unadvertised_clientcap_terminal_call(agent_launch, tmp_path):
     """ACP-CLIENTCAP-002 (Req 30). See module docstring."""
-    methods_seen = await _methods_called_with_no_client_capabilities(agent_launch, tmp_path)
+    methods_seen = await _methods_called_with_no_client_capabilities(
+        agent_launch, tmp_path, _TERMINAL_PROMPT_TEXT
+    )
     terminal_calls = [m for m in methods_seen if isinstance(m, str) and m.startswith("terminal/")]
     assert not terminal_calls, (
         f"ACP-CLIENTCAP-002: terminal/* called without terminal advertised: {terminal_calls!r}"
@@ -68,7 +76,9 @@ async def test_no_unadvertised_clientcap_terminal_call(agent_launch, tmp_path):
 @pytest.mark.requirement("ACP-CLIENTCAP-003")
 async def test_no_unadvertised_clientcap_elicitation_call(agent_launch, tmp_path):
     """ACP-CLIENTCAP-003 (Req 32). See module docstring."""
-    methods_seen = await _methods_called_with_no_client_capabilities(agent_launch, tmp_path)
+    methods_seen = await _methods_called_with_no_client_capabilities(
+        agent_launch, tmp_path, _ELICITATION_PROMPT_TEXT
+    )
     elicitation_calls = [m for m in methods_seen if m == "elicitation/create"]
     assert not elicitation_calls, (
         f"ACP-CLIENTCAP-003: elicitation/create called without an elicitation mode advertised: "

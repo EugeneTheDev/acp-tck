@@ -18,9 +18,10 @@ prompt content capabilities (`image`/`audio`/`embeddedContext`), and the authent
 real authenticate handshake before `session/new`), and (slice 7) MANDATORY client-capability
 negative tests (`fs`/`terminal`/`elicitation` MUST NOT be called unadvertised), the extensibility/
 `_meta`/schema-hygiene ADVISORY family (`ACP-EXT-001` MANDATORY, `ACP-META-001`/`ACP-ERROR-001`/
-`ACP-SHUTDOWN-001`/`ACP-SCHEMA-002` ADVISORY), and an INFORMATIONAL tier of always-pass,
-report-only probes (`ACP-STDERR-001`, `ACP-INFO-PARSE-001`, `ACP-INFO-INVALIDREQ-001`,
-`ACP-INFO-UNKNOWNSESSION-001`) for behaviour the spec is silent on or SDKs disagree about.
+`ACP-SHUTDOWN-001`/`ACP-SCHEMA-002` ADVISORY), and an INFORMATIONAL tier of report-only probes
+(`ACP-STDERR-001`, `ACP-INFO-PARSE-001`, `ACP-INFO-INVALIDREQ-001`, `ACP-INFO-UNKNOWNSESSION-001`)
+that never assert on the probed behaviour itself -- but still FAIL if the prerequisite handshake
+they ride on top of fails -- for behaviour the spec is silent on or SDKs disagree about.
 
 ## Layout
 
@@ -113,11 +114,14 @@ src/tck/
     test_diagnostics.py    ACP-ERROR-001 (ADVISORY -- error `message` non-empty, no embedded
                             newline), ACP-SHUTDOWN-001 (ADVISORY -- `exited_on_stdin_close` after
                             an ordinary close), ACP-STDERR-001 (INFORMATIONAL -- records stderr
-                            byte count, never fails)
+                            byte count; never asserts on the count itself)
     test_informational.py  ACP-INFO-PARSE-001/INVALIDREQ-001/UNKNOWNSESSION-001 (INFORMATIONAL --
                             malformed-JSON-line, structurally-invalid-request, and
                             unknown-`sessionId` behaviour, each recorded via `record_property`
-                            and never asserted; the spec is silent and real SDKs disagree)
+                            and never asserted on directly; still FAILs if the prerequisite
+                            handshake itself fails; the probed behaviour is silent in the spec
+                            and real SDKs disagree; "silent" is concluded via a short
+                            `quiet_period()`, never the full `--tck-timeout`)
 
 tests/
   conftest.py              agent_launch() helper for spawning fixture agents (harness unit tests)

@@ -13,6 +13,8 @@ traffic must follow it too (review S3).
 
 from __future__ import annotations
 
+import contextlib
+
 import pytest
 
 from tck.harness import AgentTimeout
@@ -30,8 +32,11 @@ async def test_id_is_echoed_for_integer_and_string_ids(agent_launch, tmp_path):
     already-initialized connection is unspecified in v1, and a strict agent may legitimately
     reject it with `-32600`, which would falsely FAIL an agent that echoes ids perfectly fine
     (review-slices-5-6.md B1). The integer-id half uses `initialize` itself (a request every
-    agent MUST answer); the string-id half uses `session/new` (via `new_session`, which SKIPs
-    -- not crashes -- on an auth-gated agent) instead of a second `initialize`."""
+    agent MUST answer); the string-id half hand-rolls its own `session/new` request rather than
+    going through `new_session`/`skip_if_auth_gated` -- id echo holds even for a `-32000`
+    (auth-required) reply, so there is nothing here for an auth-gated agent to break
+    (review-slices-7.md N8: this docstring previously claimed the `new_session` guard, which the
+    body does not actually use)."""
     async with connected_agent(agent_launch, handshake=False) as agent:
         int_id = await agent.send_request(
             "initialize",
@@ -127,12 +132,21 @@ async def test_notification_receives_no_response(agent_launch, tmp_path):
 async def test_connection_survives_an_erroneous_request(agent_launch, tmp_path):
     """ACP-JSONRPC-005 (ADVISORY -- see `tck.requirements` for why this isn't MANDATORY).
 
+    Replying to an unrecognised method at all is only SHOULD (J6, see ACP-JSONRPC-004), so an
+    agent that silently ignores `_tck/does_not_exist` has not failed anything -- it has, in
+    fact, already demonstrated the actual property this test checks (the connection survives an
+    erroneous request), which is why the wait for that reply is bounded by `quiet_period()` and
+    a timeout is suppressed rather than propagated (review-slices-7.md S7; previously an
+    unguarded `wait_for_response` folded a legal silence into a FAIL, and cost a full `--timeout`
+    of dead wall-clock doing it).
+
     Uses the `new_session()` helper (not a hand-rolled `session/new`) so it SKIPs, via
     `skip_if_auth_gated`, instead of failing on an agent that gates `session/new` behind
     authentication and was run without `--auth-method`."""
     async with connected_agent(agent_launch) as agent:
         bad_id = await agent.send_request("_tck/does_not_exist")
-        await agent.wait_for_response(bad_id, timeout=agent_launch.default_timeout)
+        with contextlib.suppress(AgentTimeout):
+            await agent.wait_for_response(bad_id, timeout=quiet_period(agent_launch.default_timeout))
 
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         assert isinstance(session_id, str)

@@ -45,6 +45,7 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   gating, `auth/login`, v2 prompt lifecycle are excluded; see transport report Discrepancies 1, 7.
 
 ## Done
+- Slice 8b — review-slices-7 fixes: send_raw OSError→AgentExited, informational probes use quiet_period, close() per-stage exit check, deselection hint, AUTH-001 advisory, AUTH-003 inferred capability, EXT-001 scope, registry↔self-test tier cross-check, docs (135 passed, 99 s).
 - CI — `.github/workflows/ci.yml` (test on 3.14; informational cross-check job pinned to upstream SHAs, `--expect-only-mandatory-fail ACP-INIT-003`); pyproject description/urls (132 passed).
 - Slice 8 — `scripts/cross-check.sh` + `cross-check-summary.py`, `docs/cross-check.md`; testy and echo_agent (1.0.0rc1) both NOT CONFORMANT solely on INIT-003 (echo 65535) + advisory INIT-004; echo_agent also fails advisory JSONRPC-004 (upstream SDK returns `result: null` for unknown ext methods). Citation text fixes landed.
 - Slice 7b — hardening per review-slices-5-6: no double initialize; INIT-003 `!= 65535 and >= latest`; CLOSE-002 via mock client; auth gating only with non-empty authMethods, authenticate failure → blocked not FAIL; collect-only untouched; `-k` hint; transcript cap; stricter fixtures; CLIENTCAP split; `--close-grace`; runtime 118 s (125 passed).
@@ -62,7 +63,7 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   `research/a2a-tck-structure.md`, `research/reference-sdks-as-harness.md`.
 
 ## In progress
-- Slice 8b — fixes from `research/review-slices-7.md` (programmer).
+- (nothing in progress)
 
 ## Next slices (in order)
 7b. **Hardening from `research/review-slices-5-6.md`** (2 blockers, 9 should-fix, 14 nits) — before slice 8:

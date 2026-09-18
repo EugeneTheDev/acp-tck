@@ -166,12 +166,16 @@ class AgentProcess:
 
         `drain()` is given a deadline (`default_timeout`): an agent that has stopped reading
         stdin must not be able to hang the whole run forever (`.agents/research/
-        review-slices-1-4.md` S7)."""
+        review-slices-1-4.md` S7). If the agent has already exited, `write()`/`drain()` raise a
+        plain `OSError` (`ConnectionResetError`/`BrokenPipeError` on POSIX) -- that is translated
+        into `AgentExited` here so every caller sees the same "the agent is gone" exception it
+        already handles for a closed stdout, instead of a raw asyncio traceback
+        (`.agents/research/review-slices-7.md` S1)."""
         assert self._process is not None and self._process.stdin is not None
         raw = line.encode("utf-8") if isinstance(line, str) else line
         self._record(Direction.SENT, raw)
-        self._process.stdin.write(raw + b"\n")
         try:
+            self._process.stdin.write(raw + b"\n")
             await asyncio.wait_for(self._process.stdin.drain(), timeout=self._launch.default_timeout)
         except asyncio.TimeoutError as exc:
             raise AgentTimeout(
@@ -179,6 +183,14 @@ class AgentProcess:
                 "(the agent may have stopped reading stdin)",
                 self.transcript,
                 stderr=self.stderr_text(),
+            ) from exc
+        except OSError as exc:
+            exit_code = await self._wait_exit_after_eof()
+            raise AgentExited(
+                f"agent process exited while writing to stdin ({exc})",
+                exit_code=exit_code,
+                stderr=self.stderr_text(),
+                transcript=self.transcript,
             ) from exc
 
     async def send_message(self, obj: dict[str, Any]) -> None:
@@ -314,16 +326,22 @@ class AgentProcess:
     # --- teardown ---
 
     async def close(self, grace: float = 2.0) -> None:
-        """Close stdin, wait `grace`; if still alive, SIGTERM the process group and wait
-        `grace` again; if still alive, SIGKILL. Records `exit_code` and
+        """Close stdin, wait up to `grace`; if still alive, SIGTERM the process group and wait
+        up to `grace` again; if still alive, SIGKILL and wait up to `grace` once more. Each rung
+        checks whether the process already exited before moving to the next one -- it never
+        burns more than one `grace` budget per rung (`.agents/research/review-slices-7.md` S3:
+        the previous version drained stdout for a full `grace` *and then* waited another full
+        `grace`, so an agent that keeps stdout open after stdin EOF -- the documented npx/uvx
+        wrapper case -- paid roughly 2x`grace` before SIGTERM was even sent, and
+        `exited_on_stdin_close` really meant "exited within ~2x grace"). Records `exit_code` and
         `exited_on_stdin_close`.
 
-        Before/around each wait, remaining stdout is drained into `transcript` (short deadline
-        each time) so the recorded transcript is genuinely "everything sent and received" --
-        including a trailing partial line with no newline, and including anything the agent
-        writes to stdout *after* the last response a test ever awaited
-        (`.agents/research/review-slices-1-4.md` S8). This never fails on lateness -- it only
-        records; judging whether that late output is conforming is the caller's job."""
+        Each rung's wait is preceded by a short, fixed-deadline stdout drain (not a second
+        `grace` budget) so remaining/buffered stdout still lands in `transcript` -- including a
+        trailing partial line with no newline, and anything the agent writes to stdout *after*
+        the last response a test ever awaited (`.agents/research/review-slices-1-4.md` S8). This
+        never fails on lateness -- it only records; judging whether that late output is
+        conforming is the caller's job."""
         if self._process is None or self._closed:
             return
         self._closed = True
@@ -333,26 +351,30 @@ class AgentProcess:
             with contextlib.suppress(Exception):
                 proc.stdin.close()
 
-        await self._drain_remaining_stdout(grace)
-        exited_on_stdin_close = await self._wait(proc, grace)
+        exited_on_stdin_close = await self._close_stage(proc, grace)
         self.exited_on_stdin_close = exited_on_stdin_close
 
-        if proc.returncode is None:
+        if not exited_on_stdin_close:
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(proc.pid, signal.SIGTERM)
-            await self._drain_remaining_stdout(min(grace, 1.0))
-            if not await self._wait(proc, grace):
+            if not await self._close_stage(proc, grace):
                 with contextlib.suppress(ProcessLookupError):
                     os.killpg(proc.pid, signal.SIGKILL)
-                await self._drain_remaining_stdout(min(grace, 0.5))
-                with contextlib.suppress(asyncio.TimeoutError):
-                    await asyncio.wait_for(proc.wait(), timeout=grace)
+                await self._close_stage(proc, grace)
 
         self.exit_code = proc.returncode
 
         if self._stderr_task is not None:
             with contextlib.suppress(asyncio.TimeoutError, asyncio.CancelledError):
                 await asyncio.wait_for(self._stderr_task, timeout=grace)
+
+    async def _close_stage(self, proc: asyncio.subprocess.Process, grace: float) -> bool:
+        """One rung of the shutdown ladder: pick up whatever stdout is already sitting in the
+        pipe (a short, fixed deadline -- just enough to catch already-buffered bytes, not a
+        second full `grace` budget), then give the process the *entire* `grace` budget to exit
+        on its own. Returns whether it did."""
+        await self._drain_remaining_stdout(min(grace, 0.25))
+        return await self._wait(proc, grace)
 
     async def _drain_remaining_stdout(self, timeout: float) -> None:
         """Read and record whatever is sitting in (or soon arrives on) stdout, until EOF or

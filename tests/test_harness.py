@@ -147,6 +147,35 @@ def test_exits_immediately_raises_agent_exited_with_exit_code() -> None:
     run(scenario())
 
 
+def test_send_raw_translates_broken_pipe_into_agent_exited() -> None:
+    """S1 (review-slices-7.md): `dies_on_bad_json.py` answers `initialize` normally, then exits
+    the instant it reads a line that is not valid JSON at all -- without replying, without
+    draining anything further. A second write after that (here, a bare `send_raw` of another
+    line) lands on a stdin pipe whose reader is already gone, so the OS raises
+    `BrokenPipeError`/`OSError` on the write or the following `drain()`. Before the S1 fix this
+    propagated as a bare `OSError`/`BrokenPipeError` with a real traceback; `send_raw` must catch
+    it and raise `AgentExited` (carrying the exit code and captured stderr) instead."""
+
+    async def scenario() -> None:
+        async with AgentProcess(agent_launch("dies_on_bad_json.py")) as agent:
+            init_id = await agent.send_request("initialize", {"protocolVersion": 1})
+            await agent.wait_for_response(init_id, timeout=2.0)
+
+            await agent.send_raw(b"{not valid json at all")
+            # Give the fixture a moment to actually exit before hammering its stdin.
+            for _ in range(40):
+                if agent._process is not None and agent._process.returncode is not None:
+                    break
+                await asyncio.sleep(0.05)
+
+            with pytest.raises(AgentExited) as excinfo:
+                for _ in range(20):
+                    await agent.send_raw(b'{"jsonrpc": "2.0", "id": 999, "method": "ping"}')
+            assert excinfo.value.exit_code == 1
+
+    run(scenario())
+
+
 def test_stderr_chatter_captures_stderr() -> None:
     async def scenario() -> None:
         async with AgentProcess(agent_launch("stderr_chatter.py")) as agent:

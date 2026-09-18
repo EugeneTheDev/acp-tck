@@ -19,9 +19,10 @@ from ._helpers import connected_agent, new_session
 
 @pytest.mark.requirement("ACP-AUTH-001")
 async def test_auth_methods_have_unique_ids(agent_initialize_result):
-    """ACP-AUTH-001. Schema-shape validation of the whole `initialize` result (including
-    `authMethods`) is already covered by ACP-SCHEMA-001; this test adds the id-uniqueness check
-    that schema validation alone cannot express.
+    """ACP-AUTH-001 (ADVISORY -- AUTH-A5; retiered from MANDATORY, review-slices-7.md S5: the
+    schema only *describes* `id` as unique, it is not a MUST). Schema-shape validation of the
+    whole `initialize` result (including `authMethods`) is already covered by ACP-SCHEMA-001;
+    this test adds the id-uniqueness check that schema validation alone cannot express.
 
     Reads the cached `agent_initialize_result` (one real handshake per session) instead of
     connecting and sending a second `initialize` on a fresh/already-initialized connection --
@@ -60,9 +61,11 @@ async def test_no_terminal_auth_method_without_client_capability(agent_launch):
 
 @pytest.mark.requirement("ACP-AUTH-003")
 async def test_authenticate_then_session_new_succeeds(agent_launch, tmp_path):
-    """ACP-AUTH-003 (AUTH-C3/AUTH-C4). Only exercised when `authMethods` is non-empty AND
-    `--tck-auth-method` was given -- SKIPs otherwise, since the TCK cannot guess a valid
-    `methodId` and v1 never requires a testable auth flow to exist.
+    """ACP-AUTH-003 (CAPABILITY, `capability="inferred:authMethods"` -- review-slices-7.md S9:
+    same documentation-only encoding as ACP-MODES-001/ACP-CONFIG-001, retiered from MANDATORY
+    since the requirement's own text always said "capability-conditional"). Only exercised when
+    `authMethods` is non-empty AND `--tck-auth-method` was given -- SKIPs otherwise, since the
+    TCK cannot guess a valid `methodId` and v1 never requires a testable auth flow to exist.
 
     `authenticate` succeeding is never asserted (must-NOT list #10: a real agent may
     legitimately reject bad/expired/cancelled credentials) -- an `authenticate` error SKIPs
