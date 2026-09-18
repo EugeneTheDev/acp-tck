@@ -7,8 +7,9 @@ error handling, and transport hygiene -- reporting which requirements pass, fail
 applicable, or were never exercised.
 
 Slices so far add an installable CLI (`acp-tck`), a requirement registry, a pytest plugin,
-transport/`initialize` conformance tests, and mandatory session/prompt/cancel conformance tests.
-Capability-conditional tests and full reporting/verdict/exit-code land in later slices.
+transport/`initialize` conformance tests, mandatory session/prompt/cancel conformance tests, and
+full reporting: a JSON report (`--report-json`), the four-status verdict, and a verdict-based
+exit code. Capability-conditional tests land in a later slice.
 
 ## Layout
 
@@ -19,10 +20,14 @@ src/tck/
   __main__.py            `python -m tck` -- same as the console script (used by the self-tests
                           so they don't depend on the console script being on PATH)
   requirements.py        the requirement registry: `Tier`, `Requirement`, `REGISTRY`, `get()`
-  plugin.py               the `tck.plugin` pytest plugin: `--tck-*` options, `requirement`/
-                          `capability` markers, async test support, fixtures, the requirement
-                          result collector, and the terminal summary table
-  protocol.py            PROTOCOL_VERSION, error codes, StopReason values, method inventories
+  plugin.py               the `tck.plugin` pytest plugin: `--tck-*` options (including
+                          `--tck-report-json`), `requirement`/`capability` markers, async test
+                          support, fixtures, the per-test result collector, the terminal summary
+                          table, JSON report writing, and the verdict-based exit code
+  report.py              the report model: `Status`, `TestOutcome`, `RequirementResult`,
+                          `Verdict`, `Report` -- pure data + aggregation, no pytest dependency
+  protocol.py            PROTOCOL_VERSION, SCHEMA_REVISION, error codes, StopReason values,
+                          method inventories
   validation.py          schema validation for agent-authored JSON-RPC messages
   harness/
     __init__.py           public API re-exports
@@ -50,7 +55,9 @@ tests/
   test_harness.py          unit tests for the harness, run against the fixtures below
   test_validation.py       unit tests for tck.protocol / tck.validation
   test_registry.py          registry invariants + two-way check against conformance markers
-  test_cli.py               end-to-end: run `python -m tck -- <fixture>` as a subprocess
+  test_report.py            `tck.report` unit tests: aggregation, verdict rule, JSON round-trip
+  test_cli.py               end-to-end: run `python -m tck -- <fixture>` as a subprocess,
+                            including `--report-json` output and exit codes
   fixtures/agents/
     _base.py               shared ConformingAgent core (not a standalone script)
     conforming.py          deterministic, offline, conforming ACP v1 agent
@@ -88,9 +95,18 @@ uv run acp-tck -- python tests/fixtures/agents/conforming.py
 
 Options: `--agent-cwd DIR`, `--agent-env KEY=VAL` (repeatable), `--timeout S` (per-response
 deadline, default 30), `--startup-timeout S` (default 30), `--cancel-prompt TEXT` (see below),
-`-k EXPR`, `-v`, `--version`, `--help`. Everything after `--` is the agent's own command line.
-Exit code is whatever pytest itself returns for the individual test outcomes (a verdict-based
-exit code driven by the four-status model is slice 5).
+`--report-json PATH` (see "Reporting" below), `-k EXPR`, `-v`, `--version`, `--help`. Everything
+after `--` is the agent's own command line.
+
+**Exit code** is the four-status verdict, not pytest's own per-test exit code: `0` iff
+`verdict.conformant` (no `MANDATORY` `FAIL`/`NOT_TESTED`, no `CAPABILITY` `FAIL` -- see
+"Reporting" below), `1` otherwise (this includes an agent that fails to start or never responds
+at all: every `MANDATORY` requirement ends up `FAIL` or `NOT_TESTED`, the run still completes and
+still writes a report, and the terminal summary prints a hint to check `--agent-cwd`/timeouts/
+stderr). `acp-tck` with no command after `--` is a usage error (exit `2`, from `argparse`), not a
+verdict. Mechanism: `tck.plugin`'s `pytest_sessionfinish` overwrites `session.exitstatus`, but
+only when pytest itself completed a normal run (`ExitCode.OK`/`TESTS_FAILED`) -- `--collect-only`,
+usage errors, and interrupted runs keep pytest's own exit code.
 
 `--cancel-prompt TEXT` (plugin: `--tck-cancel-prompt`) sets the prompt text the cancellation
 tests (ACP-CANCEL-001/002) send -- every other prompt test keeps its own short, deterministic
@@ -143,11 +159,42 @@ own async tests are run the same way, via `tck.plugin`'s `pytest_pyfunc_call` ho
 
 Tiers (`tck.requirements.Tier`): `MANDATORY` (MUST), `CAPABILITY` (only applies when the agent
 advertises the capability), `ADVISORY` (SHOULD; reported, never the sole cause of a failing
-verdict once slice 5 lands), `INFORMATIONAL` (spec silent / SDKs disagree; reported only).
+verdict), `INFORMATIONAL` (spec silent / SDKs disagree; reported only, never affects the verdict).
 
-Per-test statuses the plugin's result collector records (`tck.plugin.Status`): `PASS`, `FAIL`,
-`SKIPPED`. The terminal summary aggregates across every test bound to a given id (worst of
-FAIL > PASS > SKIPPED wins) and reports `NOT TESTED` for any registered id no test ever ran.
+Statuses (`tck.report.Status`): `PASS`, `FAIL`, `SKIPPED`, `NOT_TESTED`. A test only ever produces
+the first three; `NOT_TESTED` is the aggregated status of a registered id that no test bound to
+during the run (a dead agent that never gets past `initialize` cannot score 100% by starving
+every other requirement of a record). A test that *errors* -- a setup/teardown exception, or a
+harness `AgentExited`/`AgentTimeout` propagating out of the test body -- is `FAIL`, not a separate
+status; the exception text becomes the outcome's `message`. Aggregating several tests bound to
+the same requirement: any `FAIL` wins; else any `PASS`; else any `SKIPPED`; no records at all ->
+`NOT_TESTED`. The terminal summary prints this aggregated status per id, grouped by tier.
+
+## Reporting (`tck.report`, `--report-json`)
+
+`--report-json PATH` (plugin: `--tck-report-json`) writes the full run as JSON at
+`pytest_sessionfinish`, in addition to the terminal summary. Top-level keys: `tck_version`,
+`protocol_version` (`tck.protocol.PROTOCOL_VERSION`), `schema_revision`
+(`tck.protocol.SCHEMA_REVISION` -- the single source of truth; `tck.requirements.SPEC_REVISION`
+reads from it too), `agent_command` (the launched command, as a list), `agent_info` /
+`agent_capabilities` (from the cached `initialize` result, or `null` if it never succeeded),
+`started_at` / `finished_at` (ISO 8601 UTC), `requirements`, `verdict`.
+
+`requirements` has one entry per `tck.requirements.REGISTRY` id -- including ids no test ever
+ran (`status: "NOT_TESTED"`, `tests: []`) -- each carrying its `tier`/`capability`/`text`/
+`citation` plus every bound test's outcome (`nodeid`, `status`, `message`, `duration_s`,
+`properties` -- `record_property(...)` values such as `acp_tck_cancel_race_ms` -- and, for `FAIL`
+outcomes only, `transcript` (`[{"dir": "sent"|"received", "t": <monotonic ts>, "raw": <line>},
+...]`) and `stderr` (truncated to the last 20 kB)).
+
+`verdict` is `{"conformant": bool, "tier_counts": {tier: {status: count}}}`.
+`conformant` is computed from `MANDATORY`- and `CAPABILITY`-tier requirements only: `true` iff no
+`MANDATORY` `FAIL`, no `MANDATORY` `NOT_TESTED`, and no `CAPABILITY` `FAIL`. A `CAPABILITY`
+`SKIPPED`/`NOT_TESTED` (not advertised, or simply never exercised) does not affect it -- only a
+*failed* capability check does, since the agent advertised it and it must then work.
+`ADVISORY`/`INFORMATIONAL` never affect it. See `src/tck/report.py` for the full model
+(`Status`, `TestOutcome`, `RequirementResult`, `Verdict`, `Report`) and `tests/test_report.py`
+for the aggregation rules exercised against synthetic data.
 
 ## Harness API (`tck.harness`)
 

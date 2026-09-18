@@ -41,6 +41,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "SKIP with reason 'cancellation not exercised', which means what it says, not that the "
         "agent failed conformance. Default: a long free-form writing prompt.",
     )
+    parser.add_argument(
+        "--report-json",
+        default=None,
+        metavar="PATH",
+        help="Write the full JSON report (per-requirement status, verdict, failure diagnostics) "
+        "to this path, passed through as --tck-report-json.",
+    )
     parser.add_argument("-k", dest="expression", default=None, metavar="EXPR", help="pytest -k expression.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose pytest output.")
     parser.add_argument("--version", action="store_true", help="Print the acp-tck version and exit.")
@@ -97,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
         pytest_args += ["--tck-agent-env", env]
     if args.cancel_prompt is not None:
         pytest_args += ["--tck-cancel-prompt", args.cancel_prompt]
+    if args.report_json is not None:
+        pytest_args += ["--tck-report-json", args.report_json]
     if args.expression is not None:
         pytest_args += ["-k", args.expression]
     if args.verbose:

@@ -1,6 +1,6 @@
 # State
 
-**Last updated:** 2026-09-18 (session 1, after slice 4b)
+**Last updated:** 2026-09-18 (session 1, after slice 5)
 **Last commit pushed:** see `git log -1` (each slice commits this file)
 
 ## Deliverable shape (decided)
@@ -71,8 +71,15 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
   non-cancelled stop reason within 1.0 s after cancel); `--tck-cancel-prompt` / CLI `--cancel-prompt`; CLI
   passes `-rs`. `cancel_wrong_stop_reason.py` sleeps 1.2 s after cancel to stay detectable.
 
+- **Slice 5 — reporting** (79 passed, 3 skipped): `src/tck/report.py`; plugin writes `--tck-report-json`, sets
+  `session.exitstatus` from `verdict.conformant` (MANDATORY FAIL/NOT_TESTED or CAPABILITY FAIL → not conformant;
+  ADVISORY/INFORMATIONAL never affect it); `agent_initialize_result` autouse session fixture; FAIL outcomes carry
+  transcript + stderr (20 kB tail). `tck.protocol.SCHEMA_REVISION` is the single source of the spec hash.
+  `README.md` written. CLI `--report-json`.
+- Review: `.agents/research/review-slices-1-4.md` — 1 blocker (64 KiB asyncio line limit), 9 should-fix, 9 nits.
+
 ## In flight
-- **Programmer — Slice 5** (JSON report, verdict exit code, meta-tests).
+- **Programmer — Slice 5b** (hardening per review).
 
 
 ## Open questions / blockers
@@ -80,5 +87,5 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
 - Transcript format choice (conductor `.jsons` compatibility) before slice 5.
 
 ## Next actions
-1. On slice 5 return: verify, commit + push.
+1. On slice 5b return: verify (incl. a >64 KiB line test), commit + push.
 2. Spawn slice 6 (capability-conditional tests from `research/acp-v1-session-capabilities.md`).

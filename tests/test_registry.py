@@ -12,9 +12,11 @@ import re
 import pytest
 
 from tck import requirements as req_module
+from tck.protocol import SCHEMA_REVISION
 from tck.requirements import REGISTRY, Tier
 
 _ID_PATTERN = re.compile(r"^ACP-[A-Z]+-\d{3}$")
+_SPEC_REVISION_PATTERN = re.compile(r"@ [0-9a-f]{40}$")
 
 
 def test_ids_are_unique_and_well_formed():
@@ -34,6 +36,25 @@ def test_capability_field_set_iff_capability_tier():
                 f"{requirement.id} is tier {requirement.tier.value}, not CAPABILITY, but has "
                 f"capability={requirement.capability!r}"
             )
+
+
+def test_text_and_citation_are_non_empty():
+    for requirement in REGISTRY.values():
+        assert requirement.text.strip(), f"{requirement.id} has empty text"
+        assert requirement.citation.strip(), f"{requirement.id} has empty citation"
+        assert requirement.source_report.strip(), f"{requirement.id} has empty source_report"
+
+
+def test_citation_mentions_a_spec_revision_hash():
+    for requirement in REGISTRY.values():
+        assert _SPEC_REVISION_PATTERN.search(requirement.citation), (
+            f"{requirement.id}'s citation does not end in '@ <40-hex-char spec revision>': "
+            f"{requirement.citation!r}"
+        )
+        assert SCHEMA_REVISION in requirement.citation, (
+            f"{requirement.id}'s citation is not pinned to tck.protocol.SCHEMA_REVISION: "
+            f"{requirement.citation!r}"
+        )
 
 
 def test_get_raises_helpful_key_error_for_unknown_id():

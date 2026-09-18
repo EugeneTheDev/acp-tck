@@ -1,12 +1,15 @@
-"""The `tck.plugin` pytest plugin: CLI options, fixtures, markers, and the requirement result
-collector for the ACP conformance suite (`tck/conformance/`).
+"""The `tck.plugin` pytest plugin: CLI options, fixtures, markers, the requirement result
+collector, and the JSON report / verdict-based exit code for the ACP conformance suite
+(`tck/conformance/`).
 
 Not auto-registered via a `pytest11` entry point (see `.agents/plan.md` "Decided deliverable
 shape") -- it is always loaded explicitly with `-p tck.plugin`, either by the `acp-tck` CLI
 (`tck.__init__.main`) or by hand when running `pytest src/tck/conformance -p tck.plugin ...`.
 
-Full JSON reporting and a verdict-based exit code are slice 5 (see the TODOs in
-`pytest_terminal_summary`); this slice only prints a compact console table.
+Exit code mechanism: `pytest_sessionfinish` overwrites `session.exitstatus` (a documented
+pytest extension point) to `0`/`1` from `Verdict.conformant`, but only when pytest itself
+finished a normal run (`exitstatus` was `OK` or `TESTS_FAILED`) -- `--collect-only`, usage
+errors, and interrupted runs keep pytest's own exit code untouched.
 """
 
 from __future__ import annotations
@@ -14,16 +17,26 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import inspect
+import json
 import shlex
-from dataclasses import dataclass
-from enum import Enum
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from .harness import AgentExited, AgentLaunch, AgentProcess, AgentTimeout, Direction, TranscriptEntry
-from .protocol import PROTOCOL_VERSION
+from .protocol import PROTOCOL_VERSION, SCHEMA_REVISION
+from .report import (
+    Report,
+    Status,
+    TestOutcome,
+    build_requirement_results,
+    compute_verdict,
+    current_tck_version,
+    worse_status,
+)
 from .requirements import REGISTRY, Tier
 
 # --- options ---
@@ -86,6 +99,14 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "exercised (the turn finished before or shortly after cancel was sent), not that the "
         "agent failed conformance.",
     )
+    group.addoption(
+        "--tck-report-json",
+        action="store",
+        default=None,
+        metavar="PATH",
+        help="Write the full JSON report (per-requirement status, verdict, failure diagnostics) "
+        "to this path.",
+    )
 
 
 def _build_launch(config: pytest.Config) -> AgentLaunch | None:
@@ -120,7 +141,7 @@ def pytest_configure(config: pytest.Config) -> None:
         "capability(path): skip this test unless the cached `initialize` result has a "
         "non-null value at this JSON path (dotted, e.g. 'agentCapabilities.loadSession').",
     )
-    config.stash[REQUIREMENT_RECORDS_KEY] = []
+    config.stash[TEST_STATES_KEY] = {}
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -178,13 +199,21 @@ class InitializeOutcome:
     error_message: str | None
 
 
-@pytest.fixture(scope="session")
+AGENT_INIT_KEY = pytest.StashKey[InitializeOutcome]()
+
+
+@pytest.fixture(scope="session", autouse=True)
 def agent_initialize_result(request: pytest.FixtureRequest) -> InitializeOutcome:
     """One real `initialize` handshake against a fresh agent process, performed once per
-    session and cached for `capability`-marked tests to gate on."""
+    session -- cached for `capability`-marked tests to gate on, and for the JSON report's
+    `agent_info`/`agent_capabilities` fields (`pytest_sessionfinish`). Autouse so it always
+    runs once per session even when no test in the run happens to carry a `capability`
+    marker."""
     launch = _build_launch(request.config)
     if launch is None:
-        return InitializeOutcome(None, "no --tck-agent-cmd given")
+        outcome = InitializeOutcome(None, "no --tck-agent-cmd given")
+        request.config.stash[AGENT_INIT_KEY] = outcome
+        return outcome
 
     async def _run() -> InitializeOutcome:
         try:
@@ -201,7 +230,9 @@ def agent_initialize_result(request: pytest.FixtureRequest) -> InitializeOutcome
             return InitializeOutcome(None, f"initialize did not return a result: {entry.text!r}")
         return InitializeOutcome(msg["result"], None)
 
-    return asyncio.run(_run())
+    outcome = asyncio.run(_run())
+    request.config.stash[AGENT_INIT_KEY] = outcome
+    return outcome
 
 
 @pytest.fixture(autouse=True)
@@ -260,24 +291,48 @@ def _format_transcript(transcript: list[TranscriptEntry]) -> str:
     return "\n".join(lines) if lines else "(empty)"
 
 
+_STDERR_TRUNCATE_BYTES = 20 * 1024
+_STDERR_TRUNCATE_MARKER = "...[truncated; showing last 20 kB]...\n"
+
+
+def _truncate_stderr(text: str) -> str:
+    encoded = text.encode("utf-8")
+    if len(encoded) <= _STDERR_TRUNCATE_BYTES:
+        return text
+    tail = encoded[-_STDERR_TRUNCATE_BYTES:].decode("utf-8", errors="replace")
+    return _STDERR_TRUNCATE_MARKER + tail
+
+
+def _transcript_entries_dict(transcript: list[TranscriptEntry]) -> list[dict[str, Any]]:
+    return [
+        {
+            "dir": entry.direction.value,
+            "t": entry.timestamp,
+            "raw": entry.text if entry.text is not None else f"<undecodable: {entry.text_error}>",
+        }
+        for entry in transcript
+    ]
+
+
 # --- requirement result collection ---
+#
+# One accumulator dict per test nodeid, built up across the setup/call/teardown phases pytest
+# reports separately, then turned into a `tck.report.TestOutcome` at `pytest_sessionfinish` and
+# attached to every requirement id the test is bound to.
 
 
-class Status(str, Enum):
-    PASS = "PASS"
-    FAIL = "FAIL"
-    SKIPPED = "SKIPPED"
+@dataclass
+class _TestState:
+    req_ids: list[str]
+    status: Status | None = None
+    message: str = ""
+    duration_s: float = 0.0
+    properties: dict[str, str] = field(default_factory=dict)
+    transcript: list[dict[str, Any]] | None = None
+    stderr: str | None = None
 
 
-@dataclass(frozen=True)
-class RequirementRecord:
-    id: str
-    status: Status
-    test_nodeid: str
-    message: str
-
-
-REQUIREMENT_RECORDS_KEY = pytest.StashKey[list[RequirementRecord]]()
+TEST_STATES_KEY = pytest.StashKey[dict[str, _TestState]]()
 
 
 def _requirement_ids(item: pytest.Item) -> list[str]:
@@ -287,31 +342,38 @@ def _requirement_ids(item: pytest.Item) -> list[str]:
     return ids
 
 
+def _phase_status(report: pytest.TestReport) -> tuple[Status, str] | None:
+    """The `(status, message)` this report phase implies, or `None` if the phase doesn't settle
+    anything (e.g. a passing `setup`/`teardown`, which carries no verdict of its own)."""
+    if report.passed:
+        return (Status.PASS, "") if report.when == "call" else None
+    if report.failed:
+        return Status.FAIL, str(report.longrepr)
+    if report.skipped:
+        return Status.SKIPPED, str(report.longrepr)
+    return None
+
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> Any:
     outcome = yield
     report = outcome.get_result()
 
-    ids = _requirement_ids(item)
-    if ids:
-        status: Status | None = None
-        message = ""
-        if report.when == "setup":
-            if report.skipped:
-                status, message = Status.SKIPPED, str(report.longrepr)
-            elif report.failed:
-                status, message = Status.FAIL, str(report.longrepr)
-        elif report.when == "call":
-            if report.passed:
-                status, message = Status.PASS, ""
-            elif report.failed:
-                status, message = Status.FAIL, str(report.longrepr)
-            elif report.skipped:
-                status, message = Status.SKIPPED, str(report.longrepr)
-        if status is not None:
-            records = item.config.stash[REQUIREMENT_RECORDS_KEY]
-            for req_id in ids:
-                records.append(RequirementRecord(req_id, status, item.nodeid, message))
+    states = item.config.stash[TEST_STATES_KEY]
+    state = states.setdefault(item.nodeid, _TestState(req_ids=_requirement_ids(item)))
+    state.duration_s += report.duration
+    for key, value in report.user_properties:
+        state.properties[key] = value
+
+    settled = _phase_status(report)
+    if settled is not None:
+        phase_status, phase_message = settled
+        if state.status is None or worse_status(phase_status, state.status) is phase_status:
+            state.status = phase_status
+            state.message = phase_message
+        elif phase_status is state.status is Status.FAIL:
+            # Rare (e.g. call *and* teardown both fail): keep both messages, not just the first.
+            state.message = f"{state.message}\n{phase_message}"
 
     if report.failed:
         processes = item.stash.get(_PROCESSES_STASH_KEY, [])
@@ -320,28 +382,95 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) ->
                 (f"ACP transcript (process {index})", _format_transcript(process.transcript))
             )
             report.sections.append((f"ACP stderr (process {index})", process.stderr_text() or "(empty)"))
+        if processes:
+            last = processes[-1]
+            state.transcript = _transcript_entries_dict(last.transcript)
+            state.stderr = _truncate_stderr(last.stderr_text())
 
 
-# --- terminal summary ---
+# --- terminal summary + JSON report + verdict-based exit code ---
 
 _TIER_ORDER = [Tier.MANDATORY, Tier.CAPABILITY, Tier.ADVISORY, Tier.INFORMATIONAL]
-_STATUS_PRIORITY = {Status.FAIL: 0, Status.PASS: 1, Status.SKIPPED: 2}
+
+STARTED_AT_KEY = pytest.StashKey[str]()
+REPORT_KEY = pytest.StashKey[Report]()
 
 
-def _aggregate(records: list[RequirementRecord]) -> dict[str, Status]:
-    aggregated: dict[str, Status] = {}
-    for record in records:
-        current = aggregated.get(record.id)
-        if current is None or _STATUS_PRIORITY[record.status] < _STATUS_PRIORITY[current]:
-            aggregated[record.id] = record.status
-    return aggregated
+def pytest_sessionstart(session: pytest.Session) -> None:
+    session.config.stash[STARTED_AT_KEY] = datetime.now(timezone.utc).isoformat()
+
+
+def _agent_command(config: pytest.Config) -> list[str]:
+    cmd = config.getoption("tck_agent_cmd")
+    return shlex.split(cmd) if cmd else []
+
+
+def _build_report(config: pytest.Config) -> Report:
+    states = config.stash.get(TEST_STATES_KEY, {})
+    tests_by_req: dict[str, list[TestOutcome]] = {}
+    for nodeid, state in states.items():
+        if state.status is None:
+            continue  # no phase produced a verdict for this test (shouldn't normally happen)
+        outcome = TestOutcome(
+            nodeid=nodeid,
+            status=state.status,
+            message=state.message,
+            duration_s=state.duration_s,
+            properties=dict(state.properties),
+            transcript=state.transcript,
+            stderr=state.stderr,
+        )
+        for req_id in state.req_ids:
+            tests_by_req.setdefault(req_id, []).append(outcome)
+
+    results = build_requirement_results(tests_by_req)
+    verdict = compute_verdict(results)
+
+    init_outcome: InitializeOutcome | None = config.stash.get(AGENT_INIT_KEY, None)
+    agent_info = None
+    agent_capabilities = None
+    if init_outcome is not None and init_outcome.result is not None:
+        agent_info = init_outcome.result.get("agentInfo")
+        agent_capabilities = init_outcome.result.get("agentCapabilities")
+
+    return Report(
+        tck_version=current_tck_version(),
+        protocol_version=PROTOCOL_VERSION,
+        schema_revision=SCHEMA_REVISION,
+        agent_command=_agent_command(config),
+        agent_info=agent_info,
+        agent_capabilities=agent_capabilities,
+        started_at=config.stash.get(STARTED_AT_KEY, ""),
+        finished_at=datetime.now(timezone.utc).isoformat(),
+        requirements=results,
+        verdict=verdict,
+    )
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    config = session.config
+    report = _build_report(config)
+    config.stash[REPORT_KEY] = report
+
+    path = config.getoption("tck_report_json")
+    if path:
+        Path(path).write_text(json.dumps(report.to_dict(), indent=2) + "\n")
+
+    # Only override pytest's own exit code for a normal completed run (whether it passed or had
+    # test failures) -- leave --collect-only, usage errors, and interrupted runs alone, since
+    # every requirement would otherwise read NOT_TESTED and falsely force a non-conformant exit.
+    if exitstatus in (pytest.ExitCode.OK, pytest.ExitCode.TESTS_FAILED):
+        session.exitstatus = pytest.ExitCode.OK if report.verdict.conformant else pytest.ExitCode.TESTS_FAILED
 
 
 def pytest_terminal_summary(
     terminalreporter: Any, exitstatus: int, config: pytest.Config
 ) -> None:
-    records = config.stash.get(REQUIREMENT_RECORDS_KEY, [])
-    aggregated = _aggregate(records)
+    report = config.stash.get(REPORT_KEY, None)
+    if report is None:
+        return  # e.g. --collect-only: sessionfinish still ran, but nothing was ever executed
+
+    aggregated = {result.id: result.status for result in report.requirements}
 
     terminalreporter.section("ACP TCK requirement summary")
     for tier in _TIER_ORDER:
@@ -350,11 +479,31 @@ def pytest_terminal_summary(
             continue
         terminalreporter.write_line(f"[{tier.value}]")
         for req_id in ids:
-            status = aggregated.get(req_id)
-            label = status.value if status is not None else "NOT TESTED"
+            status = aggregated[req_id]
+            label = "NOT TESTED" if status is Status.NOT_TESTED else status.value
             terminalreporter.write_line(f"  {req_id:<20} {label}")
 
-    # TODO (slice 5): also emit a full JSON report (--report-json PATH) and compute a
-    # four-status verdict (PASS/FAIL/SKIPPED/NOT TESTED) that drives the process exit code
-    # (0 iff no MANDATORY FAIL or NOT TESTED). Today's exit code is whatever pytest itself
-    # returns based on individual test outcomes.
+    verdict = report.verdict
+    mandatory = verdict.tier_counts[Tier.MANDATORY.value]
+    terminalreporter.write_line("")
+    for tier in _TIER_ORDER:
+        counts = verdict.tier_counts[tier.value]
+        summary = ", ".join(f"{status.value}={counts[status.value]}" for status in Status)
+        terminalreporter.write_line(f"  {tier.value:<14} {summary}")
+
+    if verdict.conformant:
+        terminalreporter.write_line("VERDICT: CONFORMANT", bold=True, green=True)
+    else:
+        n_fail = mandatory[Status.FAIL.value]
+        n_not_tested = mandatory[Status.NOT_TESTED.value]
+        terminalreporter.write_line(
+            f"VERDICT: NOT CONFORMANT ({n_fail} mandatory failures, {n_not_tested} not tested)",
+            bold=True,
+            red=True,
+        )
+        if mandatory[Status.PASS.value] == 0 and (n_fail + n_not_tested) > 0:
+            terminalreporter.write_line(
+                "hint: no MANDATORY requirement passed -- the agent may have failed to start or "
+                "never responded; check --agent-cwd/--timeout/--startup-timeout and the stderr "
+                "captured in the JSON report (--report-json).",
+            )

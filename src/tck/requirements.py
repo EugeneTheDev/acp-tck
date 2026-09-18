@@ -18,9 +18,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-SPEC_REVISION = "6d08f412a7a1370d3cc9a124e3be3d6acf92641e"
+from .protocol import SCHEMA_REVISION
+
+SPEC_REVISION = SCHEMA_REVISION
 """The spec commit every citation below is relative to (see `AGENTS.md` "Vendored schema" and
-`.agents/research/*.md` headers)."""
+`.agents/research/*.md` headers). Single source of truth is `tck.protocol.SCHEMA_REVISION`."""
 
 
 class Tier(Enum):

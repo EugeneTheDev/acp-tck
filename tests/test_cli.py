@@ -8,6 +8,7 @@ running session.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -45,7 +46,7 @@ race and the cancel tests SKIP with "cancellation not exercised" rather than PAS
 
 
 def _run_cli(
-    fixture: str, *, k: str | None = None, timeout: str = "1"
+    fixture: str, *, k: str | None = None, timeout: str = "1", report_json: str | None = None
 ) -> subprocess.CompletedProcess[str]:
     cmd = [
         sys.executable,
@@ -58,6 +59,8 @@ def _run_cli(
     ]
     if k is not None:
         cmd += ["-k", k]
+    if report_json is not None:
+        cmd += ["--report-json", report_json]
     cmd += [
         "--",
         sys.executable,
@@ -191,7 +194,11 @@ def test_answers_notifications_fails_jsonrpc_003_only():
 
 
 def test_unknown_method_no_error_only_fails_the_advisory_requirement():
+    """An ADVISORY-only failure must not affect the verdict: exit code 0, `VERDICT: CONFORMANT`,
+    even though ACP-JSONRPC-004 itself FAILs (slice 5 four-status verdict model)."""
     result = _run_cli("unknown_method_no_error.py")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
 
     statuses = _table_statuses(result.stdout)
     assert statuses.get("ACP-JSONRPC-004") == "FAIL", result.stdout
@@ -259,13 +266,18 @@ def test_hangs_until_cancel_agent_passes_cancel_requirements():
     (ACP-PROMPT-*, ACP-SCHEMA-001, ACP-TRANSPORT-*) -- those would time out waiting for a
     response the fixture never sends unprompted. This self-test scopes the run to the cancel
     tests with `-k`, which is the only way to exercise this fixture meaningfully; see
-    `.agents/plan.md` slice 4 notes for why an unscoped run is not a meaningful check here."""
+    `.agents/plan.md` slice 4 notes for why an unscoped run is not a meaningful check here.
+
+    The overall exit code is *not* asserted here: since slice 5 the exit code reflects the
+    four-status verdict over the whole registry, and a `-k`-scoped run necessarily leaves every
+    other MANDATORY requirement NOT_TESTED (counted as a verdict failure by design) -- that says
+    nothing about whether *this* fixture's cancel handling is correct, which is what this test
+    checks via the per-requirement table."""
     result = _run_cli("hangs_until_cancel.py", k="cancel")
-    assert result.returncode == 0, result.stdout + result.stderr
 
     statuses = _table_statuses(result.stdout)
-    assert statuses.get("ACP-CANCEL-001") == "PASS", result.stdout
-    assert statuses.get("ACP-CANCEL-002") == "PASS", result.stdout
+    assert statuses.get("ACP-CANCEL-001") == "PASS", result.stdout + result.stderr
+    assert statuses.get("ACP-CANCEL-002") == "PASS", result.stdout + result.stderr
 
 
 def test_cancel_returns_error_fails_cancel_001():
@@ -306,3 +318,78 @@ def test_update_after_response_fails_cancel_002_only():
     statuses = _table_statuses(result.stdout)
     assert statuses.get("ACP-CANCEL-001") == "PASS", result.stdout
     assert statuses.get("ACP-CANCEL-002") == "FAIL", result.stdout
+
+
+# --- --report-json (slice 5) ---
+
+
+def test_report_json_for_conforming_agent_is_conformant_with_cancel_skipped(tmp_path):
+    report_path = tmp_path / "report.json"
+    result = _run_cli("conforming.py", report_json=str(report_path))
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    report = json.loads(report_path.read_text())
+    assert report["verdict"]["conformant"] is True
+    by_id = {r["id"]: r for r in report["requirements"]}
+    for req_id in _CANCEL_IDS:
+        assert by_id[req_id]["status"] == "SKIPPED", report
+    for req_id in _ALL_IDS - _CANCEL_IDS:
+        assert by_id[req_id]["status"] == "PASS", (req_id, report)
+    assert report["protocol_version"] == 1
+    assert report["agent_info"] is not None
+    assert set(report) == {
+        "tck_version",
+        "protocol_version",
+        "schema_revision",
+        "agent_command",
+        "agent_info",
+        "agent_capabilities",
+        "started_at",
+        "finished_at",
+        "requirements",
+        "verdict",
+    }
+
+
+def test_report_json_for_advisory_only_failure_is_still_conformant(tmp_path):
+    report_path = tmp_path / "report.json"
+    result = _run_cli("unknown_method_no_error.py", report_json=str(report_path))
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    report = json.loads(report_path.read_text())
+    assert report["verdict"]["conformant"] is True
+    by_id = {r["id"]: r for r in report["requirements"]}
+    assert by_id["ACP-JSONRPC-004"]["status"] == "FAIL"
+
+
+def test_report_json_for_banner_on_stdout_includes_a_nonempty_transcript_on_failure(tmp_path):
+    report_path = tmp_path / "report.json"
+    result = _run_cli("banner_on_stdout.py", report_json=str(report_path))
+    assert result.returncode != 0
+
+    report = json.loads(report_path.read_text())
+    assert report["verdict"]["conformant"] is False
+    by_id = {r["id"]: r for r in report["requirements"]}
+    failing = by_id["ACP-TRANSPORT-001"]
+    assert failing["status"] == "FAIL"
+    test_outcome = failing["tests"][0]
+    assert test_outcome["status"] == "FAIL"
+    assert test_outcome["transcript"], "expected a non-empty transcript on a FAIL outcome"
+    assert isinstance(test_outcome["transcript"], list)
+    assert {"dir", "t", "raw"} <= set(test_outcome["transcript"][0])
+
+
+def test_report_json_for_exits_immediately_has_no_crash_and_all_mandatory_fail_or_not_tested(
+    tmp_path,
+):
+    report_path = tmp_path / "report.json"
+    result = _run_cli("exits_immediately.py", report_json=str(report_path))
+    assert result.returncode != 0
+    assert "INTERNALERROR" not in result.stdout + result.stderr
+
+    assert report_path.exists(), "report must still be written even when every test fails"
+    report = json.loads(report_path.read_text())
+    assert report["verdict"]["conformant"] is False
+    for requirement in report["requirements"]:
+        if requirement["tier"] == "MANDATORY":
+            assert requirement["status"] in ("FAIL", "NOT_TESTED"), requirement

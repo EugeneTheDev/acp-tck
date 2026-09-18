@@ -23,6 +23,12 @@ start here. Wire encoding is a bare JSON integer, not a version string
 
 SCHEMA_DIR = Path(__file__).parent / "schema" / "v1"
 
+SCHEMA_REVISION = "6d08f412a7a1370d3cc9a124e3be3d6acf92641e"
+"""The spec commit the vendored `schema/v1/{schema,meta}.json` -- and every requirement
+citation in `tck.requirements` -- are pinned to (see `schema/v1/VENDORED.md`). This is the
+single place that constant lives; `tck.requirements.SPEC_REVISION` and `tck.report.Report`'s
+`schema_revision` field both read it from here."""
+
 # JSON-RPC / ACP error codes (schema/v1/schema.json `ErrorCode`, :3503-3569). Names follow
 # the schema's own `title` for each variant.
 PARSE_ERROR = -32700

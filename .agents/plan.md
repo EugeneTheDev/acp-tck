@@ -45,6 +45,7 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   gating, `auth/login`, v2 prompt lifecycle are excluded; see transport report Discrepancies 1, 7.
 
 ## Done
+- Slice 5 — `tck/report.py` (Status/TestOutcome/RequirementResult/Verdict/Report), `--report-json`, verdict-based exit code, per-tier counts, meta-tests, README (79 passed, 3 skipped).
 - Slice 4b — raced cancel → SKIPPED; `--cancel-prompt` / `--tck-cancel-prompt`; CLI passes `-rs`.
 - Slice 4 — ACP-SESSION-001/002, ACP-PROMPT-001/002/003, ACP-CANCEL-001/002; `_helpers.run_prompt` mock-client driver; 7 defect fixtures (56 tests total).
 - Slice 3 — `tck/requirements.py` (12 reqs), `tck/plugin.py`, `tck/conformance/{test_transport,test_jsonrpc,test_initialize}.py`, CLI `acp-tck -- <cmd>`, 5 defect fixtures, registry + CLI self-tests (49 tests total).
@@ -54,7 +55,7 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   `research/a2a-tck-structure.md`, `research/reference-sdks-as-harness.md`.
 
 ## In progress
-- **Slice 5 — reporting** (programmer): JSON report, verdict-based exit code, meta-tests.
+- **Slice 5b — hardening from review** (programmer). See "Next slices" 5b.
 
 ## Next slices (in order)
 5b. **Hardening from `research/review-slices-1-4.md`** (1 blocker, 9 should-fix, 9 nits) — do before slice 6:
