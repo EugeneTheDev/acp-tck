@@ -304,6 +304,59 @@ fixture) runs in well under a minute. Harness unit tests use short (≤2s) per-c
 `asyncio.run(...)` directly -- there is no `pytest-asyncio` dependency. The conformance suite's
 own async tests are run the same way, via `tck.plugin`'s `pytest_pyfunc_call` hook.
 
+## Cross-checking against upstream agents
+
+`scripts/cross-check.sh` runs the packaged conformance suite against two independently
+implemented agents -- the Rust SDK's `testy` fixture and the Python SDK's
+`examples/echo_agent.py` -- to sanity-check the TCK's own plumbing (framing, id correlation,
+schema wiring, timeouts) against implementations this repo did not write. It is **not** part of
+`uv run pytest`: it needs a Rust toolchain and local checkouts of both SDKs, so it is a manual/CI
+step, run on demand.
+
+**Prerequisites:**
+
+- A Rust toolchain (`cargo`, `rustc >= 1.88`) on `PATH`.
+- Local checkouts of `agentclientprotocol/rust-sdk` and `agentclientprotocol/python-sdk` --
+  by default the paths recorded in `.agents/skills/check-rust-sdk/.repo` and
+  `.agents/skills/check-python-sdk/.repo`; override with the `ACP_RUST_SDK` / `ACP_PYTHON_SDK`
+  environment variables to point at any other checkout.
+- `uv` (already required for everything else in this repo).
+
+**Running:**
+
+```
+scripts/cross-check.sh
+```
+
+`OUT_DIR` (default `scratch/cross-check/`, gitignored) controls where the two
+`--report-json` reports land. The script:
+
+1. builds `testy` with `cargo build -p agent-client-protocol-test --bin testy
+   --no-default-features` (strict-v1 build; the default `unstable` feature adds a non-v1
+   `mcpCapabilities.acp` field) inside `$ACP_RUST_SDK` -- this is the only write the script
+   makes outside `$OUT_DIR`, and it only ever touches that checkout's own `target/`;
+2. runs `acp-tck --cancel-prompt wait_for_cancel --report-json "$OUT_DIR/testy.json" --
+   target/debug/testy` (the `wait_for_cancel` prompt is required for `testy`'s cancel scenario
+   to actually hang long enough for `session/cancel` to land -- see
+   `.agents/research/testy-cross-check.md` §2.1);
+3. runs the same against `uv run --no-project --with 'agent-client-protocol==1.0.0rc1' python
+   "$ACP_PYTHON_SDK/examples/echo_agent.py"` -- pinned explicitly, because `echo_agent.py`'s own
+   unpinned PEP 723 header would otherwise resolve the latest *stable* release, which has a
+   known prompt-deserialization bug (fixed on `main`/`1.0.0rc1`; see
+   `.agents/research/testy-cross-check.md` §3.3);
+4. prints a compact per-requirement comparison table (via `scripts/cross-check-summary.py`,
+   stdlib only) plus both verdict lines and exit codes.
+
+The script itself always exits `0` if it ran to completion -- the two agents' own verdicts are
+data to read, not the script's success/failure. **Expected result** (see `docs/cross-check.md`
+for the full table, explanations, and date of the last run): both agents are NOT CONFORMANT,
+solely because of the deliberately strengthened `ACP-INIT-003` (both echo the client's
+unsupported requested version verbatim) and the ADVISORY `ACP-INIT-004` (neither sets
+`agentInfo`); `echo_agent`'s cancel tests are permanently SKIPPED (it has no cancellation
+handling at all). Any *other* deviation from that baseline is worth investigating -- it means
+either a TCK bug or a genuine, newly-observed upstream behaviour; `docs/cross-check.md` is where
+that investigation is recorded.
+
 ## How to add a requirement + test
 
 1. Add a `Requirement(...)` entry to `_DECLARATIONS` in `src/tck/requirements.py`: pick an id

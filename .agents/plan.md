@@ -45,6 +45,7 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   gating, `auth/login`, v2 prompt lifecycle are excluded; see transport report Discrepancies 1, 7.
 
 ## Done
+- Slice 8 — `scripts/cross-check.sh` + `cross-check-summary.py`, `docs/cross-check.md`; testy and echo_agent (1.0.0rc1) both NOT CONFORMANT solely on INIT-003 (echo 65535) + advisory INIT-004; echo_agent also fails advisory JSONRPC-004 (upstream SDK returns `result: null` for unknown ext methods). Citation text fixes landed.
 - Slice 7b — hardening per review-slices-5-6: no double initialize; INIT-003 `!= 65535 and >= latest`; CLOSE-002 via mock client; auth gating only with non-empty authMethods, authenticate failure → blocked not FAIL; collect-only untouched; `-k` hint; transcript cap; stricter fixtures; CLIENTCAP split; `--close-grace`; runtime 118 s (125 passed).
 - Slice 7 — CLIENTCAP-001/002/003, EXT-001 (MANDATORY), META-001, ERROR-001, SHUTDOWN-001, SCHEMA-002 (unknown-root-keys checker), STDERR-001 + 3 ACP-INFO-* informational probes with terminal notes; 4 fixtures (123 passed; 57 requirements).
 - Slice 6b — MODES-001/002, CONFIG-001/002/003, PROMPTCAP-001/002/003, AUTH-001..004; `--auth-method`; `verdict.blocked_by_auth`; inferred gates for modes/configOptions; 5 fixtures (113 passed, 1 skipped; 43 requirements).
@@ -60,7 +61,7 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   `research/a2a-tck-structure.md`, `research/reference-sdks-as-harness.md`.
 
 ## In progress
-- (nothing — session paused after slice 7b; next is slice 8, see state.md)
+- Review of slices 7–7b (read-only) → `research/review-slices-7.md`; fix-up slice 8b to follow.
 
 ## Next slices (in order)
 7b. **Hardening from `research/review-slices-5-6.md`** (2 blockers, 9 should-fix, 14 nits) — before slice 8:

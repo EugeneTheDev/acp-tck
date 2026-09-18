@@ -118,6 +118,15 @@ message shape, shutdown promptness, and stderr volume; and the `INFORMATIONAL` f
 covering malformed JSON, structurally-invalid requests, and unknown session ids -- areas where the
 spec is silent or reference agents disagree.
 
+## Cross-checking against upstream agents
+
+`scripts/cross-check.sh` runs this TCK against two independently implemented agents -- the Rust
+SDK's `testy` fixture and the Python SDK's `examples/echo_agent.py` -- as a sanity check that the
+TCK's own plumbing isn't systematically wrong. It needs a Rust toolchain and local checkouts of
+both SDKs, so it's a manual/CI step rather than part of `uv run pytest`; see `AGENTS.md`
+"Cross-checking against upstream agents" for prerequisites and usage, and `docs/cross-check.md`
+for the latest result table with explanations of every non-`PASS`.
+
 ## Contributing
 
 See [`AGENTS.md`](AGENTS.md) for the package layout, the harness/validation/plugin internals,

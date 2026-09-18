@@ -323,7 +323,10 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "The `session/load` empty result is `{}` (an object), not `null` -- the docs' "
             "historical `null` example was corrected upstream to `{}`. ADVISORY only: mandatory "
             "schema validation (ACP-LOAD-001) already treats `null` as equivalent for an "
-            "all-optional object response (documented leniency, Discrepancy 2)."
+            "all-optional object response (documented leniency, Discrepancy 2), and upstream "
+            "`ac82df6` (`agent-client-protocol-schema/src/serde_util.rs`) made the Rust reference "
+            "itself accept `null` for defaultable payloads, which is why `null` stays tolerated "
+            "rather than becoming a FAIL."
         ),
         citation=_cite(
             "docs/protocol/v1/session-setup.mdx:180-186; schema/v1/schema.json:3215-3249 "
@@ -482,12 +485,14 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "required (§7: \"do not assert an echo notification\"), but if a "
             "`current_mode_update` (`session/update` with `sessionUpdate: "
             "\"current_mode_update\"`) for the session is observed, it MUST carry the schema "
-            "field name `currentModeId` -- the docs' `modeId` example "
-            "(`session-modes.mdx:117-119`) is a confirmed docs bug; the schema wins."
+            "field name `currentModeId` -- the docs' `modeId` example at "
+            "`session-modes.mdx:117-119` was a confirmed docs bug at the vendored revision "
+            "(`6d08f412`), since fixed upstream in `b96b439` (docs now show `currentModeId` "
+            "too); the schema was always the source of truth here."
         ),
         citation=_cite(
-            "docs/protocol/v1/session-modes.mdx:117-119 (docs bug); "
-            "schema/v1/schema.json:5102-5132,4129-4160 (SetSessionModeRequest, "
+            "docs/protocol/v1/session-modes.mdx:117-119 (docs bug at 6d08f412, fixed upstream "
+            "in b96b439); schema/v1/schema.json:5102-5132,4129-4160 (SetSessionModeRequest, "
             "CurrentModeUpdate) (§7)"
         ),
         source_report="acp-v1-session-capabilities.md",
@@ -845,7 +850,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "agent never created is recorded, never asserted -- v1 does not specify one "
             "(Discrepancy 6). Even a successful result is only recorded. Always PASSes."
         ),
-        citation=_cite("docs/error.mdx (stub; Discrepancy 6)"),
+        citation=_cite("docs/protocol/v1/error.mdx (stub; Discrepancy 6)"),
         source_report="acp-v1-protocol-surface.md",
     ),
 )

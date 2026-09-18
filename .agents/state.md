@@ -66,10 +66,13 @@ Registry: **57 requirements** in `src/tck/requirements.py` (see `AGENTS.md` for 
 - Docs: `AGENTS.md` (contributor guide, catalogue), `README.md` (user guide).
 
 ## In flight
-- **Programmer — Slice 8** (`scripts/cross-check.sh`, `scripts/cross-check-summary.py`, `docs/cross-check.md`, citation fixes).
 - **Reviewer (read-only) — slices 7–7b at 3e55deb** → `.agents/research/review-slices-7.md` (includes v0.1 release-readiness).
 
-Slice 7b was completed and committed. Spot checks that completed before the
+Slice 8 done and committed: `scripts/cross-check.sh` (builds testy `--no-default-features`, runs TCK with
+`--cancel-prompt wait_for_cancel`; runs echo_agent via `uv run --no-project --with agent-client-protocol==1.0.0rc1`),
+`scripts/cross-check-summary.py`, `docs/cross-check.md` (table + explanations). Result: both upstream agents
+NOT CONFORMANT only because of INIT-003 (they echo 65535) and advisory INIT-004; echo_agent also fails advisory
+JSONRPC-004 (SDK returns `result: null` for unknown `_` methods). No TCK bug found. Spot checks that completed before the
 pause: full suite 125 passed; `conforming_full.py` and `conforming.py` full runs CONFORMANT. Orchestrator also
 re-ran: `gated_by_auth.py --auth-method wrong` → exit 1 blocked by authentication; `supports_v1_and_v2.py`
 INIT-003 PASS. Programmer-reported only: `echoes_any_version.py` INIT-003 FAIL; `rejects_second_initialize.py`
@@ -83,11 +86,8 @@ CONFORMANT; `--collect-only` exit 0.
 - v0.1 release/tag: decide after slice 8 and a final review pass.
 
 ## Next actions
-1. **Slice 8** (programmer): `scripts/cross-check.sh` building `testy` from the rust-sdk checkout path in
-   `.agents/skills/check-rust-sdk/.repo` (`cargo build -p agent-client-protocol-test --bin testy
-   --no-default-features`) and running `acp-tck --cancel-prompt wait_for_cancel --report-json`; also run
-   python-sdk `examples/echo_agent.py` pinned to `agent-client-protocol==1.0.0rc1`. Not part of
-   `uv run pytest`. Expected per `testy-cross-check.md`: testy CONFORMANT except INIT-003 FAIL and
-   INIT-004 advisory FAIL. Plus the three citation text fixes. Document in AGENTS.md/README.md.
-2. Final review pass (read-only Opus reviewer) over slices 7–8; fix; decide v0.1 tag.
-3. Optional: GitHub Actions workflow (pytest on 3.14; cross-check job with cached cargo).
+1. Read `review-slices-7.md` when it lands; spawn slice 8b (fix blockers/should-fix + release readiness:
+   pyproject metadata, license decision needs the user).
+2. Decide v0.1 tag; optional GitHub Actions workflow (pytest on 3.14; cross-check job with cached cargo).
+3. Consider filing upstream: INIT-003 echo behaviour in testy/echo_agent; `error.mdx` stub; baseline
+   content-type discrepancy (initialization.mdx vs content.mdx).
