@@ -45,12 +45,13 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   gating, `auth/login`, v2 prompt lifecycle are excluded; see transport report Discrepancies 1, 7.
 
 ## Done
+- Slice 2 — vendored spec schema @ 6d08f41 (`src/tck/schema/v1/`), `tck/protocol.py`, `tck/validation.py`, 19 tests.
 - Slice 1 — harness core + fixture agents + 13 unit tests (`src/tck/harness/`, `tests/`).
 - Research round 1: `research/acp-v1-protocol-surface.md`, `research/acp-v1-transport-and-jsonrpc.md`,
   `research/a2a-tck-structure.md`, `research/reference-sdks-as-harness.md`.
 
 ## In progress
-- **Slice 2 — vendored schema + validation** (programmer). See "Next slices" item 2.
+- **Slice 3 — registry + pytest plugin + CLI + first conformance tests** (programmer). See "Next slices" item 3.
 - **Research: authentication semantics** → `research/acp-v1-authentication.md` (does an agent
   advertising `authMethods` have to return `-32000` before `authenticate`?).
 
@@ -77,6 +78,10 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   slice 6/7 alongside other capability-conditional work.
 
 ## Open questions
+- Vendored schema has no `additionalProperties: false` anywhere, so Req 41 (no custom root fields) needs a
+  custom check (compare emitted object keys against the `$def`'s `properties` + `_meta`). Schedule in slice 7.
+- `fs/write_text_file` etc. are client-authored; `validate_client_message` does not exist yet (needed for slice 6
+  only if we validate our own mock client's output — optional).
 - Unknown `sessionId` error code: unspecified in v1 → informational only (decided, no research needed).
 - Is a second concurrent `session/prompt` per session legal in v1? Route to research before slice 4
   only if a test would depend on it (currently none planned).

@@ -1,7 +1,7 @@
 # State
 
-**Last updated:** 2026-09-18 (session 1, after research round 1)
-**Last commit pushed:** see git log (slice 1 committed together with this file)
+**Last updated:** 2026-09-18 (session 1, after slice 2)
+**Last commit pushed:** see `git log -1` (each slice commits this file)
 
 ## Deliverable shape (decided)
 See `plan.md` § "Decided deliverable shape". Summary: installable `acp-tck` package with the
@@ -39,8 +39,15 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
   `pyproject.toml`: `pytest==9.1.1` runtime dep, `[tool.uv.build-backend] module-name = "tck"`. Tests use
   `asyncio.run` directly (no pytest-asyncio). `acp-tck` CLI is a stub exiting 2.
 
+- **Slice 2 — schema + validation** (32 tests green total): `src/tck/schema/v1/{schema.json,meta.json,VENDORED.md}`
+  vendored verbatim from spec @ 6d08f41; `src/tck/protocol.py` (`PROTOCOL_VERSION = 1`, error-code constants,
+  `STOP_REASONS`, `AGENT_METHODS`/`CLIENT_METHODS`/`*_NOTIFICATIONS` derived from meta.json + x-method annotations);
+  `src/tck/validation.py` (`ValidationIssue`, `validate_agent_message`, `validate_agent_response`; Draft 2020-12;
+  `null` accepted for all-optional object responses like `session/load`; `_`-prefixed methods skipped). Runtime dep
+  `jsonschema==4.26.0`. Schema root has three branches: Agent, Client, ProtocolLevel (`$/cancel_request`).
+
 ## In flight
-- **Programmer — Slice 2** (vendored v1 JSON schema + `tck/protocol.py` + `validate_agent_message`).
+- **Programmer — Slice 3** (requirement registry, pytest plugin, CLI, transport + initialize conformance tests).
 
 
 ## Open questions / blockers
@@ -48,6 +55,5 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
 - Transcript format choice (conductor `.jsons` compatibility) before slice 5.
 
 ## Next actions
-1. On slice 2 return: verify (`uv run pytest`, `git diff --stat`), commit + push.
-2. Spawn slice 3 (requirement registry + pytest plugin + CLI + transport/initialize conformance tests).
-3. Read auth research; fold into registry when reached.
+1. On slice 3 return: verify (`uv run pytest`, run `uv run acp-tck -- python tests/fixtures/agents/conforming.py` end to end), commit + push.
+2. Spawn slice 4 (session/prompt/cancel mandatory tests + non-conforming fixtures).
