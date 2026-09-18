@@ -1,6 +1,6 @@
 # State
 
-**Last updated:** 2026-09-18 (session 1, after slice 3)
+**Last updated:** 2026-09-18 (session 1, after slice 4)
 **Last commit pushed:** see `git log -1` (each slice commits this file)
 
 ## Deliverable shape (decided)
@@ -59,8 +59,16 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
   (subprocess end-to-end). Verified: conforming → exit 0, 12 PASS; banner → exit 1, TRANSPORT-001/002 +
   SCHEMA-001 FAIL.
 
+- **Slice 4 — session/prompt/cancel** (56 tests green): ACP-SESSION-001/002, ACP-PROMPT-001/002 (+003 advisory
+  resource_link), ACP-CANCEL-001/002 (CANCEL-003 folded into JSONRPC-003). `conformance/_helpers.py` gained
+  `new_session()`, `PromptTurn`, `run_prompt()` (answers `session/request_permission`, replies −32601 to other
+  agent→client requests and records them, collects updates, race-aware cancel). Fixtures: `hangs_until_cancel.py`,
+  `cancel_returns_error.py`, `cancel_wrong_stop_reason.py`, `update_after_response.py`, `bad_stop_reason.py`,
+  `duplicate_session_id.py`, `update_wrong_session.py`. CLI self-tests use `-k` subsets for hanging fixtures.
+- Research: `.agents/research/acp-v1-session-capabilities.md` (input for slice 6) and decisions in plan.md.
+
 ## In flight
-- **Programmer — Slice 4** (session/new, prompt, cancel mandatory tests + defect fixtures).
+- **Programmer — Slice 4b** (cancel race → SKIPPED, `--tck-cancel-prompt`).
 
 
 ## Open questions / blockers
@@ -68,5 +76,5 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
 - Transcript format choice (conductor `.jsons` compatibility) before slice 5.
 
 ## Next actions
-1. On slice 4 return: verify (`uv run pytest`, CLI against conforming + new defect fixtures), commit + push.
-2. Spawn slice 5 (JSON report, verdict-based exit code, meta-tests).
+1. On slice 4b return: verify, commit + push.
+2. Spawn slice 5 (JSON report, verdict-based exit code, meta-tests), then slice 6 (capability-conditional, from session-capabilities research).

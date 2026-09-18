@@ -66,7 +66,12 @@ async def test_unknown_method_yields_method_not_found(agent_launch):
 
 @pytest.mark.requirement("ACP-JSONRPC-003")
 async def test_notification_receives_no_response(agent_launch, tmp_path):
-    """ACP-JSONRPC-003. `session/cancel` with no prompt in flight is a pure notification."""
+    """ACP-JSONRPC-003. `session/cancel` with no prompt in flight is a pure notification.
+
+    This also stands in for a would-be `ACP-CANCEL-003` ("`session/cancel` itself is a
+    notification and receives no response", J2 applied to cancel): the slice-4 task considered
+    a dedicated requirement id for that, but it is exactly what this test already asserts, so no
+    separate id was registered -- see `.agents/plan.md` slice 4 notes."""
     async with connected_agent(agent_launch) as agent:
         session_req = await agent.send_request(
             "session/new", {"cwd": str(tmp_path), "mcpServers": []}

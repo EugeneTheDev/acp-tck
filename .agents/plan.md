@@ -45,6 +45,7 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   gating, `auth/login`, v2 prompt lifecycle are excluded; see transport report Discrepancies 1, 7.
 
 ## Done
+- Slice 4 — ACP-SESSION-001/002, ACP-PROMPT-001/002/003, ACP-CANCEL-001/002; `_helpers.run_prompt` mock-client driver; 7 defect fixtures (56 tests total).
 - Slice 3 — `tck/requirements.py` (12 reqs), `tck/plugin.py`, `tck/conformance/{test_transport,test_jsonrpc,test_initialize}.py`, CLI `acp-tck -- <cmd>`, 5 defect fixtures, registry + CLI self-tests (49 tests total).
 - Slice 2 — vendored spec schema @ 6d08f41 (`src/tck/schema/v1/`), `tck/protocol.py`, `tck/validation.py`, 19 tests.
 - Slice 1 — harness core + fixture agents + 13 unit tests (`src/tck/harness/`, `tests/`).
@@ -52,7 +53,7 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   `research/a2a-tck-structure.md`, `research/reference-sdks-as-harness.md`.
 
 ## In progress
-- **Slice 4 — session/prompt/cancel mandatory tests + defect fixtures** (programmer). See "Next slices" item 4.
+- **Slice 4b — cancel-race semantics fix** (programmer): raced cancel → SKIPPED not PASS; `--tck-cancel-prompt` option.
 
 ## Next slices (in order)
 2. Vendored v1 JSON schema + `tck/protocol.py` constants + `validate_agent_message()` + tests.
@@ -77,6 +78,11 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   slice 6/7 alongside other capability-conditional work.
 
 ## Decisions (orchestrator)
+- **Cancel tests and the race**: the TCK cannot force a real agent's turn to stay in flight. If the prompt
+  response was read before `session/cancel` was written, or arrives with a valid non-`cancelled` stop
+  reason within 1.0 s after the cancel was written, the cancel requirements are SKIPPED with reason
+  "cancellation not exercised" — never PASS. A non-`cancelled` response later than that is FAIL. Users
+  can supply `--cancel-prompt TEXT` (plugin `--tck-cancel-prompt`) to keep their agent busy.
 - **Capability detection** (`research/acp-v1-session-capabilities.md`): boolean gates (`loadSession`,
   `promptCapabilities.*`, `mcpCapabilities.*`) are supported iff `=== true`; object markers
   (`sessionCapabilities.*`, `auth.logout`) iff present and non-null. The plugin's `capability` marker must

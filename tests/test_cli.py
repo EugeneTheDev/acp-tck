@@ -25,12 +25,18 @@ _MANDATORY_IDS = {
     "ACP-INIT-002",
     "ACP-INIT-003",
     "ACP-SCHEMA-001",
+    "ACP-SESSION-001",
+    "ACP-SESSION-002",
+    "ACP-PROMPT-001",
+    "ACP-PROMPT-002",
+    "ACP-CANCEL-001",
+    "ACP-CANCEL-002",
 }
-_ADVISORY_IDS = {"ACP-JSONRPC-004", "ACP-JSONRPC-005", "ACP-INIT-004"}
+_ADVISORY_IDS = {"ACP-JSONRPC-004", "ACP-JSONRPC-005", "ACP-INIT-004", "ACP-PROMPT-003"}
 _ALL_IDS = _MANDATORY_IDS | _ADVISORY_IDS
 
 
-def _run_cli(fixture: str) -> subprocess.CompletedProcess[str]:
+def _run_cli(fixture: str, *, k: str | None = None) -> subprocess.CompletedProcess[str]:
     cmd = [
         sys.executable,
         "-m",
@@ -39,6 +45,10 @@ def _run_cli(fixture: str) -> subprocess.CompletedProcess[str]:
         "1",
         "--startup-timeout",
         "1",
+    ]
+    if k is not None:
+        cmd += ["-k", k]
+    cmd += [
         "--",
         sys.executable,
         str(FIXTURES_DIR / fixture),
@@ -160,3 +170,97 @@ def test_unknown_method_no_error_only_fails_the_advisory_requirement():
     assert statuses.get("ACP-JSONRPC-004") == "FAIL", result.stdout
     for req_id in _MANDATORY_IDS:
         assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
+
+
+def test_duplicate_session_id_fails_session_002_only():
+    result = _run_cli("duplicate_session_id.py")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-SESSION-002") == "FAIL", result.stdout
+    for req_id in _MANDATORY_IDS - {"ACP-SESSION-002"}:
+        assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
+
+
+def test_bad_stop_reason_fails_prompt_001_schema_001_and_cancel_001():
+    """`bad_stop_reason.py` replies `stopReason: "done"` for any non-`__hang__` prompt. This
+    directly breaks ACP-PROMPT-001 and ACP-SCHEMA-001, and also cascades into ACP-CANCEL-001:
+    that test's own prompt resolves immediately (a race, recorded via `record_property`), so it
+    falls back to asserting `stopReason` is one of the defined values -- which "done" is not."""
+    result = _run_cli("bad_stop_reason.py")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    expected_fails = {"ACP-PROMPT-001", "ACP-SCHEMA-001", "ACP-CANCEL-001"}
+    for req_id in expected_fails:
+        assert statuses.get(req_id) == "FAIL", result.stdout
+    for req_id in _MANDATORY_IDS - expected_fails:
+        assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
+
+
+def test_update_wrong_session_fails_prompt_002_and_cancel_002():
+    """`update_wrong_session.py` always attributes `session/update` to `sessionId: "other"`.
+    ACP-PROMPT-001/PROMPT-003 only check the response, not update attribution, so they still
+    PASS; ACP-CANCEL-001 races to the same lenient branch as usual and PASS-es on `"end_turn"`;
+    only ACP-PROMPT-002 and ACP-CANCEL-002 -- which both check update `sessionId` -- FAIL."""
+    result = _run_cli("update_wrong_session.py")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    expected_fails = {"ACP-PROMPT-002", "ACP-CANCEL-002"}
+    for req_id in expected_fails:
+        assert statuses.get(req_id) == "FAIL", result.stdout
+    for req_id in _MANDATORY_IDS - expected_fails:
+        assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
+
+
+def test_hangs_until_cancel_agent_passes_cancel_requirements():
+    """`hangs_until_cancel.py` withholds its response on *every* prompt until `session/cancel`
+    arrives, which is deliberately incompatible with the non-cancelling prompt tests
+    (ACP-PROMPT-*, ACP-SCHEMA-001, ACP-TRANSPORT-*) -- those would time out waiting for a
+    response the fixture never sends unprompted. This self-test scopes the run to the cancel
+    tests with `-k`, which is the only way to exercise this fixture meaningfully; see
+    `.agents/plan.md` slice 4 notes for why an unscoped run is not a meaningful check here."""
+    result = _run_cli("hangs_until_cancel.py", k="cancel")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-CANCEL-001") == "PASS", result.stdout
+    assert statuses.get("ACP-CANCEL-002") == "PASS", result.stdout
+
+
+def test_cancel_returns_error_fails_cancel_001():
+    """`cancel_returns_error.py` resolves a cancelled turn with a JSON-RPC error instead of a
+    successful `cancelled` result. Scoped with `-k "cancel"` for the same reason as the
+    `hangs_until_cancel.py` self-test above (the fixture hangs on every prompt)."""
+    result = _run_cli("cancel_returns_error.py", k="cancel")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-CANCEL-001") == "FAIL", result.stdout
+
+
+def test_cancel_wrong_stop_reason_fails_cancel_001_only():
+    """`cancel_wrong_stop_reason.py` resolves a cancelled turn successfully but with
+    `stopReason: "end_turn"` instead of `"cancelled"` -- ACP-CANCEL-001 FAILs, but ACP-CANCEL-002
+    (no update after the response) is unaffected and still PASSes. Scoped with `-k "cancel"` for
+    the same reason as the `hangs_until_cancel.py` self-test above."""
+    result = _run_cli("cancel_wrong_stop_reason.py", k="cancel")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-CANCEL-001") == "FAIL", result.stdout
+    assert statuses.get("ACP-CANCEL-002") == "PASS", result.stdout
+
+
+def test_update_after_response_fails_cancel_002_only():
+    """`update_after_response.py` correctly resolves a cancelled turn with `stopReason:
+    "cancelled"` (ACP-CANCEL-001 PASSes) but then sends one more `session/update` afterwards,
+    which ACP-CANCEL-002 catches. Scoped with `-k "cancel"` for the same reason as the
+    `hangs_until_cancel.py` self-test above."""
+    result = _run_cli("update_after_response.py", k="cancel")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-CANCEL-001") == "PASS", result.stdout
+    assert statuses.get("ACP-CANCEL-002") == "FAIL", result.stdout

@@ -176,6 +176,100 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         citation=_cite("schema/v1/schema.json:5-42 (Testability notes)"),
         source_report="acp-v1-protocol-surface.md",
     ),
+    Requirement(
+        id="ACP-SESSION-001",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "`session/new` with an absolute `cwd` and `mcpServers: []` succeeds with a "
+            "non-empty string `sessionId`, and the response validates against the schema."
+        ),
+        citation=_cite(
+            "docs/protocol/v1/session-setup.mdx:71; schema/v1/schema.json:2867-2910 "
+            "(Req 9; Testability notes 'session/new with an absolute cwd...')"
+        ),
+        source_report="acp-v1-protocol-surface.md",
+    ),
+    Requirement(
+        id="ACP-SESSION-002",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text="Two `session/new` calls on the same connection return distinct `sessionId`s.",
+        citation=_cite(
+            "docs/protocol/v1/session-setup.mdx:71; schema/v1/schema.json:2867-2910 (Req 9 'unique')"
+        ),
+        source_report="acp-v1-protocol-surface.md",
+    ),
+    Requirement(
+        id="ACP-PROMPT-001",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "A text-only `session/prompt` resolves with a successful result whose `stopReason` "
+            "is one of the defined `StopReason` values."
+        ),
+        citation=_cite(
+            "docs/protocol/v1/prompt-turn.mdx:217; schema/v1/schema.json:3424-3476 (Req 24); "
+            "docs/protocol/v1/initialization.mdx:204, docs/protocol/v1/content.mdx:31 (baseline "
+            "text support, Req 7)"
+        ),
+        source_report="acp-v1-protocol-surface.md",
+    ),
+    Requirement(
+        id="ACP-PROMPT-002",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "Every `session/update` notification emitted during a prompt turn validates "
+            "against the schema and carries the `sessionId` of the session being prompted. "
+            "An agent that emits no updates during the turn is allowed (Req 1 places no MUST "
+            "on emitting them, only on being *able* to send them); this test passes vacuously "
+            "in that case."
+        ),
+        citation=_cite(
+            "docs/protocol/v1/initialization.mdx:245 (Req 1); schema/v1/schema.json:3622 "
+            "(SessionNotification); Testability notes 'Weakly assertable' first bullet"
+        ),
+        source_report="acp-v1-protocol-surface.md",
+    ),
+    Requirement(
+        id="ACP-PROMPT-003",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "A prompt containing a `resource_link` content block alongside text is accepted. "
+            "Advisory, not mandatory: `initialization.mdx:204` lists `resource_link` as baseline "
+            "MUST-accept alongside text, but `content.mdx:31` says only text is MUST -- treated "
+            "as advisory until upstream resolves the discrepancy."
+        ),
+        citation=_cite(
+            "docs/protocol/v1/initialization.mdx:204 vs docs/protocol/v1/content.mdx:31 "
+            "(Req 7; Discrepancy 2)"
+        ),
+        source_report="acp-v1-protocol-surface.md",
+    ),
+    Requirement(
+        id="ACP-CANCEL-001",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "After `session/cancel` during an in-flight `session/prompt`, the prompt request "
+            "resolves with a successful result whose `stopReason` is `cancelled`, not an error."
+        ),
+        citation=_cite("docs/protocol/v1/prompt-turn.mdx:332,339 (Reqs 25, 26)"),
+        source_report="acp-v1-protocol-surface.md",
+    ),
+    Requirement(
+        id="ACP-CANCEL-002",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "Every `session/update` for the cancelled session arrives before the `session/prompt` "
+            "response; none arrive after it."
+        ),
+        citation=_cite("docs/protocol/v1/prompt-turn.mdx:343 (Req 28)"),
+        source_report="acp-v1-protocol-surface.md",
+    ),
 )
 
 REGISTRY: dict[str, Requirement] = {requirement.id: requirement for requirement in _DECLARATIONS}

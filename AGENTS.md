@@ -6,9 +6,9 @@ protocol to check conformance -- initialize, session lifecycle, prompt turns, ca
 error handling, and transport hygiene -- reporting which requirements pass, fail, are not
 applicable, or were never exercised.
 
-This slice adds an installable CLI (`acp-tck`), a requirement registry, a pytest plugin, and
-the first conformance tests (transport hygiene + `initialize`). Session/prompt/cancel tests,
-capability-conditional tests, and full reporting/verdict/exit-code land in later slices.
+Slices so far add an installable CLI (`acp-tck`), a requirement registry, a pytest plugin,
+transport/`initialize` conformance tests, and mandatory session/prompt/cancel conformance tests.
+Capability-conditional tests and full reporting/verdict/exit-code land in later slices.
 
 ## Layout
 
@@ -35,10 +35,15 @@ src/tck/
   conformance/            the conformance suite itself, shipped inside the wheel
     __init__.py
     conftest.py            intentionally empty: `-p tck.plugin` is always passed explicitly
-    _helpers.py             `connected_agent()` -- spawn + optional initialize + auto-close
+    _helpers.py             `connected_agent()`, `new_session()`, `run_prompt()`/`PromptTurn` --
+                            spawn + optional initialize + auto-close, plus the mock-client prompt
+                            driver used by every session/prompt/cancel test
     test_transport.py       ACP-TRANSPORT-001/002 (framing, UTF-8)
     test_jsonrpc.py         ACP-JSONRPC-001..005 (id echo, result-xor-error, notifications, ...)
     test_initialize.py      ACP-INIT-001..004, ACP-SCHEMA-001 (handshake + full-exchange schema)
+    test_session.py         ACP-SESSION-001/002 (session/new sessionId, uniqueness)
+    test_prompt.py          ACP-PROMPT-001..003 (stop reason, update validity, resource_link)
+    test_cancel.py           ACP-CANCEL-001/002 (cancelled stop reason, no update after response)
 
 tests/
   conftest.py              agent_launch() helper for spawning fixture agents (harness unit tests)
@@ -58,6 +63,21 @@ tests/
     result_and_error.py    initialize response carries both result and error (ACP-JSONRPC-002)
     answers_notifications.py  replies to the session/cancel notification (ACP-JSONRPC-003)
     unknown_method_no_error.py  unknown methods succeed instead of -32601 (ACP-JSONRPC-004 only)
+    hangs_until_cancel.py  conforming, but every prompt (any text) withholds its response until
+                          `session/cancel`; self-test-only, drives ACP-CANCEL-001/002
+                          deterministically since the conformance suite itself must not rely on
+                          `conforming.py`'s `__hang__` sentinel
+    cancel_returns_error.py  cancelled turn resolves with a JSON-RPC error, not `cancelled`
+                          (ACP-CANCEL-001)
+    cancel_wrong_stop_reason.py  cancelled turn resolves with `stopReason: "end_turn"` instead of
+                          `"cancelled"` (ACP-CANCEL-001)
+    update_after_response.py  cancelled turn resolves correctly, then sends one more
+                          `session/update` afterwards (ACP-CANCEL-002)
+    bad_stop_reason.py     non-`__hang__` prompts resolve with `stopReason: "done"`, not a valid
+                          StopReason (ACP-PROMPT-001, ACP-SCHEMA-001, cascades into ACP-CANCEL-001)
+    duplicate_session_id.py  `session/new` always returns the same sessionId (ACP-SESSION-002)
+    update_wrong_session.py  every `session/update` carries `sessionId: "other"`
+                          (ACP-PROMPT-002, cascades into ACP-CANCEL-002)
 ```
 
 ## Running the TCK against an agent
@@ -164,6 +184,42 @@ All fixtures are pure Python, stdlib only, deterministic, offline, ~50 lines:
 - `stderr_chatter.py` -- conforming, logs to stderr on every message received.
 - `never_responds.py` -- reads stdin forever, never writes; does not exit on stdin EOF.
 - `exits_immediately.py` -- exits 0 without reading anything.
+
+See the layout listing above for the slice-4 defect fixtures (`hangs_until_cancel.py`,
+`cancel_returns_error.py`, `cancel_wrong_stop_reason.py`, `update_after_response.py`,
+`bad_stop_reason.py`, `duplicate_session_id.py`, `update_wrong_session.py`).
+
+## Mock-client prompt driver (`_helpers.run_prompt`)
+
+`test_session.py`/`test_prompt.py`/`test_cancel.py` drive `session/prompt` through
+`run_prompt(agent, session_id, blocks, *, on_cancel=False, cancel_wait=0.5, timeout)`
+(`_helpers.py`), which acts as a minimal ACP client for whatever the agent under test sends
+during the turn:
+
+- `session/request_permission` is answered `{"outcome": {"outcome": "selected", "optionId":
+  <first option's optionId>}}`, or `{"outcome": {"outcome": "cancelled"}}` once
+  `session/cancel` has actually been sent for this turn.
+- any other agent -> client request (`fs/*`, `terminal/*`, `elicitation/create`, ...) gets
+  `-32601` (the mock client advertises `clientCapabilities: {}`), and is recorded on
+  `PromptTurn.client_requests_seen` for later negative tests to use.
+- `session/update` notifications are recorded, in order, as `(transcript_index, entry)` pairs.
+
+It returns a `PromptTurn(response_entry, updates, client_requests_seen, cancelled_at_index)`.
+`cancelled_at_index` is `None` unless `on_cancel=True` **and** `session/cancel` was actually sent
+before the prompt resolved -- see the race note below.
+
+If `on_cancel=True`, `run_prompt` sends `session/cancel` for `session_id` as soon as either the
+first `session/update` arrives or `cancel_wait` seconds elapse, whichever is first. This has an
+inherent race for a real (or fixture) agent that replies immediately after its last update: by
+the time the TCK has read that update, the agent may have *already* written its response to the
+pipe, before the TCK ever decides to send cancel. `run_prompt` mitigates the most common case with
+a short (`_CANCEL_RACE_PEEK`, 0.1s) non-blocking-ish look for the response right after an update
+and before committing to cancel -- if the response is already there, it is returned with
+`cancelled_at_index=None`, i.e. as an honest race rather than a false "cancel preceded the
+response". `test_cancel.py::test_cancel_resolves_with_cancelled_stop_reason` (ACP-CANCEL-001)
+handles the remaining, unavoidable race by falling back to "stopReason is one of the defined
+values" and recording the race via `record_property("acp_tck_cancel_raced", ...)` instead of
+asserting `stopReason == "cancelled"` for a turn that may have already finished on its own.
 
 ## Vendored schema (`tck/schema/v1/`)
 
