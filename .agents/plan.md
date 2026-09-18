@@ -61,7 +61,8 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   `research/a2a-tck-structure.md`, `research/reference-sdks-as-harness.md`.
 
 ## In progress
-- Review of slices 7–7b (read-only) → `research/review-slices-7.md`; fix-up slice 8b to follow.
+- CI workflow (programmer) — `.github/workflows/ci.yml`, pyproject metadata (no license).
+- Slice 8b — fixes from `research/review-slices-7.md` (queued behind CI programmer).
 
 ## Next slices (in order)
 7b. **Hardening from `research/review-slices-5-6.md`** (2 blockers, 9 should-fix, 14 nits) — before slice 8:
@@ -105,6 +106,20 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   `authenticate` after `initialize`. If `session/new` returns `-32000` and no `--auth-method` was
   given, the test is reported as NOT TESTED with a pointer to the flag, not as FAIL. Auth lands in
   slice 6/7 alongside other capability-conditional work.
+
+## Decisions (orchestrator) — from `research/review-slices-7.md`
+- **ACP-AUTH-001** → ADVISORY (its only assertion, AUTH-A5, is advisory in the auth research).
+- **ACP-EXT-001** stays MANDATORY: Req 42 (extensibility.mdx) says recipients MUST respond to custom `_`
+  requests; the SHOULD in the transport report (J6) is about the *specific* `-32601` code, which remains
+  ADVISORY under JSONRPC-004. Test must assert only "some response arrives" (result or error).
+- **ACP-AUTH-003** → CAPABILITY with `capability="inferred:authMethods"` (runs only when `authMethods` is
+  non-empty and `--auth-method` is given; otherwise SKIPPED), mirroring the modes/configOptions inferred gates.
+- **Informational probes** use `quiet_period()` (short), never the full `--timeout`; harness `send_raw`
+  translates `OSError`/`ConnectionResetError`/`BrokenPipeError` into `AgentExited`.
+- **`close()`** must check process exit after each grace stage, not burn the grace twice.
+- **License**: user decision pending — not chosen by the orchestrator. `pyproject.toml` gets description,
+  urls, classifiers; `license` field and `LICENSE` file wait for the user.
+- `requires-python = ">=3.14"` is a fixed constraint from `prompt.md`; keep.
 
 ## Decisions (orchestrator)
 - **Spec drift** (`research/spec-drift-check.md`, upstream HEAD d3c1dd7): `schema/v1/` byte-identical → no

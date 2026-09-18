@@ -40,7 +40,7 @@ pure-Python fixture agents. Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
   slices 5b and 7b (deferred nits N12, N20 listed below).
 
 ## Implemented and verified (all on `main`, suite green: 125 passed ≈118 s)
-Registry: **57 requirements** in `src/tck/requirements.py` (see `AGENTS.md` for the catalogue).
+Registry: **56 requirements** in `src/tck/requirements.py` (see `AGENTS.md` for the catalogue).
 - Harness `src/tck/harness/` — `AgentLaunch` (command, cwd, env overrides, timeouts, `max_line_bytes`
   64 MiB, `close_grace`), `AgentProcess` (process-group spawn, raw/JSON send with drain deadline,
   lossless oversize reads, deadline reads, two-way transcript incl. malformed lines, stderr capture,
