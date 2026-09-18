@@ -61,6 +61,15 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
 - **Slice 7 — advisory/informational tier + client-capability negative tests** (programmer).
 
 ## Next slices (in order)
+7b. **Hardening from `research/review-slices-5-6.md`** (2 blockers, 9 should-fix, 14 nits) — before slice 8:
+    AUTH-001 and JSONRPC-003/… must not send a second `initialize` (use cached initialize result or
+    `handshake=False`); INIT-003 rule becomes `version != 65535 and version >= latest_supported`; CLOSE-002 uses
+    the mock-client dispatch (factor `run_prompt`'s handler into a reusable mock client with an on-first-update
+    hook); `skip_if_auth_gated` only excuses `-32000` when `authMethods` is non-empty (else FAIL); auth flow must
+    not assert `authenticate` succeeds as a MANDATORY requirement (research must-NOT #10) — on failure, SKIP
+    session tests as blocked with a hint; `--collect-only` must not be overridden; `-k` deselection hint must not
+    blame the agent; cap transcript size in the JSON report; `_base.py` validates `authenticate` params and
+    prompt content blocks; runtime wins (wrong_id_echo run with tiny timeouts, shorter drain in watchdog test).
 5b. **Hardening from `research/review-slices-1-4.md`** (1 blocker, 9 should-fix, 9 nits) — do before slice 6:
     raise asyncio stream `limit` (e.g. 64 MiB) and never lose bytes on overlong lines; deadline on `drain()`;
     per-test watchdog; `close()` drains remaining stdout into the transcript (post-response stdout garbage must
