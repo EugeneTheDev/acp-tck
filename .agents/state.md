@@ -1,6 +1,6 @@
 # State
 
-**Last updated:** 2026-09-18 (session 1, after slice 5b)
+**Last updated:** 2026-09-18 (session 1, after slice 6a)
 **Last commit pushed:** see `git log -1` (each slice commits this file)
 
 ## Deliverable shape (decided)
@@ -87,8 +87,14 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
 - Research: `.agents/research/testy-cross-check.md` — testy builds in ~17 s, no CLI, scenarios by prompt text;
   measured CONFORMANT; INIT-003 is a false negative (echoes 65535) → strengthen in slice 6.
 
+- **Slice 6a** (102 passed, 1 skipped): INIT-003 now requires version ≠ 65535 and == the v1-request answer;
+  `conformance/test_session_capabilities.py` with LOAD/RESUME/LIST/DELETE/CLOSE/ADDDIRS ids (31 requirements
+  total); `_base.py` gained capability plumbing + session store; fixtures `conforming_full.py`,
+  `echoes_any_version.py`, `load_replays_after_response.py`, `resume_replays_history.py`, `load_returns_null.py`,
+  `advertises_load_but_errors.py`. `conforming_full.py` with `--cancel-prompt __hang__` → 31 PASS.
+
 ## In flight
-- **Programmer — Slice 6** (capability-conditional tests, INIT-003 strengthening).
+- **Programmer — Slice 6b** (modes, config options, prompt capabilities, auth surface).
 
 
 ## Open questions / blockers
@@ -96,5 +102,5 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
 - Transcript format choice (conductor `.jsons` compatibility) before slice 5.
 
 ## Next actions
-1. On slice 6 return: verify, commit + push.
+1. On slice 6b return: verify, commit + push.
 2. Slice 7 (advisory/informational + client-capability negative tests), then slice 8 (cross-check script).

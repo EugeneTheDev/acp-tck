@@ -54,17 +54,47 @@ async def test_requested_v1_is_echoed(agent_launch):
 
 @pytest.mark.requirement("ACP-INIT-003")
 async def test_unsupported_version_still_succeeds(agent_launch):
-    """ACP-INIT-003."""
+    """ACP-INIT-003, strengthened per `.agents/research/testy-cross-check.md` finding 1: the
+    previous version of this test only asserted "a successful result with an integer
+    protocolVersion", which both `testy` and `examples/echo_agent.py` PASS despite echoing the
+    client's unsupported requested version (65535) verbatim -- a false negative. The
+    requirement text says the agent returns "its latest supported version", so this needs a
+    reference point: whatever the same agent returns for a plain v1 request (ACP-INIT-002).
+    Two fresh processes are used (one per `initialize` call) rather than two handshakes over one
+    connection, matching every other test's "one fresh agent process" pattern."""
+    async with connected_agent(agent_launch, handshake=False) as reference_agent:
+        v1_req_id = await reference_agent.send_request(
+            "initialize", {"protocolVersion": 1, "clientCapabilities": {}}
+        )
+        v1_entry = await reference_agent.wait_for_response(
+            v1_req_id, timeout=agent_launch.default_timeout
+        )
+        v1_msg = v1_entry.parsed
+        assert isinstance(v1_msg, dict) and isinstance(v1_msg.get("result"), dict), (
+            f"initialize(protocolVersion=1) did not return a result object: {v1_entry.text!r}"
+        )
+        latest_supported = v1_msg["result"].get("protocolVersion")
+
     async with connected_agent(agent_launch, handshake=False) as agent:
         req_id = await agent.send_request(
             "initialize", {"protocolVersion": 65535, "clientCapabilities": {}}
         )
         entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
         msg = entry.parsed
-        assert "result" in msg, f"an unsupported version must still yield a successful result, got {msg!r}"
+        assert isinstance(msg, dict) and "result" in msg, (
+            f"an unsupported version must still yield a successful result, got {msg!r}"
+        )
         version = msg["result"].get("protocolVersion")
         assert isinstance(version, int) and not isinstance(version, bool), (
             f"protocolVersion must be an integer, got {version!r}"
+        )
+        assert version != 65535, (
+            "protocolVersion must not echo the client's unsupported requested version "
+            "verbatim -- it must be the agent's own latest supported version"
+        )
+        assert version == latest_supported, (
+            f"protocolVersion for an unsupported request ({version!r}) must equal the version "
+            f"the same agent returns for a v1 request ({latest_supported!r})"
         )
 
 

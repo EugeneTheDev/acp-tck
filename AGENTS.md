@@ -7,9 +7,11 @@ error handling, and transport hygiene -- reporting which requirements pass, fail
 applicable, or were never exercised.
 
 Slices so far add an installable CLI (`acp-tck`), a requirement registry, a pytest plugin,
-transport/`initialize` conformance tests, mandatory session/prompt/cancel conformance tests, and
-full reporting: a JSON report (`--report-json`), the four-status verdict, and a verdict-based
-exit code. Capability-conditional tests land in a later slice.
+transport/`initialize` conformance tests, mandatory session/prompt/cancel conformance tests, full
+reporting (a JSON report via `--report-json`, the four-status verdict, and a verdict-based exit
+code), and capability-conditional session-method tests: `session/load`, `session/resume`,
+`session/list`, `session/delete`, `session/close`, and `additionalDirectories`, each gated on the
+`initialize` result advertising the relevant capability.
 
 ## Layout
 
@@ -49,6 +51,12 @@ src/tck/
     test_session.py         ACP-SESSION-001/002 (session/new sessionId, uniqueness)
     test_prompt.py          ACP-PROMPT-001..003 (stop reason, update validity, resource_link)
     test_cancel.py           ACP-CANCEL-001/002 (cancelled stop reason, no update after response)
+    test_session_capabilities.py  ACP-LOAD-001..003, ACP-RESUME-001/002, ACP-LIST-001/002,
+                            ACP-DELETE-001/002, ACP-CLOSE-001/002, ACP-ADDDIRS-001 --
+                            capability-conditional `session/load`/`resume`/`list`/`delete`/`close`
+                            and `additionalDirectories`, each gated by
+                            `@pytest.mark.capability(...)` on the corresponding
+                            `agentCapabilities`/`sessionCapabilities` path
 
 tests/
   conftest.py              agent_launch() helper for spawning fixture agents (harness unit tests)
@@ -59,14 +67,27 @@ tests/
   test_cli.py               end-to-end: run `python -m tck -- <fixture>` as a subprocess,
                             including `--report-json` output and exit codes
   fixtures/agents/
-    _base.py               shared ConformingAgent core (not a standalone script)
-    conforming.py          deterministic, offline, conforming ACP v1 agent
+    _base.py               shared ConformingAgent core (not a standalone script); optionally
+                          takes a `capabilities` dict merged into `agentCapabilities`, and
+                          implements `session/load` (replays stored history before responding),
+                          `session/resume` (no replay), `session/list` (filtered by `cwd`),
+                          `session/delete`/`session/close` (remove the session; close also
+                          resolves an in-flight prompt as `cancelled`)
+    conforming.py          deterministic, offline, conforming ACP v1 agent; advertises
+                          `agentCapabilities: {}`, so every capability-conditional test SKIPs
+    conforming_full.py     conforming.py plus `loadSession: true` and every
+                          `sessionCapabilities` marker (`list`/`delete`/`resume`/`close`/
+                          `additionalDirectories`), all correctly implemented via `_base.py` --
+                          drives every CAPABILITY-tier session-method test to PASS
     banner_on_stdout.py     conforming + prints a non-ACP banner line to stdout first
     stderr_chatter.py      conforming + logs every received message to stderr
     never_responds.py      reads stdin forever, never writes anything
     exits_immediately.py   exits 0 without reading stdin
     wrong_id_echo.py       mangles every response id (violates ACP-JSONRPC-001)
     version_mismatch_errors.py  errors instead of succeeding on a version mismatch (ACP-INIT-003)
+    echoes_any_version.py  echoes the client's requested `protocolVersion` verbatim, including
+                          for the unsupported 65535 request -- the strengthened ACP-INIT-003
+                          false-negative pattern also present in `testy`/`examples/echo_agent.py`
     result_and_error.py    initialize response carries both result and error (ACP-JSONRPC-002)
     answers_notifications.py  replies to the session/cancel notification (ACP-JSONRPC-003)
     unknown_method_no_error.py  unknown methods succeed instead of -32601 (ACP-JSONRPC-004 only)
@@ -97,6 +118,19 @@ tests/
                           ACP-TRANSPORT-001, since a line that isn't decodable text isn't valid
                           JSON either -- see `banner_on_stdout.py` below for the complementary
                           fixture that FAILs 001 but PASSes 002)
+    load_replays_after_response.py  advertises `loadSession`; answers `session/load` before
+                          replaying stored history instead of after (ACP-LOAD-002 only --
+                          ACP-LOAD-001 still PASSes)
+    resume_replays_history.py  advertises `sessionCapabilities.resume`; replays stored history
+                          before answering `session/resume`, which resume MUST NOT do
+                          (ACP-RESUME-002 only -- ACP-RESUME-001 still PASSes)
+    load_returns_null.py  advertises `loadSession`, replays correctly, but answers
+                          `session/load` with a literal `null` instead of `{}` -- fails only the
+                          ADVISORY ACP-LOAD-003 (ACP-LOAD-001/002 still PASS: mandatory schema
+                          validation tolerates `null` here)
+    advertises_load_but_errors.py  advertises `loadSession: true` but always errors on
+                          `session/load` -- a CAPABILITY-tier FAIL (ACP-LOAD-001), which flips
+                          the overall verdict to NOT CONFORMANT
 ```
 
 ## Running the TCK against an agent

@@ -93,8 +93,9 @@ completes and still writes a report). No agent command after `--` is a usage err
 
 ACP **v1 only** (`PROTOCOL_VERSION = 1`, pinned in `tck.protocol`). Batch JSON-RPC arrays,
 pre-`initialize` request gating, `auth/login`, and v2 prompt-lifecycle changes are all out of
-scope. Capability-conditional coverage (`session/load`, `session/resume`, MCP/terminal/fs
-capabilities, ...) is still growing -- see `AGENTS.md` for the current requirement registry and
+scope. Capability-conditional coverage now includes `session/load`, `session/resume`,
+`session/list`, `session/delete`, `session/close`, and `additionalDirectories`; MCP/terminal/fs
+capabilities are still to come -- see `AGENTS.md` for the current requirement registry and
 what's implemented so far.
 
 ## Contributing

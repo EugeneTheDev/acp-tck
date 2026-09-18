@@ -159,10 +159,17 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "When the client requests an unsupported protocol version (65535), the agent "
-            "returns a successful result carrying its latest supported version, not an error."
+            "returns a successful result carrying an integer protocolVersion that is not "
+            "65535 and equals the version the same agent returns for a v1 request -- echoing "
+            "the client's requested version verbatim is not conformant, even though it is a "
+            "successful result with an integer protocolVersion (strengthened: both `testy` "
+            "and `examples/echo_agent.py` echo 65535 verbatim and must FAIL this)."
         ),
-        citation=_cite("docs/protocol/v1/initialization.mdx:94-98"),
-        source_report="acp-v1-protocol-surface.md",
+        citation=_cite(
+            "docs/protocol/v1/initialization.mdx:94-98; testy-cross-check.md finding 1 "
+            "(strengthening rationale)"
+        ),
+        source_report="acp-v1-protocol-surface.md; testy-cross-check.md",
     ),
     Requirement(
         id="ACP-INIT-004",
@@ -277,6 +284,171 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         ),
         citation=_cite("docs/protocol/v1/prompt-turn.mdx:343 (Req 28)"),
         source_report="acp-v1-protocol-surface.md",
+    ),
+    Requirement(
+        id="ACP-LOAD-001",
+        tier=Tier.CAPABILITY,
+        capability="agentCapabilities.loadSession",
+        text=(
+            "`session/load` with a valid `sessionId`, `cwd`, and `mcpServers` succeeds with a "
+            "schema-valid `LoadSessionResponse` object."
+        ),
+        citation=_cite(
+            "docs/protocol/v1/session-setup.mdx:104,108-186; "
+            "schema/v1/schema.json:2419-2424,3215-3249,4944-4988 (C1, L1, L4)"
+        ),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-LOAD-002",
+        tier=Tier.CAPABILITY,
+        capability="agentCapabilities.loadSession",
+        text=(
+            "Every `session/update` belonging to the `session/load` replay arrives before the "
+            "`session/load` response; none arrive after it. No claim is made about which "
+            "`sessionUpdate` kinds, how many, or their fidelity -- L5 says that is unspecified."
+        ),
+        citation=_cite("docs/protocol/v1/session-setup.mdx:134,178 (L2, L3, L5)"),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-LOAD-003",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "The `session/load` empty result is `{}` (an object), not `null` -- the docs' "
+            "historical `null` example was corrected upstream to `{}`. ADVISORY only: mandatory "
+            "schema validation (ACP-LOAD-001) already treats `null` as equivalent for an "
+            "all-optional object response (documented leniency, Discrepancy 2)."
+        ),
+        citation=_cite(
+            "docs/protocol/v1/session-setup.mdx:180-186; schema/v1/schema.json:3215-3249 "
+            "(L4; Discrepancy 2)"
+        ),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-RESUME-001",
+        tier=Tier.CAPABILITY,
+        capability="agentCapabilities.sessionCapabilities.resume",
+        text=(
+            "`session/resume` with `sessionId` and `cwd` (no `mcpServers`) succeeds with a "
+            "schema-valid `ResumeSessionResponse` object."
+        ),
+        citation=_cite(
+            "docs/protocol/v1/session-setup.mdx:243; schema/v1/schema.json:5034-5078,3337-3371 "
+            "(C2, R1, R3)"
+        ),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-RESUME-002",
+        tier=Tier.CAPABILITY,
+        capability="agentCapabilities.sessionCapabilities.resume",
+        text=(
+            "No `session/update` carrying conversation history (`user_message_chunk`, "
+            "`agent_message_chunk`, `agent_thought_chunk`) for the resumed session arrives "
+            "before the `session/resume` response -- the prohibition is scoped to history "
+            "updates in the pre-response window only, not to every update kind or to updates "
+            "after the response."
+        ),
+        citation=_cite("docs/protocol/v1/session-setup.mdx:243 (R2)"),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-LIST-001",
+        tier=Tier.CAPABILITY,
+        capability="agentCapabilities.sessionCapabilities.list",
+        text=(
+            "`session/list` with `params: {}` succeeds with a schema-valid "
+            "`ListSessionsResponse` whose `sessions` field is present as an array."
+        ),
+        citation=_cite(
+            "docs/protocol/v1/session-list.mdx:82,94; schema/v1/schema.json:4989-5010,3250-3322 "
+            "(C2, S1, S3, S4)"
+        ),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-LIST-002",
+        tier=Tier.CAPABILITY,
+        capability="agentCapabilities.sessionCapabilities.list",
+        text=(
+            "`session/list` filtered by a `cwd` that no session uses returns `sessions: []` "
+            "(an empty array, never `null`, never an error)."
+        ),
+        citation=_cite(
+            "docs/protocol/v1/session-list.mdx:84-87,166; schema/v1/schema.json:4993-4996 "
+            "(S2, S5)"
+        ),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-DELETE-001",
+        tier=Tier.CAPABILITY,
+        capability="agentCapabilities.sessionCapabilities.delete",
+        text=(
+            "`session/delete` for a session created earlier on the same connection succeeds "
+            "with a schema-valid empty-object result."
+        ),
+        citation=_cite(
+            "docs/protocol/v1/session-delete.mdx:69-81; "
+            "schema/v1/schema.json:5011-5033,3323-3336 (C2, D1)"
+        ),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-DELETE-002",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "Deleting an already-deleted or never-created `sessionId` SHOULD succeed silently, "
+            "rather than erroring."
+        ),
+        citation=_cite("docs/protocol/v1/session-delete.mdx:86 (D2)"),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-CLOSE-001",
+        tier=Tier.CAPABILITY,
+        capability="agentCapabilities.sessionCapabilities.close",
+        text=(
+            "`session/close` for an existing, idle session succeeds with a schema-valid "
+            "empty-object result."
+        ),
+        citation=_cite(
+            "docs/protocol/v1/session-setup.mdx:295-308; "
+            "schema/v1/schema.json:5079-5101,3372-3385 (C2, X1)"
+        ),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-CLOSE-002",
+        tier=Tier.CAPABILITY,
+        capability="agentCapabilities.sessionCapabilities.close",
+        text=(
+            "`session/close` on a session with an in-flight `session/prompt` cancels the "
+            "ongoing work as if `session/cancel` had been called, so the prompt resolves with "
+            "`stopReason: \"cancelled\"`. Derived obligation, medium confidence -- the spec "
+            "states the cancel-as-if via X2 and never says \"close\" explicitly next to "
+            "`stopReason`; inferred by reference to the cancellation contract (X3)."
+        ),
+        citation=_cite(
+            "docs/protocol/v1/session-setup.mdx:299 -> docs/protocol/v1/prompt-turn.mdx:332,339,343 "
+            "(X2, X3)"
+        ),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-ADDDIRS-001",
+        tier=Tier.CAPABILITY,
+        capability="agentCapabilities.sessionCapabilities.additionalDirectories",
+        text="`session/new` with an absolute `additionalDirectories` entry is accepted.",
+        citation=_cite(
+            "docs/protocol/v1/session-setup.mdx:315-344; schema/v1/schema.json:4757-4765 "
+            "(C2, A1, A2)"
+        ),
+        source_report="acp-v1-session-capabilities.md",
     ),
 )
 

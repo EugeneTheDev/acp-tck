@@ -33,8 +33,27 @@ _MANDATORY_IDS = {
     "ACP-CANCEL-001",
     "ACP-CANCEL-002",
 }
-_ADVISORY_IDS = {"ACP-JSONRPC-004", "ACP-JSONRPC-005", "ACP-INIT-004", "ACP-PROMPT-003"}
-_ALL_IDS = _MANDATORY_IDS | _ADVISORY_IDS
+_ADVISORY_IDS = {
+    "ACP-JSONRPC-004",
+    "ACP-JSONRPC-005",
+    "ACP-INIT-004",
+    "ACP-PROMPT-003",
+    "ACP-LOAD-003",
+    "ACP-DELETE-002",
+}
+_CAPABILITY_IDS = {
+    "ACP-LOAD-001",
+    "ACP-LOAD-002",
+    "ACP-RESUME-001",
+    "ACP-RESUME-002",
+    "ACP-LIST-001",
+    "ACP-LIST-002",
+    "ACP-DELETE-001",
+    "ACP-CLOSE-001",
+    "ACP-CLOSE-002",
+    "ACP-ADDDIRS-001",
+}
+_ALL_IDS = _MANDATORY_IDS | _ADVISORY_IDS | _CAPABILITY_IDS
 
 _CANCEL_IDS = {"ACP-CANCEL-001", "ACP-CANCEL-002"}
 """None of the fixtures below `hangs_until_cancel.py`, `cancel_returns_error.py`,
@@ -43,6 +62,13 @@ response until `session/cancel` arrives for arbitrary prompt text -- they resolv
 immediately, same as `conforming.py`. So for all of them, `session/cancel` always loses the
 race and the cancel tests SKIP with "cancellation not exercised" rather than PASS or FAIL (see
 `.agents/plan.md` "Cancel tests and the race")."""
+
+_CAPABILITY_GATED_IDS = _CAPABILITY_IDS | {"ACP-LOAD-003", "ACP-DELETE-002"}
+"""Every id that SKIPs (rather than PASSes) against `conforming.py`, which advertises
+`agentCapabilities: {}` -- the 10 CAPABILITY-tier ids plus the two ADVISORY ids
+(`ACP-LOAD-003`, `ACP-DELETE-002`) that are still gated behind a `@pytest.mark.capability(...)`
+marker on their test function even though their `Requirement.tier` itself is ADVISORY, not
+CAPABILITY (see `test_session_capabilities.py` module docstring)."""
 
 
 def _run_cli(
@@ -53,6 +79,7 @@ def _run_cli(
     report_json: str | None = None,
     test_timeout: str | None = None,
     startup_timeout: str = "1",
+    cancel_prompt: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     cmd = [
         sys.executable,
@@ -69,6 +96,8 @@ def _run_cli(
         cmd += ["-k", k]
     if report_json is not None:
         cmd += ["--report-json", report_json]
+    if cancel_prompt is not None:
+        cmd += ["--cancel-prompt", cancel_prompt]
     cmd += [
         "--",
         sys.executable,
@@ -115,19 +144,25 @@ def test_conforming_agent_passes_everything():
     its docstring), which the cancel tests deliberately do not send -- the TCK must not rely on
     a fixture's own sentinel, and a real agent doesn't know it either. So `session/cancel`
     always loses the race against this fixture's immediate reply, and ACP-CANCEL-001/002 SKIP
-    ("cancellation not exercised") rather than PASS -- everything else still PASSes."""
+    ("cancellation not exercised") rather than PASS. `conforming.py` also advertises
+    `agentCapabilities: {}` (no `loadSession`, no `sessionCapabilities`), so every
+    CAPABILITY-tier id -- plus the two ADVISORY ids gated behind a capability marker
+    (`ACP-LOAD-003`, `ACP-DELETE-002`) -- SKIPs too, rather than PASSing or being NOT_TESTED.
+    Everything else still PASSes."""
     result = _run_cli("conforming.py")
     assert result.returncode == 0, result.stdout + result.stderr
 
     statuses = _table_statuses(result.stdout)
     assert set(statuses) == _ALL_IDS, f"requirement table missing/extra ids: {result.stdout}"
-    for req_id in _CANCEL_IDS:
-        assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
+    skip_ids = _CANCEL_IDS | _CAPABILITY_GATED_IDS
+    for req_id in skip_ids:
+        assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised/unadvertised):\n{result.stdout}"
     for req_id, status in statuses.items():
-        if req_id in _CANCEL_IDS:
+        if req_id in skip_ids:
             continue
         assert status == "PASS", f"{req_id} is {status}, expected PASS for the conforming fixture:\n{result.stdout}"
     assert "NOT TESTED" not in result.stdout
+    assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
 
 
 def test_exits_immediately_fails_gracefully():
@@ -207,6 +242,23 @@ def test_version_mismatch_errors_fails_init_003_only():
 
     statuses = _table_statuses(result.stdout)
     assert statuses.get("ACP-INIT-003") == "FAIL", result.stdout
+    for req_id in _CANCEL_IDS:
+        assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
+    for req_id in _MANDATORY_IDS - {"ACP-INIT-003"} - _CANCEL_IDS:
+        assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
+
+
+def test_echoes_any_version_fails_init_003_only():
+    """`echoes_any_version.py` echoes the client's requested `protocolVersion` verbatim for
+    *every* request, including the unsupported 65535 one -- exactly the false-negative pattern
+    (`testy`, `examples/echo_agent.py`) the strengthened ACP-INIT-003 exists to catch (see
+    `test_initialize.py`). ACP-INIT-002 still PASSes (a v1 request is correctly echoed 1)."""
+    result = _run_cli("echoes_any_version.py")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-INIT-003") == "FAIL", result.stdout
+    assert statuses.get("ACP-INIT-002") == "PASS", result.stdout
     for req_id in _CANCEL_IDS:
         assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
     for req_id in _MANDATORY_IDS - {"ACP-INIT-003"} - _CANCEL_IDS:
@@ -389,6 +441,83 @@ def test_per_test_watchdog_fails_a_hung_test_fast():
     assert "--tck-test-timeout" in result.stdout, result.stdout + result.stderr
 
 
+# --- session-capability tests (slice 6) ---
+
+
+def test_conforming_full_agent_passes_everything_with_cancel_prompt_hang():
+    """`conforming_full.py` advertises `loadSession: true` and every `sessionCapabilities`
+    marker, so every CAPABILITY-tier id (plus the two capability-gated ADVISORY ids) should
+    PASS instead of SKIPPING. `--cancel-prompt __hang__` is used deliberately: `conforming.py`
+    (and hence `conforming_full.py`, which shares its `_base.py` prompt handling) only ever
+    withholds a response for the literal `__hang__` prompt text, so this is the one prompt text
+    that lets *both* ACP-CANCEL-001/002 *and* ACP-CLOSE-002 actually exercise their
+    cancellation/close-race logic instead of SKIPPING as "not exercised" -- a real agent
+    wouldn't recognize this sentinel either, but this fixture's whole cancellation story is
+    built around it (see `_base.py`'s `_handle_prompt`)."""
+    result = _run_cli("conforming_full.py", cancel_prompt="__hang__")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
+
+    statuses = _table_statuses(result.stdout)
+    assert set(statuses) == _ALL_IDS, f"requirement table missing/extra ids: {result.stdout}"
+    for req_id, status in statuses.items():
+        assert status == "PASS", f"{req_id} is {status}, expected PASS for conforming_full.py:\n{result.stdout}"
+    assert "NOT TESTED" not in result.stdout
+    assert all(status != "SKIPPED" for status in statuses.values()), result.stdout
+
+
+def test_load_replays_after_response_fails_load_002_only():
+    """`load_replays_after_response.py` advertises `loadSession` but answers `session/load`
+    before replaying stored history instead of after -- ACP-LOAD-001 still PASSes (the response
+    itself is valid), only the ordering requirement ACP-LOAD-002 FAILs."""
+    result = _run_cli("load_replays_after_response.py", k="load")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-LOAD-001") == "PASS", result.stdout
+    assert statuses.get("ACP-LOAD-002") == "FAIL", result.stdout
+
+
+def test_resume_replays_history_fails_resume_002_only():
+    """`resume_replays_history.py` advertises `sessionCapabilities.resume` but replays stored
+    history before answering `session/resume`, which resume MUST NOT do -- ACP-RESUME-001 still
+    PASSes, only ACP-RESUME-002 FAILs."""
+    result = _run_cli("resume_replays_history.py", k="resume")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-RESUME-001") == "PASS", result.stdout
+    assert statuses.get("ACP-RESUME-002") == "FAIL", result.stdout
+
+
+def test_load_returns_null_fails_load_003_advisory_only():
+    """`load_returns_null.py` replays history correctly and advertises `loadSession`, but
+    answers `session/load` with a literal `null` instead of `{}`. Mandatory schema validation
+    tolerates `null` for this all-optional response, so ACP-LOAD-001/002 PASS; only the
+    stricter ADVISORY ACP-LOAD-003 FAILs. The overall exit code is *not* asserted here (see
+    `test_hangs_until_cancel_agent_passes_cancel_requirements` for why): a `-k`-scoped run
+    necessarily leaves every MANDATORY requirement NOT_TESTED, which by itself forces a
+    non-conformant verdict regardless of ACP-LOAD-003's own (ADVISORY, verdict-inert) status."""
+    result = _run_cli("load_returns_null.py", k="load")
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-LOAD-001") == "PASS", result.stdout
+    assert statuses.get("ACP-LOAD-002") == "PASS", result.stdout
+    assert statuses.get("ACP-LOAD-003") == "FAIL", result.stdout
+
+
+def test_advertises_load_but_errors_fails_load_001_and_verdict():
+    """`advertises_load_but_errors.py` advertises `loadSession: true` but always errors on
+    `session/load` -- a CAPABILITY-tier FAIL, which must flip the overall verdict to NOT
+    CONFORMANT (unlike an ADVISORY-only failure)."""
+    result = _run_cli("advertises_load_but_errors.py", k="load")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-LOAD-001") == "FAIL", result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
 # --- --report-json (slice 5) ---
 
 
@@ -400,9 +529,10 @@ def test_report_json_for_conforming_agent_is_conformant_with_cancel_skipped(tmp_
     report = json.loads(report_path.read_text())
     assert report["verdict"]["conformant"] is True
     by_id = {r["id"]: r for r in report["requirements"]}
-    for req_id in _CANCEL_IDS:
+    skip_ids = _CANCEL_IDS | _CAPABILITY_GATED_IDS
+    for req_id in skip_ids:
         assert by_id[req_id]["status"] == "SKIPPED", report
-    for req_id in _ALL_IDS - _CANCEL_IDS:
+    for req_id in _ALL_IDS - skip_ids:
         assert by_id[req_id]["status"] == "PASS", (req_id, report)
     assert report["protocol_version"] == 1
     assert report["agent_info"] is not None
