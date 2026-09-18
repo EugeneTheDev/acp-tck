@@ -57,6 +57,14 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
 - **Slice 5 — reporting** (programmer): JSON report, verdict-based exit code, meta-tests.
 
 ## Next slices (in order)
+5b. **Hardening from `research/review-slices-1-4.md`** (1 blocker, 9 should-fix, 9 nits) — do before slice 6:
+    raise asyncio stream `limit` (e.g. 64 MiB) and never lose bytes on overlong lines; deadline on `drain()`;
+    per-test watchdog; `close()` drains remaining stdout into the transcript (post-response stdout garbage must
+    fail TRANSPORT-001); split TRANSPORT-002 (UTF-8) into its own test; drive every prompt turn through
+    `run_prompt` (mock client) incl. transport + SCHEMA-001 tests; JSONRPC-002 evidence must come from a
+    mandatory path (e.g. the `initialize` response and a deliberately invalid-params request), not the SHOULD
+    unknown-method reply; TCK probe methods `_`-prefixed (`_tck/does_not_exist`); `capability` marker
+    implements boolean `=== true` gates and object-marker non-null; plus the remaining should-fix/nits.
 2. Vendored v1 JSON schema + `tck/protocol.py` constants + `validate_agent_message()` + tests.
 3. Requirement registry + pytest plugin (options, per-test agent fixture, `@requirement` marker,
    result collector) + CLI wiring + first conformance tests: transport hygiene (T1/T5/T7/J1–J4)
