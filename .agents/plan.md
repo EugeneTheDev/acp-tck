@@ -52,8 +52,6 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
 
 ## In progress
 - **Slice 3 — registry + pytest plugin + CLI + first conformance tests** (programmer). See "Next slices" item 3.
-- **Research: authentication semantics** → `research/acp-v1-authentication.md` (does an agent
-  advertising `authMethods` have to return `-32000` before `authenticate`?).
 
 ## Next slices (in order)
 2. Vendored v1 JSON schema + `tck/protocol.py` constants + `validate_agent_message()` + tests.
