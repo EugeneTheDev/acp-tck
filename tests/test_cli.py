@@ -46,7 +46,13 @@ race and the cancel tests SKIP with "cancellation not exercised" rather than PAS
 
 
 def _run_cli(
-    fixture: str, *, k: str | None = None, timeout: str = "1", report_json: str | None = None
+    fixture: str,
+    *,
+    k: str | None = None,
+    timeout: str = "1",
+    report_json: str | None = None,
+    test_timeout: str | None = None,
+    startup_timeout: str = "1",
 ) -> subprocess.CompletedProcess[str]:
     cmd = [
         sys.executable,
@@ -55,8 +61,10 @@ def _run_cli(
         "--timeout",
         timeout,
         "--startup-timeout",
-        "1",
+        startup_timeout,
     ]
+    if test_timeout is not None:
+        cmd += ["--test-timeout", test_timeout]
     if k is not None:
         cmd += ["-k", k]
     if report_json is not None:
@@ -132,18 +140,55 @@ def test_exits_immediately_fails_gracefully():
         assert statuses.get(req_id) == "FAIL", f"{req_id} should FAIL when the agent never responds"
 
 
-def test_banner_on_stdout_fails_transport_requirements_only():
+def test_banner_on_stdout_fails_transport_001_but_passes_transport_002():
+    """The banner is plain ASCII -- valid UTF-8 -- so it must FAIL ACP-TRANSPORT-001 (framing)
+    but PASS ACP-TRANSPORT-002 (UTF-8), not be misreported as a UTF-8 violation (review S2)."""
     result = _run_cli("banner_on_stdout.py")
     assert result.returncode != 0
 
     statuses = _table_statuses(result.stdout)
     assert statuses.get("ACP-TRANSPORT-001") == "FAIL", result.stdout
-    assert statuses.get("ACP-TRANSPORT-002") == "FAIL", result.stdout
+    assert statuses.get("ACP-TRANSPORT-002") == "PASS", result.stdout
     assert statuses.get("ACP-SCHEMA-001") == "FAIL", result.stdout
     for req_id in _CANCEL_IDS:
         assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
-    for req_id in _MANDATORY_IDS - {"ACP-TRANSPORT-001", "ACP-TRANSPORT-002", "ACP-SCHEMA-001"} - _CANCEL_IDS:
+    for req_id in _MANDATORY_IDS - {"ACP-TRANSPORT-001", "ACP-SCHEMA-001"} - _CANCEL_IDS:
         assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
+
+
+def test_invalid_utf8_fails_transport_002():
+    """`invalid_utf8.py` is ACP-TRANSPORT-002's real negative control (review S2): a lone
+    undecodable line makes ACP-TRANSPORT-002 FAIL."""
+    result = _run_cli("invalid_utf8.py")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-TRANSPORT-002") == "FAIL", result.stdout
+
+
+def test_garbage_after_response_fails_transport_001():
+    """`garbage_after_response.py` writes non-JSON to stdout only after stdin closes -- strictly
+    after the last response any test awaits. `close()` must drain and record that line so
+    ACP-TRANSPORT-001 catches it instead of reporting a false PASS (review S8)."""
+    result = _run_cli("garbage_after_response.py")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-TRANSPORT-001") == "FAIL", result.stdout
+
+
+def test_asks_permission_agent_passes_everything():
+    """`asks_permission.py` sends `session/request_permission` before resolving every prompt --
+    the mock client (`run_prompt`) must answer it for any prompt/transport/schema test to ever
+    resolve at all (review S4/N17)."""
+    result = _run_cli("asks_permission.py")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    for req_id in _CANCEL_IDS:
+        assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
+    for req_id in _MANDATORY_IDS - _CANCEL_IDS:
+        assert statuses.get(req_id) == "PASS", f"{req_id} is {statuses.get(req_id)}, expected PASS:\n{result.stdout}"
 
 
 def test_wrong_id_echo_fails_id_dependent_requirements():
@@ -169,15 +214,21 @@ def test_version_mismatch_errors_fails_init_003_only():
 
 
 def test_result_and_error_fails_init_001_and_schema_001():
+    """`result_and_error.py`'s `initialize` response carries both `result` and `error`, which
+    now also fails ACP-JSONRPC-002 (review S3: that requirement's evidence includes the
+    `initialize` response itself, not just a probe reply) in addition to ACP-INIT-001 and
+    ACP-SCHEMA-001."""
     result = _run_cli("result_and_error.py")
     assert result.returncode != 0
 
     statuses = _table_statuses(result.stdout)
     assert statuses.get("ACP-INIT-001") == "FAIL", result.stdout
     assert statuses.get("ACP-SCHEMA-001") == "FAIL", result.stdout
+    assert statuses.get("ACP-JSONRPC-002") == "FAIL", result.stdout
+    _failing = {"ACP-INIT-001", "ACP-SCHEMA-001", "ACP-JSONRPC-002"}
     for req_id in _CANCEL_IDS:
         assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
-    for req_id in _MANDATORY_IDS - {"ACP-INIT-001", "ACP-SCHEMA-001"} - _CANCEL_IDS:
+    for req_id in _MANDATORY_IDS - _failing - _CANCEL_IDS:
         assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
 
 
@@ -318,6 +369,24 @@ def test_update_after_response_fails_cancel_002_only():
     statuses = _table_statuses(result.stdout)
     assert statuses.get("ACP-CANCEL-001") == "PASS", result.stdout
     assert statuses.get("ACP-CANCEL-002") == "FAIL", result.stdout
+
+
+def test_per_test_watchdog_fails_a_hung_test_fast():
+    """A tiny `--test-timeout` must fail a test whose own per-operation deadlines are much
+    larger, well before any individual read/write deadline would ever fire on its own (review
+    S7) -- proving the watchdog itself is what caught it, not the ordinary per-response
+    timeout. Scoped to one fast, id-echo-only test node so this stays quick even though
+    `--timeout`/`--startup-timeout` are deliberately large."""
+    result = _run_cli(
+        "never_responds.py",
+        k="test_id_is_echoed_for_integer_and_string_ids",
+        timeout="10",
+        startup_timeout="1",
+        test_timeout="0.3",
+    )
+    assert result.returncode != 0
+    assert "per-test watchdog" in result.stdout, result.stdout + result.stderr
+    assert "--tck-test-timeout" in result.stdout, result.stdout + result.stderr
 
 
 # --- --report-json (slice 5) ---

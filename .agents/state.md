@@ -1,6 +1,6 @@
 # State
 
-**Last updated:** 2026-09-18 (session 1, after slice 5)
+**Last updated:** 2026-09-18 (session 1, after slice 5b)
 **Last commit pushed:** see `git log -1` (each slice commits this file)
 
 ## Deliverable shape (decided)
@@ -78,8 +78,17 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
   `README.md` written. CLI `--report-json`.
 - Review: `.agents/research/review-slices-1-4.md` — 1 blocker (64 KiB asyncio line limit), 9 should-fix, 9 nits.
 
+- **Slice 5b — hardening** (94 passed, 3 skipped): `AgentLaunch.max_line_bytes` (64 MiB) + lossless oversize
+  read loop; `send_raw` drain deadline; per-test watchdog `--tck-test-timeout`/CLI `--test-timeout` (120 s);
+  `close()` drains remaining stdout into the transcript; TRANSPORT-001/002 separate tests; all prompt turns via
+  `run_prompt`; JSONRPC-002 evidence from `initialize` + invalid-params `session/new`; probes `_tck/...`;
+  `capability_is_supported(result, path, boolean=)` + `@pytest.mark.capability(path, boolean=True)`. New fixtures
+  `asks_permission.py`, `garbage_after_response.py`, `invalid_utf8.py`; `tests/test_plugin.py`.
+- Research: `.agents/research/testy-cross-check.md` — testy builds in ~17 s, no CLI, scenarios by prompt text;
+  measured CONFORMANT; INIT-003 is a false negative (echoes 65535) → strengthen in slice 6.
+
 ## In flight
-- **Programmer — Slice 5b** (hardening per review).
+- **Programmer — Slice 6** (capability-conditional tests, INIT-003 strengthening).
 
 
 ## Open questions / blockers
@@ -87,5 +96,5 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
 - Transcript format choice (conductor `.jsons` compatibility) before slice 5.
 
 ## Next actions
-1. On slice 5b return: verify (incl. a >64 KiB line test), commit + push.
-2. Spawn slice 6 (capability-conditional tests from `research/acp-v1-session-capabilities.md`).
+1. On slice 6 return: verify, commit + push.
+2. Slice 7 (advisory/informational + client-capability negative tests), then slice 8 (cross-check script).

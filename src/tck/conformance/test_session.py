@@ -37,12 +37,20 @@ async def test_two_sessions_get_distinct_ids(agent_launch, tmp_path):
             "session/new", {"cwd": str(tmp_path), "mcpServers": []}
         )
         first_entry = await agent.wait_for_response(first_req, timeout=agent_launch.default_timeout)
-        first_id = first_entry.parsed["result"]["sessionId"]
+        first_msg = first_entry.parsed
+        assert isinstance(first_msg, dict) and isinstance(first_msg.get("result"), dict), (
+            f"first session/new did not return a result object: {first_entry.text!r}"
+        )
+        first_id = first_msg["result"].get("sessionId")
 
         second_req = await agent.send_request(
             "session/new", {"cwd": str(tmp_path), "mcpServers": []}
         )
         second_entry = await agent.wait_for_response(second_req, timeout=agent_launch.default_timeout)
-        second_id = second_entry.parsed["result"]["sessionId"]
+        second_msg = second_entry.parsed
+        assert isinstance(second_msg, dict) and isinstance(second_msg.get("result"), dict), (
+            f"second session/new did not return a result object: {second_entry.text!r}"
+        )
+        second_id = second_msg["result"].get("sessionId")
 
         assert first_id != second_id, f"two session/new calls returned the same sessionId: {first_id!r}"

@@ -34,6 +34,10 @@ process per test, so one crash can't cascade into unrelated failures.
 - `--agent-env KEY=VAL` -- environment variable overlaid on the agent's process; repeatable.
 - `--timeout S` -- per-response deadline in seconds (default 30).
 - `--startup-timeout S` -- deadline for the agent's first response (default 30).
+- `--test-timeout S` -- wall-clock deadline for a single test, regardless of its own internal
+  timeouts (default 120). Guards against a test that would otherwise hang indefinitely (e.g. an
+  agent that stops responding partway through a multi-step exchange); on expiry the test fails
+  with a message identifying the watchdog, and the agent process is still shut down normally.
 - `--cancel-prompt TEXT` -- prompt text the cancellation tests send, instead of the short text
   every other prompt test uses. Pick something that keeps a real agent busy long enough for
   `session/cancel` to land while the turn is still in flight -- otherwise those tests report

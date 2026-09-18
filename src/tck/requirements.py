@@ -101,7 +101,11 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         id="ACP-JSONRPC-003",
         tier=Tier.MANDATORY,
         capability=None,
-        text="Notifications never receive a response, success or error.",
+        text=(
+            "Notifications never receive a response, success or error. Concluding \"no "
+            "response arrived\" is inherently a heuristic wait (a quiet period derived from "
+            "--tck-timeout, not an infinite one) -- see tck.conformance._helpers.quiet_period."
+        ),
         citation=_cite(
             "docs/protocol/v1/overview.mdx:223; agent-client-protocol-schema/src/v1/error.rs:9"
         ),
@@ -267,7 +271,9 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "Every `session/update` for the cancelled session arrives before the `session/prompt` "
-            "response; none arrive after it."
+            "response; none arrive after it. \"None arrive after it\" is checked with a quiet "
+            "period derived from --tck-timeout (tck.conformance._helpers.quiet_period), not an "
+            "infinite wait."
         ),
         citation=_cite("docs/protocol/v1/prompt-turn.mdx:343 (Req 28)"),
         source_report="acp-v1-protocol-surface.md",

@@ -85,6 +85,18 @@ tests/
     duplicate_session_id.py  `session/new` always returns the same sessionId (ACP-SESSION-002)
     update_wrong_session.py  every `session/update` carries `sessionId: "other"`
                           (ACP-PROMPT-002, cascades into ACP-CANCEL-002)
+    asks_permission.py    conforming, but sends `session/request_permission` mid-turn and only
+                          resolves once the client answers -- the only self-test fixture that
+                          exercises `_helpers.run_prompt`'s permission-answering path
+    garbage_after_response.py  conforming for the whole exchange, then -- after stdin closes --
+                          writes one line of non-JSON garbage to stdout before exiting
+                          (ACP-TRANSPORT-001; only catchable via `AgentProcess.close()`'s
+                          post-close stdout drain)
+    invalid_utf8.py       writes one line of invalid UTF-8 bytes to stdout, otherwise conforming;
+                          the dedicated negative control for ACP-TRANSPORT-002 (it also FAILs
+                          ACP-TRANSPORT-001, since a line that isn't decodable text isn't valid
+                          JSON either -- see `banner_on_stdout.py` below for the complementary
+                          fixture that FAILs 001 but PASSes 002)
 ```
 
 ## Running the TCK against an agent
@@ -94,9 +106,14 @@ uv run acp-tck -- python tests/fixtures/agents/conforming.py
 ```
 
 Options: `--agent-cwd DIR`, `--agent-env KEY=VAL` (repeatable), `--timeout S` (per-response
-deadline, default 30), `--startup-timeout S` (default 30), `--cancel-prompt TEXT` (see below),
-`--report-json PATH` (see "Reporting" below), `-k EXPR`, `-v`, `--version`, `--help`. Everything
-after `--` is the agent's own command line.
+deadline, default 30), `--startup-timeout S` (default 30), `--test-timeout S` (per-test
+wall-clock watchdog, default 120 -- plugin: `--tck-test-timeout`; wraps the whole async test
+body in `asyncio.wait_for(...)`, so a test hangs for at most this long even if every individual
+read/write inside it uses a much larger `--timeout`; on expiry the test `FAIL`s with a message
+naming the watchdog, and the agent process is still closed normally so transcript/stderr
+diagnostics are still attached), `--cancel-prompt TEXT` (see below), `--report-json PATH` (see
+"Reporting" below), `-k EXPR`, `-v`, `--version`, `--help`. Everything after `--` is the agent's
+own command line.
 
 **Exit code** is the four-status verdict, not pytest's own per-test exit code: `0` iff
 `verdict.conformant` (no `MANDATORY` `FAIL`/`NOT_TESTED`, no `CAPABILITY` `FAIL` -- see
@@ -149,10 +166,21 @@ own async tests are run the same way, via `tck.plugin`'s `pytest_pyfunc_call` ho
    agent; `async def` tests work without any extra setup.
 3. If the requirement only applies when the agent advertises a capability, add
    `@pytest.mark.capability("agentCapabilities.some.path")` too -- the test is skipped with
-   reason "capability ... not advertised" (or "initialize failed") otherwise.
-4. Run `uv run pytest` -- `tests/test_registry.py` fails if the new id isn't referenced by a
+   reason "capability ... not advertised" (or "initialize failed") otherwise. By default this
+   checks for an *object marker*: supported iff the path resolves to a present, non-`null`
+   value (an empty object still counts -- e.g. `"loadSession": {}`). For a plain boolean gate
+   (supported iff the value is exactly `true`, e.g. `"loadSession": false` must NOT count as
+   advertised), pass `boolean=True`: `@pytest.mark.capability("agentCapabilities.loadSession",
+   boolean=True)`. See `capability_is_supported()` in `src/tck/plugin.py` and its unit tests in
+   `tests/test_plugin.py` for both encodings.
+4. If the test needs to send a custom/probe method the agent isn't expected to recognize (e.g.
+   an "unknown method" negative control), prefix it with `_` (`_tck/does_not_exist`, `_tck/big`,
+   ...) -- Req 42 / the extensibility rule requires custom methods to be `_`-prefixed, and the
+   TCK holds itself to the same rule so its own probe traffic can never collide with a real,
+   spec-defined method name.
+5. Run `uv run pytest` -- `tests/test_registry.py` fails if the new id isn't referenced by a
    test, or if a test references an id that isn't registered.
-5. Consider adding a non-conforming fixture under `tests/fixtures/agents/` that trips only the
+6. Consider adding a non-conforming fixture under `tests/fixtures/agents/` that trips only the
    new requirement, and assert on it in `tests/test_cli.py`.
 
 ## Tiers and statuses
@@ -203,30 +231,46 @@ whose typed layer cannot emit malformed traffic and whose transport silently dro
 non-conforming lines. This harness never drops or crashes on anything the agent sends; it
 records it.
 
-- `AgentLaunch(command, cwd=None, env_overrides={}, startup_timeout=5.0, default_timeout=5.0)`
-  -- launch configuration. `env_overrides` is applied on top of the inherited `os.environ`.
+- `AgentLaunch(command, cwd=None, env_overrides={}, startup_timeout=5.0, default_timeout=5.0,
+  max_line_bytes=64*1024*1024)` -- launch configuration. `env_overrides` is applied on top of
+  the inherited `os.environ`. `max_line_bytes` is passed as `create_subprocess_exec(limit=...)`
+  (the `StreamReader` buffer size) *and* is the line-reassembly threshold below: a single
+  oversized stdout line is never truncated or dropped, only flagged (see `read_line` below).
 - `AgentProcess(launch)` -- async context manager; spawns the subprocess in its own process
   group (POSIX) so the whole group can be terminated.
   - `send_raw(bytes | str)` -- writes exactly the given bytes plus `\n`; use this for
-    deliberately malformed traffic.
+    deliberately malformed traffic. `drain()` is bounded by `launch.default_timeout`; a stuck
+    write (e.g. an agent that never reads stdin, filling the pipe buffer) raises `AgentTimeout`
+    instead of hanging the test forever.
   - `send_message(dict)` -- compact `json.dumps` plus `\n`.
   - `send_request(method, params=None, *, id=None) -> id` -- auto-increments an int id unless
     one is given (string ids allowed).
   - `send_notification(method, params=None)`.
   - `read_line(timeout=None) -> TranscriptEntry` -- next stdout line, raw bytes plus best-effort
-    UTF-8/JSON decoding. Raises `AgentTimeout` (carries the transcript so far) or `AgentExited`
-    (carries exit code, `stderr_text()`, and the transcript).
+    UTF-8/JSON decoding. Byte-lossless even past `max_line_bytes`: internally loops
+    `StreamReader.readuntil(b"\n")`, and on `LimitOverrunError` consumes exactly the buffered
+    bytes via `readexactly` and keeps looping rather than following `readline()`'s own behavior
+    of silently discarding them -- the resulting `TranscriptEntry.oversize` is `True` whenever
+    this happened, `False` otherwise. Raises `AgentTimeout` (carries the transcript so far) or
+    `AgentExited` (carries exit code, `stderr_text()`, and the transcript).
   - `wait_for_response(id, timeout=None)` / `wait_for_message(predicate, timeout=None)` -- read
     until a match; every other line read along the way stays in `transcript` and is available
     via `pending()`.
   - `transcript: list[TranscriptEntry]` -- everything sent and received, in order, both
     directions, malformed lines included.
   - `stderr_text()` -- everything captured from stderr so far (drained continuously in the
-    background so the child never blocks on it).
+    background so the child never blocks on it, bounded to the last 64 kB with a "truncated N
+    earlier byte(s)" prefix once exceeded).
   - `close(grace=2.0)` -- close stdin, wait; SIGTERM the process group, wait; SIGKILL. Sets
-    `exit_code` and `exited_on_stdin_close`.
+    `exit_code` and `exited_on_stdin_close`. At each stage of that ladder, drains and records
+    whatever the agent has already written to stdout since the last line any test read --
+    including a partial final line with no trailing newline -- so output written after the last
+    `read_line`/`wait_for_*` call (e.g. garbage flushed only once stdin hits EOF) still lands in
+    `transcript` and is still checked by ACP-TRANSPORT-001/002. Never raises on lateness; each
+    drain stage has its own short deadline carved out of `grace`.
 - `TranscriptEntry` -- `direction`, `raw`, `timestamp`, `text`/`text_error`,
-  `parsed`/`parse_error`. Decode/parse failures are recorded as fields, never raised.
+  `parsed`/`parse_error`, `oversize` (see `read_line` above). Decode/parse failures are recorded
+  as fields, never raised.
 
 ## Fixture agent catalogue
 
@@ -280,24 +324,28 @@ first `session/update` arrives or `cancel_wait` seconds elapse, whichever is fir
 inherent race for a real (or fixture) agent that replies immediately after its last update: by
 the time the TCK has read that update, the agent may have *already* written its response to the
 pipe, before the TCK ever decides to send cancel. `run_prompt` mitigates the most common case with
-a short (`_CANCEL_RACE_PEEK`, 0.1s) non-blocking-ish look for the response right after an update
-and before committing to cancel -- if the response is already there, it is returned with
-`cancelled_at_index=None`, i.e. as an honest race rather than a false "cancel preceded the
-response".
+a short non-blocking-ish look for the response right after an update and before committing to
+cancel -- if the response is already there, it is returned with `cancelled_at_index=None`, i.e.
+as an honest race rather than a false "cancel preceded the response". This peek window and the
+skip window below are not fixed constants: `_helpers.cancel_race_peek(timeout)` and
+`_helpers.quiet_period(timeout)` derive both from whatever `--timeout` (`agent_launch.
+default_timeout`) is in effect for the run, so a larger `--timeout` against a slower real agent
+widens both windows instead of leaving them pinned to defaults tuned for the fast, offline
+fixtures.
 
 `test_cancel.py` (ACP-CANCEL-001/002) never turns an unavoidable race into a PASS or FAIL --
 claiming a requirement was exercised when it was not is dishonest. It `pytest.skip("cancellation
 not exercised: ...")` in two situations (`.agents/plan.md` "Cancel tests and the race"): (1)
 `cancelled_at_index is None` -- the response was read before `session/cancel` could be sent at
 all; (2) `session/cancel` was sent, but the response arrives with a valid, non-`cancelled` stop
-reason within 1.0s (`_CANCEL_RACE_WINDOW`, measured off the transcript's monotonic timestamps
-between the cancel notification and the response) -- the agent may simply have finished on its
-own before reading the notification. The elapsed milliseconds are recorded via
-`record_property("acp_tck_cancel_race_ms", ...)`. Outside those two situations the requirement is
-judged normally: `stopReason: "cancelled"` PASSes; a JSON-RPC error, or a non-`cancelled` stop
-reason arriving outside the race window, FAILs. The cancel tests use `--cancel-prompt` text (see
-above) instead of the short text other prompt tests use, specifically to make situations (1)/(2)
-less likely against a real agent.
+reason within `quiet_period(agent_launch.default_timeout)` (measured off the transcript's
+monotonic timestamps between the cancel notification and the response) -- the agent may simply
+have finished on its own before reading the notification. The elapsed milliseconds are recorded
+via `record_property("acp_tck_cancel_race_ms", ...)`. Outside those two situations the
+requirement is judged normally: `stopReason: "cancelled"` PASSes; a JSON-RPC error, or a
+non-`cancelled` stop reason arriving outside the race window, FAILs. The cancel tests use
+`--cancel-prompt` text (see above) instead of the short text other prompt tests use, specifically
+to make situations (1)/(2) less likely against a real agent.
 
 ## Vendored schema (`tck/schema/v1/`)
 

@@ -100,6 +100,17 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "agent failed conformance.",
     )
     group.addoption(
+        "--tck-test-timeout",
+        action="store",
+        type=float,
+        default=120.0,
+        help="Per-test wall-clock watchdog in seconds (default: 120). Guards against an agent "
+        "that hangs in a way no single read/write deadline catches (e.g. a `session/prompt` "
+        "that keeps streaming `session/update`s forever) -- the test fails clearly instead of "
+        "hanging the whole run, and the agent process is still closed and its transcript/stderr "
+        "still attached to the failure.",
+    )
+    group.addoption(
         "--tck-report-json",
         action="store",
         default=None,
@@ -138,8 +149,10 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line(
         "markers",
-        "capability(path): skip this test unless the cached `initialize` result has a "
-        "non-null value at this JSON path (dotted, e.g. 'agentCapabilities.loadSession').",
+        "capability(path, boolean=False): skip this test unless the cached `initialize` "
+        "result advertises the capability at this dotted JSON path. By default (object-marker "
+        "semantics) any present, non-null value counts; pass boolean=True for capabilities that "
+        "are gated by `=== true` rather than by presence (e.g. 'agentCapabilities.loadSession').",
     )
     config.stash[TEST_STATES_KEY] = {}
 
@@ -164,7 +177,19 @@ def pytest_pyfunc_call(pyfuncitem: pytest.Function) -> bool | None:
         return None
     argnames = pyfuncitem._fixtureinfo.argnames
     kwargs = {name: pyfuncitem.funcargs[name] for name in argnames if name in pyfuncitem.funcargs}
-    asyncio.run(testfunction(**kwargs))
+    timeout = pyfuncitem.config.getoption("tck_test_timeout")
+
+    async def _run_with_watchdog() -> None:
+        try:
+            await asyncio.wait_for(testfunction(**kwargs), timeout=timeout)
+        except asyncio.TimeoutError:
+            pytest.fail(
+                f"test exceeded the {timeout}s per-test watchdog (--tck-test-timeout) -- the "
+                "agent process has been closed; see the attached transcript/stderr",
+                pytrace=False,
+            )
+
+    asyncio.run(_run_with_watchdog())
     return True
 
 
@@ -223,7 +248,7 @@ def agent_initialize_result(request: pytest.FixtureRequest) -> InitializeOutcome
                     {"protocolVersion": PROTOCOL_VERSION, "clientCapabilities": {}},
                 )
                 entry = await agent.wait_for_response(req_id, timeout=launch.startup_timeout)
-        except (AgentTimeout, AgentExited) as exc:
+        except (AgentTimeout, AgentExited, OSError) as exc:
             return InitializeOutcome(None, str(exc))
         msg = entry.parsed
         if not isinstance(msg, dict) or "result" not in msg:
@@ -235,22 +260,49 @@ def agent_initialize_result(request: pytest.FixtureRequest) -> InitializeOutcome
     return outcome
 
 
+def _lookup_capability(result: dict[str, Any], path: str) -> Any:
+    """Walk a dotted JSON path (e.g. `agentCapabilities.loadSession`) into `result`, returning
+    `None` if any segment is missing or not an object -- the same "absent" outcome as an
+    explicit `null`."""
+    value: Any = result
+    for part in path.split("."):
+        if not isinstance(value, dict) or part not in value:
+            return None
+        value = value[part]
+    return value
+
+
+def capability_is_supported(result: dict[str, Any], path: str, *, boolean: bool = False) -> bool:
+    """Whether the capability at `path` is advertised, per
+    `.agents/plan.md` "Decisions (orchestrator)" / "Capability detection":
+
+    - `boolean=True` gates (e.g. `promptCapabilities.image`, `agentCapabilities.loadSession`)
+      are supported iff the value is `=== true` -- anything else (missing, `false`, `null`, an
+      object) does not count.
+    - Object markers (e.g. `agentCapabilities.mcpCapabilities`, `auth.logout`) are supported iff
+      the value is present and non-null -- `{}` counts as supported, `false`/missing/`null`
+      does not.
+    """
+    value = _lookup_capability(result, path)
+    if boolean:
+        return value is True
+    return value is not None
+
+
 @pytest.fixture(autouse=True)
 def _tck_capability_gate(request: pytest.FixtureRequest) -> None:
     marker = request.node.get_closest_marker("capability")
     if marker is None:
         return
     path = marker.args[0]
+    boolean = marker.kwargs.get("boolean", False)
     outcome: InitializeOutcome = request.getfixturevalue("agent_initialize_result")
     if outcome.result is None:
-        pytest.skip(f"initialize failed: {outcome.error_message}")
-    value: Any = outcome.result
-    for part in path.split("."):
-        if not isinstance(value, dict) or part not in value:
-            value = None
-            break
-        value = value[part]
-    if value is None:
+        # `initialize` is mandatory: if it failed, every capability-gated test is a real
+        # failure of the requirement chain, not "not applicable" -- SKIPPED would let a broken
+        # agent score falsely well on everything gated behind a capability.
+        pytest.fail(f"cannot evaluate capability {path!r}: initialize failed: {outcome.error_message}", pytrace=False)
+    if not capability_is_supported(outcome.result, path, boolean=boolean):
         pytest.skip(f"capability {path!r} not advertised by the agent under test")
 
 

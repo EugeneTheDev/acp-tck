@@ -3,10 +3,12 @@
 to the prompt with `stopReason: "end_turn"` instead of `"cancelled"`. Violates ACP-CANCEL-001
 (Req 25).
 
-Answering *immediately* on cancel would land inside the TCK's 1.0s "was this actually
-exercised" race window (`test_cancel.py::_CANCEL_RACE_WINDOW`) -- since `"end_turn"` is itself a
-valid `StopReason`, an instant reply would make ACP-CANCEL-001 SKIP instead of FAIL, hiding this
-fixture's whole reason for existing. Sleeping past the window keeps the defect detectable.
+Answering *immediately* on cancel would land inside the TCK's "was this actually exercised"
+race window (`tck.conformance._helpers.quiet_period`, derived from `--tck-timeout`) -- since
+`"end_turn"` is itself a valid `StopReason`, an instant reply would make ACP-CANCEL-001 SKIP
+instead of FAIL, hiding this fixture's whole reason for existing. Sleeping 1.2s comfortably
+clears that window for any `--tck-timeout` this fixture is run with (the self-test uses
+`--timeout 5`, giving a 0.5s window). Sleeping past the window keeps the defect detectable.
 """
 
 import sys

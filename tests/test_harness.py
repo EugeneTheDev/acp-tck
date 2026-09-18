@@ -66,7 +66,7 @@ def test_auto_increment_ids_are_unique_ints() -> None:
 def test_unknown_method_returns_method_not_found() -> None:
     async def scenario() -> None:
         async with AgentProcess(agent_launch("conforming.py")) as agent:
-            req_id = await agent.send_request("tck/does_not_exist", {})
+            req_id = await agent.send_request("_tck/does_not_exist", {})
             entry = await agent.wait_for_response(req_id)
             assert entry.parsed["error"]["code"] == -32601
 
@@ -154,6 +154,49 @@ def test_stderr_chatter_captures_stderr() -> None:
                     break
                 await asyncio.sleep(0.05)
             assert "stderr_chatter received" in agent.stderr_text()
+
+    run(scenario())
+
+
+# --- line-limit handling (review B1) ---
+
+
+def test_large_line_under_generous_default_limit_is_read_whole() -> None:
+    """A ~2 MB line is comfortably under the harness's 64 MiB default `max_line_bytes`, so it
+    must come back whole, with no oversize marker, and the connection stays usable."""
+
+    async def scenario() -> None:
+        async with AgentProcess(agent_launch("conforming.py")) as agent:
+            req_id = await agent.send_request("_tck/big", {"size": 2_000_000})
+            entry = await agent.wait_for_response(req_id)
+            assert entry.oversize is False
+            assert len(entry.parsed["result"]["value"]) == 2_000_000
+
+            # Connection still usable afterwards.
+            init_id = await agent.send_request("initialize", {"protocolVersion": 1})
+            init_entry = await agent.wait_for_response(init_id)
+            assert init_entry.parsed["result"]["protocolVersion"] == 1
+
+    run(scenario())
+
+
+def test_line_beyond_lowered_limit_is_recovered_whole_and_marked_oversize() -> None:
+    """With `max_line_bytes` deliberately lowered for the test, a line bigger than that limit
+    must still come back with every byte intact (never truncated, never dropped) -- only marked
+    `oversize=True` -- and the connection must remain usable for later requests."""
+
+    async def scenario() -> None:
+        launch = agent_launch("conforming.py", max_line_bytes=64 * 1024)
+        async with AgentProcess(launch) as agent:
+            req_id = await agent.send_request("_tck/big", {"size": 500_000})
+            entry = await agent.wait_for_response(req_id)
+            assert entry.oversize is True
+            assert len(entry.parsed["result"]["value"]) == 500_000
+
+            init_id = await agent.send_request("initialize", {"protocolVersion": 1})
+            init_entry = await agent.wait_for_response(init_id)
+            assert init_entry.oversize is False
+            assert init_entry.parsed["result"]["protocolVersion"] == 1
 
     run(scenario())
 

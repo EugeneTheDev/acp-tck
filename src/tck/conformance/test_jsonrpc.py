@@ -4,6 +4,11 @@ Not listed by name in the slice-3 task's conformance-tests file list (which name
 `test_transport.py` / `test_initialize.py`), but the task's own bullet points describe a
 distinct "jsonrpc:" group of assertions; splitting them into their own module keeps each file
 focused on one requirement family. See `AGENTS.md` "How to add a requirement + test".
+
+The TCK's own probe method for "does this agent even reply to something it doesn't recognise"
+is `_tck/does_not_exist` -- `_`-prefixed, per Req 42 / J9 ("custom methods must be `_`-prefixed",
+`docs/protocol/v1/extensibility.mdx`): the TCK holds agents to that rule, so its own probe
+traffic must follow it too (review S3).
 """
 
 from __future__ import annotations
@@ -12,8 +17,9 @@ import pytest
 
 from tck.harness import AgentTimeout
 from tck.protocol import METHOD_NOT_FOUND, PROTOCOL_VERSION
+from tck.validation import validate_response_envelope
 
-from ._helpers import connected_agent
+from ._helpers import connected_agent, quiet_period
 
 
 @pytest.mark.requirement("ACP-JSONRPC-001")
@@ -31,34 +37,45 @@ async def test_id_is_echoed_for_integer_and_string_ids(agent_launch):
         assert str_entry.parsed["id"] == "tck-string-id", f"string id not echoed: {str_entry.parsed!r}"
 
 
+def _assert_valid_response_envelope(entry, *, what: str) -> None:
+    msg = entry.parsed
+    assert isinstance(msg, dict), f"{what} did not parse to a JSON object: {entry.raw!r}"
+    issues = validate_response_envelope(msg)
+    assert not issues, f"{what} response envelope is invalid: {issues!r} ({msg!r})"
+
+
 @pytest.mark.requirement("ACP-JSONRPC-002")
-async def test_unknown_method_response_is_result_xor_error_with_valid_shape(agent_launch):
-    """ACP-JSONRPC-002."""
-    async with connected_agent(agent_launch) as agent:
-        req_id = await agent.send_request("tck/does_not_exist")
-        entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
-        msg = entry.parsed
-        assert isinstance(msg, dict), f"response did not parse to a JSON object: {entry.raw!r}"
+async def test_response_envelope_is_result_xor_error_with_valid_shape(agent_launch):
+    """ACP-JSONRPC-002. Evidence comes only from responses that MUST exist -- `initialize`'s
+    own response, and the response to a deliberately invalid-params request (`session/new`
+    missing the required `cwd`) -- never from a reply to an unrecognised method, since replying
+    to that at all is only SHOULD (see ACP-JSONRPC-004) (review S3). This does not assert which
+    error code either response uses, only that the envelope (`id`, `result` xor `error`, error
+    shape) is well-formed.
+    """
+    async with connected_agent(agent_launch, handshake=False) as agent:
+        init_id = await agent.send_request(
+            "initialize", {"protocolVersion": PROTOCOL_VERSION, "clientCapabilities": {}}
+        )
+        init_entry = await agent.wait_for_response(init_id, timeout=agent_launch.default_timeout)
+        _assert_valid_response_envelope(init_entry, what="initialize")
 
-        has_result = "result" in msg
-        has_error = "error" in msg
-        assert has_result != has_error, f"response must have exactly one of result/error: {msg!r}"
-
-        if has_error:
-            error = msg["error"]
-            assert isinstance(error, dict), f"error must be an object: {error!r}"
-            code = error.get("code")
-            assert isinstance(code, int) and not isinstance(code, bool), f"error.code must be an integer: {code!r}"
-            message = error.get("message")
-            assert isinstance(message, str), f"error.message must be a string: {message!r}"
+        bad_id = await agent.send_request("session/new", {"mcpServers": []})  # missing required cwd
+        bad_entry = await agent.wait_for_response(bad_id, timeout=agent_launch.default_timeout)
+        _assert_valid_response_envelope(bad_entry, what="session/new (missing cwd)")
 
 
 @pytest.mark.requirement("ACP-JSONRPC-004")
 async def test_unknown_method_yields_method_not_found(agent_launch):
-    """ACP-JSONRPC-004 (ADVISORY -- spec wording is "should")."""
+    """ACP-JSONRPC-004 (ADVISORY -- spec wording is "should"). Replying to an unrecognised
+    method at all is optional, so an agent that never replies SKIPs this check instead of
+    failing it -- only an agent that *does* reply is held to the `-32601` code (review S3)."""
     async with connected_agent(agent_launch) as agent:
-        req_id = await agent.send_request("tck/does_not_exist")
-        entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
+        req_id = await agent.send_request("_tck/does_not_exist")
+        try:
+            entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
+        except AgentTimeout:
+            pytest.skip("agent never replied to the unknown method (replying is only SHOULD)")
         error = entry.parsed.get("error") if isinstance(entry.parsed, dict) else None
         assert error is not None, f"expected an error response, got {entry.parsed!r}"
         assert error.get("code") == METHOD_NOT_FOUND, f"expected -32601, got {error.get('code')!r}"
@@ -82,19 +99,21 @@ async def test_notification_receives_no_response(agent_launch, tmp_path):
         await agent.send_notification("session/cancel", {"sessionId": session_id})
 
         def _is_a_response(entry) -> bool:
-            return isinstance(entry.parsed, dict) and "id" in entry.parsed and (
-                "result" in entry.parsed or "error" in entry.parsed
-            )
+            # Any line that is not itself a request/notification (no `method`) is a reply of
+            # some kind, even a malformed one missing `id`/`result`/`error` entirely -- treat it
+            # as a response candidate rather than requiring `id` to be present (review N16).
+            return isinstance(entry.parsed, dict) and "method" not in entry.parsed
 
+        wait = quiet_period(agent_launch.default_timeout)
         with pytest.raises(AgentTimeout):
-            await agent.wait_for_message(_is_a_response, timeout=1.0)
+            await agent.wait_for_message(_is_a_response, timeout=wait)
 
 
 @pytest.mark.requirement("ACP-JSONRPC-005")
 async def test_connection_survives_an_erroneous_request(agent_launch, tmp_path):
     """ACP-JSONRPC-005 (ADVISORY -- see `tck.requirements` for why this isn't MANDATORY)."""
     async with connected_agent(agent_launch) as agent:
-        bad_id = await agent.send_request("tck/does_not_exist")
+        bad_id = await agent.send_request("_tck/does_not_exist")
         await agent.wait_for_response(bad_id, timeout=agent_launch.default_timeout)
 
         session_req = await agent.send_request(

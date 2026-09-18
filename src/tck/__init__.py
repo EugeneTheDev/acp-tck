@@ -32,6 +32,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--startup-timeout", type=float, default=30.0, metavar="S", help="Startup timeout in seconds."
     )
     parser.add_argument(
+        "--test-timeout",
+        type=float,
+        default=120.0,
+        metavar="S",
+        help="Per-test wall-clock watchdog in seconds (default: 120), passed through as "
+        "--tck-test-timeout. Fails a hung test cleanly (closing the agent process) instead of "
+        "hanging the whole run.",
+    )
+    parser.add_argument(
         "--cancel-prompt",
         default=None,
         metavar="TEXT",
@@ -94,6 +103,8 @@ def main(argv: list[str] | None = None) -> int:
         str(args.timeout),
         "--tck-startup-timeout",
         str(args.startup_timeout),
+        "--tck-test-timeout",
+        str(args.test_timeout),
         # Show skip reasons in the terminal (e.g. "cancellation not exercised") -- a SKIPPED
         # cancel test is a meaningful, distinct outcome from PASS/FAIL, not noise to hide.
         "-rs",

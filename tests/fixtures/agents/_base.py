@@ -74,6 +74,12 @@ class ConformingAgent:
             self._handle_prompt(msg_id, params)
         elif method == "_tck/env":
             self._reply(msg_id, {"value": os.environ.get(params.get("name", ""))})
+        elif method == "_tck/big":
+            # Harness-only probe (`_`-prefixed, per Req 42): reply with a `size`-byte string so
+            # tests can exercise the line-limit handling in `AgentProcess._read_raw_line`
+            # (`.agents/research/review-slices-1-4.md` B1) without needing a dedicated fixture.
+            size = params.get("size", 2_000_000)
+            self._reply(msg_id, {"value": "x" * size})
         else:
             self._error(msg_id, -32601, "Method not found")
 

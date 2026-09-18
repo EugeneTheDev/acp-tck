@@ -37,10 +37,38 @@ async def connected_agent(
 
 async def new_session(agent: AgentProcess, cwd: Path, *, timeout: float | None = None) -> str:
     """Send `session/new` with an absolute `cwd` and no MCP servers; return the `sessionId`
-    from the response (Req 9, `.agents/research/acp-v1-protocol-surface.md` §3)."""
+    from the response (Req 9, `.agents/research/acp-v1-protocol-surface.md` §3).
+
+    Raises `AssertionError` with a protocol-level message (not a bare `TypeError`/`KeyError`)
+    if the response is not a well-formed success -- callers see a diagnosis, not a Python
+    traceback, when the agent errors or replies with a malformed shape (review N14)."""
     req_id = await agent.send_request("session/new", {"cwd": str(cwd), "mcpServers": []})
     entry = await agent.wait_for_response(req_id, timeout=timeout)
-    return entry.parsed["result"]["sessionId"]
+    msg = entry.parsed
+    assert isinstance(msg, dict) and isinstance(msg.get("result"), dict), (
+        f"session/new did not return a result object: {entry.text!r}"
+    )
+    session_id = msg["result"].get("sessionId")
+    assert isinstance(session_id, str), f"session/new result has no string sessionId: {msg['result']!r}"
+    return session_id
+
+
+def quiet_period(timeout: float) -> float:
+    """The heuristic "nothing more is coming" wait used by tests that conclude absence (e.g. "no
+    response to a notification", "no update follows the response") -- derived from the same
+    `--tck-timeout` users are told to raise for a slow agent, instead of a hard-coded
+    sub-second constant that is a false negative by construction on a loaded machine (review
+    S9). Clamped to a sane range: never so short a fast local test is flaky, never so long a
+    single quiet-period check dominates the suite's runtime."""
+    return max(0.5, min(2.0, timeout / 10))
+
+
+def cancel_race_peek(timeout: float) -> float:
+    """Like `quiet_period`, but for the much shorter peek `run_prompt` does right after an
+    update and before committing to send `session/cancel` (see its docstring) -- this only
+    needs to be long enough to catch a response that is already sitting in the pipe, not to
+    conclude general absence, so it stays a small fraction of `quiet_period`."""
+    return max(0.05, min(0.5, timeout / 50))
 
 
 @dataclass(frozen=True)
@@ -97,8 +125,9 @@ async def run_prompt(
     `session/cancel` -- we just haven't read it yet. If we committed to sending cancel purely
     because we had just read an update, we would misreport "cancel was sent while the turn was
     still in flight" for a turn that, in reality, had already finished. To keep
-    `cancelled_at_index` an honest signal, we give a brief (`_CANCEL_RACE_PEEK`) non-blocking-ish
-    look for the response immediately after an update and before committing to cancel; if the
+    `cancelled_at_index` an honest signal, we give a brief (`cancel_race_peek(timeout)`)
+    non-blocking-ish look for the response immediately after an update and before committing to
+    cancel; if the
     response is already sitting there, we return it with `cancelled_at_index=None` (a race),
     exactly as if it had arrived before we ever considered cancelling.
     """
@@ -113,6 +142,7 @@ async def run_prompt(
     loop = asyncio.get_running_loop()
     overall_deadline = loop.time() + timeout
     cancel_deadline = loop.time() + cancel_wait if on_cancel else None
+    peek_timeout = cancel_race_peek(timeout)
 
     async def _send_cancel() -> None:
         nonlocal cancel_sent, cancelled_at_index
@@ -131,7 +161,7 @@ async def run_prompt(
         if entry.matches_id(prompt_id):
             return PromptTurn(entry, updates, client_requests_seen, cancelled_at_index)
 
-        index = len(agent.transcript) - 1
+        index = agent.transcript.index(entry)
         method = msg.get("method")
         if method == "session/update":
             updates.append((index, entry))
@@ -166,12 +196,23 @@ async def run_prompt(
         # here, ignore and keep waiting for the prompt's own response.
         return None
 
+    # Lines read while waiting on `initialize`/`session/new` (or, in principle, an earlier
+    # `read_line` of the caller's own) sit in `pending()` and would otherwise be invisible to
+    # ACP-PROMPT-002 / ACP-CANCEL-002 (review N15) -- process them exactly like freshly-read
+    # lines before ever blocking on the network.
+    for pending_entry in agent.pending():
+        pending_result = await _handle_one(pending_entry)
+        if pending_result is not None:
+            return pending_result
+
     while True:
         now = loop.time()
         remaining = overall_deadline - now
         if remaining <= 0:
             raise AgentTimeout(
-                f"session/prompt {prompt_id!r} did not resolve within {timeout}s", agent.transcript
+                f"session/prompt {prompt_id!r} did not resolve within {timeout}s",
+                agent.transcript,
+                stderr=agent.stderr_text(),
             )
 
         if on_cancel and not cancel_sent:
@@ -201,7 +242,7 @@ async def run_prompt(
             and entry.parsed.get("method") == "session/update"
         ):
             try:
-                peek_entry = await agent.read_line(timeout=_CANCEL_RACE_PEEK)
+                peek_entry = await agent.read_line(timeout=peek_timeout)
             except AgentTimeout:
                 await _send_cancel()
             else:
@@ -209,10 +250,3 @@ async def run_prompt(
                 if peek_result is not None:
                     return peek_result
                 await _send_cancel()
-
-
-_CANCEL_RACE_PEEK = 0.1
-"""How long `run_prompt` waits, right after reading an update and before committing to send
-`session/cancel`, to see whether the response has already arrived. Keeps `cancelled_at_index`
-honest against agents that reply immediately after their last update (see `run_prompt`'s
-docstring)."""

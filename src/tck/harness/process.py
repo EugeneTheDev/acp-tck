@@ -26,12 +26,16 @@ class AgentTimeout(Exception):
     """No matching line arrived from the agent within the deadline.
 
     Carries the transcript recorded so far so the caller can report exactly what did (or did
-    not) happen before the timeout.
+    not) happen before the timeout -- and, for parity with `AgentExited`, whatever stderr had
+    been captured by then (usually the most useful place a stuck agent explains itself).
     """
 
-    def __init__(self, message: str, transcript: list[TranscriptEntry]) -> None:
+    def __init__(
+        self, message: str, transcript: list[TranscriptEntry], *, stderr: str = ""
+    ) -> None:
         super().__init__(message)
         self.transcript = list(transcript)
+        self.stderr = stderr
 
 
 class AgentExited(Exception):
@@ -63,7 +67,16 @@ class AgentLaunch:
     """Deadline for the first read after spawn; not enforced by this class itself, callers use
     it as the default `timeout` for their first `read_line`/`wait_for_*` call."""
     default_timeout: float = 5.0
-    """Default per-read deadline used when a `timeout` argument is omitted."""
+    """Default per-read deadline used when a `timeout` argument is omitted. Also used as the
+    deadline for `send_raw`'s `drain()` call."""
+    max_line_bytes: int = 64 * 1024 * 1024
+    """Buffer limit passed as `asyncio.create_subprocess_exec(limit=...)`. asyncio's own default
+    (64 KiB) is far too small for real ACP traffic -- a `session/update` tool-call diff, an
+    embedded image content block, or `fs/write_text_file` params routinely exceed it -- and
+    `StreamReader.readline()` discards the buffered bytes and raises a bare `ValueError` when a
+    line exceeds the limit (`.agents/research/review-slices-1-4.md` B1). This default is
+    generous enough that hitting it at all is itself informative; tests that want to exercise
+    the oversize path on purpose lower it explicitly."""
 
 
 class AgentProcess:
@@ -74,13 +87,18 @@ class AgentProcess:
     `uvx`, shell wrappers) do not always forward signals or exit reliably on stdin EOF.
     """
 
+    _STDERR_CAP_BYTES = 64 * 1024
+    """Bounded tail kept of the agent's stderr (Rust-SDK style, `.agents/research/review-slices-1-4.md`
+    N19) -- a chatty agent under a long `--timeout` must not grow this without bound."""
+
     def __init__(self, launch: AgentLaunch) -> None:
         self._launch = launch
         self._process: asyncio.subprocess.Process | None = None
         self._next_id = 1
         self.transcript: list[TranscriptEntry] = []
         self._pending: list[TranscriptEntry] = []
-        self._stderr_chunks: list[bytes] = []
+        self._stderr_buffer = bytearray()
+        self._stderr_truncated_bytes = 0
         self._stderr_task: asyncio.Task[None] | None = None
         self.exit_code: int | None = None
         self.exited_on_stdin_close: bool = False
@@ -97,6 +115,7 @@ class AgentProcess:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
+            limit=self._launch.max_line_bytes,
         )
         self._stderr_task = asyncio.create_task(self._drain_stderr())
         return self
@@ -111,15 +130,23 @@ class AgentProcess:
             chunk = await self._process.stderr.read(4096)
             if not chunk:
                 return
-            self._stderr_chunks.append(chunk)
+            self._stderr_buffer.extend(chunk)
+            overflow = len(self._stderr_buffer) - self._STDERR_CAP_BYTES
+            if overflow > 0:
+                self._stderr_truncated_bytes += overflow
+                del self._stderr_buffer[:overflow]
 
     def stderr_text(self) -> str:
         """Everything read from the agent's stderr so far (drained continuously in the
-        background, so the child never blocks writing to it)."""
-        return b"".join(self._stderr_chunks).decode("utf-8", errors="replace")
+        background, so the child never blocks writing to it), tailed to the last
+        `_STDERR_CAP_BYTES`."""
+        text = bytes(self._stderr_buffer).decode("utf-8", errors="replace")
+        if self._stderr_truncated_bytes:
+            return f"...[truncated {self._stderr_truncated_bytes} earlier byte(s)]...\n{text}"
+        return text
 
-    def _record(self, direction: Direction, raw: bytes) -> TranscriptEntry:
-        entry = TranscriptEntry.build(direction, raw, time.monotonic())
+    def _record(self, direction: Direction, raw: bytes, *, oversize: bool = False) -> TranscriptEntry:
+        entry = TranscriptEntry.build(direction, raw, time.monotonic(), oversize=oversize)
         self.transcript.append(entry)
         return entry
 
@@ -127,12 +154,24 @@ class AgentProcess:
 
     async def send_raw(self, line: bytes | str) -> None:
         """Write exactly `line` plus a single `\\n` to stdin. The caller controls everything,
-        including deliberately malformed bytes -- this method never validates `line`."""
+        including deliberately malformed bytes -- this method never validates `line`.
+
+        `drain()` is given a deadline (`default_timeout`): an agent that has stopped reading
+        stdin must not be able to hang the whole run forever (`.agents/research/
+        review-slices-1-4.md` S7)."""
         assert self._process is not None and self._process.stdin is not None
         raw = line.encode("utf-8") if isinstance(line, str) else line
         self._record(Direction.SENT, raw)
         self._process.stdin.write(raw + b"\n")
-        await self._process.stdin.drain()
+        try:
+            await asyncio.wait_for(self._process.stdin.drain(), timeout=self._launch.default_timeout)
+        except asyncio.TimeoutError as exc:
+            raise AgentTimeout(
+                f"stdin drain did not complete within {self._launch.default_timeout}s "
+                "(the agent may have stopped reading stdin)",
+                self.transcript,
+                stderr=self.stderr_text(),
+            ) from exc
 
     async def send_message(self, obj: dict[str, Any]) -> None:
         await self.send_raw(json.dumps(obj, separators=(",", ":")))
@@ -159,16 +198,60 @@ class AgentProcess:
 
     # --- reading ---
 
+    async def _read_raw_line(self) -> tuple[bytes, bool]:
+        """Read one line off stdout as raw bytes (without the trailing `\\n`), tolerating a line
+        that overruns the stream's buffer limit.
+
+        `StreamReader.readline()` itself converts a `LimitOverrunError` into a bare `ValueError`
+        and *discards* the bytes already buffered (`.agents/research/review-slices-1-4.md` B1) --
+        this harness must never lose bytes just because a line is unexpectedly large. Instead,
+        when the limit is exceeded, the already-buffered bytes are recovered with `readexactly`
+        and reading continues (marking the result `oversize=True`) until the real separator (or
+        EOF) is found, so the full line is still captured intact.
+
+        Returns `(raw, oversize)`. `raw == b"" and not oversize` means true EOF -- nothing at all
+        was read.
+        """
+        assert self._process is not None and self._process.stdout is not None
+        stream = self._process.stdout
+        chunks = bytearray()
+        oversize = False
+        max_total = max(self._launch.max_line_bytes * 4, 16 * 1024 * 1024)
+        while True:
+            try:
+                piece = await stream.readuntil(b"\n")
+                chunks.extend(piece)
+                break
+            except asyncio.IncompleteReadError as exc:
+                chunks.extend(exc.partial)
+                break  # EOF -- whatever we got (possibly nothing) is the last partial line
+            except asyncio.LimitOverrunError as exc:
+                oversize = True
+                chunks.extend(await stream.readexactly(exc.consumed))
+                if len(chunks) >= max_total:
+                    # Defensive cap: an agent that never terminates a line must not be able to
+                    # grow this buffer without bound. Return what we have; the next read picks
+                    # up wherever the stream is, which will look like garbage -- an oversize
+                    # line this large is already a severe conformance failure either way.
+                    break
+        if chunks.endswith(b"\n"):
+            del chunks[-1:]
+        return bytes(chunks), oversize
+
     async def read_line(self, timeout: float | None = None) -> TranscriptEntry:
         """Read and record the next stdout line. Raises `AgentTimeout` if none arrives within
-        the deadline, or `AgentExited` on EOF."""
+        the deadline, or `AgentExited` on EOF. A line that exceeds the stream's buffer limit is
+        never dropped -- see `_read_raw_line` -- it comes back as a normal entry with
+        `oversize=True`."""
         assert self._process is not None and self._process.stdout is not None
         deadline = timeout if timeout is not None else self._launch.default_timeout
         try:
-            raw = await asyncio.wait_for(self._process.stdout.readline(), timeout=deadline)
+            raw, oversize = await asyncio.wait_for(self._read_raw_line(), timeout=deadline)
         except asyncio.TimeoutError as exc:
-            raise AgentTimeout(f"no stdout line within {deadline}s", self.transcript) from exc
-        if raw == b"":
+            raise AgentTimeout(
+                f"no stdout line within {deadline}s", self.transcript, stderr=self.stderr_text()
+            ) from exc
+        if raw == b"" and not oversize:
             exit_code = await self._wait_exit_after_eof()
             raise AgentExited(
                 f"agent process exited while waiting for a line (exit_code={exit_code})",
@@ -176,9 +259,7 @@ class AgentProcess:
                 stderr=self.stderr_text(),
                 transcript=self.transcript,
             )
-        if raw.endswith(b"\n"):
-            raw = raw[:-1]
-        entry = self._record(Direction.RECEIVED, raw)
+        entry = self._record(Direction.RECEIVED, raw, oversize=oversize)
         self._pending.append(entry)
         return entry
 
@@ -202,7 +283,9 @@ class AgentProcess:
         while True:
             remaining = deadline - loop.time()
             if remaining <= 0:
-                raise AgentTimeout(f"no matching message within {budget}s", self.transcript)
+                raise AgentTimeout(
+                    f"no matching message within {budget}s", self.transcript, stderr=self.stderr_text()
+                )
             entry = await self.read_line(timeout=remaining)
             if predicate(entry):
                 with contextlib.suppress(ValueError):
@@ -225,7 +308,14 @@ class AgentProcess:
     async def close(self, grace: float = 2.0) -> None:
         """Close stdin, wait `grace`; if still alive, SIGTERM the process group and wait
         `grace` again; if still alive, SIGKILL. Records `exit_code` and
-        `exited_on_stdin_close`."""
+        `exited_on_stdin_close`.
+
+        Before/around each wait, remaining stdout is drained into `transcript` (short deadline
+        each time) so the recorded transcript is genuinely "everything sent and received" --
+        including a trailing partial line with no newline, and including anything the agent
+        writes to stdout *after* the last response a test ever awaited
+        (`.agents/research/review-slices-1-4.md` S8). This never fails on lateness -- it only
+        records; judging whether that late output is conforming is the caller's job."""
         if self._process is None or self._closed:
             return
         self._closed = True
@@ -235,22 +325,46 @@ class AgentProcess:
             with contextlib.suppress(Exception):
                 proc.stdin.close()
 
+        await self._drain_remaining_stdout(grace)
         exited_on_stdin_close = await self._wait(proc, grace)
         self.exited_on_stdin_close = exited_on_stdin_close
 
         if proc.returncode is None:
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(proc.pid, signal.SIGTERM)
+            await self._drain_remaining_stdout(min(grace, 1.0))
             if not await self._wait(proc, grace):
                 with contextlib.suppress(ProcessLookupError):
                     os.killpg(proc.pid, signal.SIGKILL)
-                await proc.wait()
+                await self._drain_remaining_stdout(min(grace, 0.5))
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(proc.wait(), timeout=grace)
 
         self.exit_code = proc.returncode
 
         if self._stderr_task is not None:
             with contextlib.suppress(asyncio.TimeoutError, asyncio.CancelledError):
                 await asyncio.wait_for(self._stderr_task, timeout=grace)
+
+    async def _drain_remaining_stdout(self, timeout: float) -> None:
+        """Read and record whatever is sitting in (or soon arrives on) stdout, until EOF or
+        `timeout` elapses. Never raises -- a timeout here just means "nothing more showed up in
+        time", which is a normal outcome, not a failure."""
+        if self._process is None or self._process.stdout is None:
+            return
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                return
+            try:
+                raw, oversize = await asyncio.wait_for(self._read_raw_line(), timeout=remaining)
+            except asyncio.TimeoutError:
+                return
+            if raw == b"" and not oversize:
+                return  # EOF
+            self._record(Direction.RECEIVED, raw, oversize=oversize)
 
     @staticmethod
     async def _wait(proc: asyncio.subprocess.Process, timeout: float) -> bool:

@@ -119,7 +119,12 @@ def _response_method_defs() -> dict[str, str]:
     `$def` of its *successful* response (`AgentResponse`'s `Result` branch).
     """
     defs = load_schema()["$defs"]
-    result_branch = defs["AgentResponse"]["anyOf"][0]
+    # Select the branch by content (`properties` containing `result`), not position -- a schema
+    # refresh that reorders `AgentResponse`'s `anyOf` must not silently map every method to the
+    # error branch and empty this mapping out (review N11).
+    result_branch = next(
+        branch for branch in defs["AgentResponse"]["anyOf"] if "result" in branch.get("properties", {})
+    )
     result_variants = result_branch["properties"]["result"]["anyOf"]
     mapping: dict[str, str] = {}
     for variant in result_variants:
@@ -230,7 +235,7 @@ def validate_agent_message(msg: dict[str, Any]) -> list[ValidationIssue]:
     issues = _validate_jsonrpc_field(msg)
 
     if "method" not in msg:
-        return issues + _validate_response_envelope(msg)
+        return issues + validate_response_envelope(msg)
 
     method = msg.get("method")
     if not isinstance(method, str):
@@ -265,7 +270,12 @@ def validate_agent_message(msg: dict[str, Any]) -> list[ValidationIssue]:
     return issues
 
 
-def _validate_response_envelope(msg: dict[str, Any]) -> list[ValidationIssue]:
+def validate_response_envelope(msg: dict[str, Any]) -> list[ValidationIssue]:
+    """Validate the JSON-RPC response envelope only: `id` present and a valid `RequestId`,
+    exactly one of `result`/`error`, and (for an error) the shared `Error` shape. This is the
+    mandatory-path evidence for ACP-JSONRPC-002 -- it applies to *any* response, so callers can
+    run it over `initialize`'s response or any other response that MUST exist, rather than
+    relying on a reply to an unrecognised method (which is only SHOULD)."""
     issues: list[ValidationIssue] = []
     if "id" not in msg:
         issues.append(
@@ -306,9 +316,11 @@ def validate_agent_response(method: str, msg: dict[str, Any]) -> list[Validation
     """Validate a response the agent wrote to stdout, in reply to a `method` request it
     implements (e.g. `"initialize"`, `"session/prompt"`).
 
-    Validates the JSON-RPC envelope (via the same rules as `validate_agent_message`) plus,
-    for a successful response, `result` against `method`'s specific response schema; for an
-    error response, `error` against the shared `Error` schema.
+    Validates the JSON-RPC envelope (`validate_response_envelope`) plus, for a successful
+    response, `result` against `method`'s specific response schema. For an error response,
+    `error` is checked against the hand-written envelope only (`code` an integer, `message` a
+    string) -- not the full `Error` schema, and `data` is never inspected, since the transport
+    report says to accept `data` absent or `null` without asserting its shape.
     """
     if not isinstance(msg, dict):
         return [
@@ -317,7 +329,7 @@ def validate_agent_response(method: str, msg: dict[str, Any]) -> list[Validation
             )
         ]
 
-    issues = _validate_jsonrpc_field(msg) + _validate_response_envelope(msg)
+    issues = _validate_jsonrpc_field(msg) + validate_response_envelope(msg)
 
     if "error" in msg and "result" not in msg:
         return issues

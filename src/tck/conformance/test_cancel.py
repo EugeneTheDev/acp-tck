@@ -20,8 +20,10 @@ requirement that was never actually exercised would be dishonest. Two situations
 1. The response was read before `session/cancel` could be sent at all (`cancelled_at_index is
    None`) -- `run_prompt` never got a chance to interrupt an in-flight turn.
 2. `session/cancel` was sent, but the response arrives with a valid, non-`cancelled` stop reason
-   within `_CANCEL_RACE_WINDOW` (1.0s) of when the cancel notification was written -- the agent
-   may simply have finished on its own before it ever read the notification.
+   within a quiet period (`tck.conformance._helpers.quiet_period`, derived from `--tck-timeout`
+   rather than a fixed sub-second constant -- review S9) of when the cancel notification was
+   written -- the agent may simply have finished on its own before it ever read the
+   notification.
 
 Anything else is exercised and judged normally: `stopReason: "cancelled"` is a PASS: a
 JSON-RPC error, or a non-`cancelled` stop reason arriving later than the race window, is a FAIL.
@@ -34,13 +36,12 @@ import pytest
 from tck.harness import AgentTimeout
 from tck.protocol import STOP_REASONS
 
-from ._helpers import PromptTurn, connected_agent, new_session, run_prompt
-
-_CANCEL_RACE_WINDOW = 1.0
-"""Seconds. See module docstring, situation 2."""
+from ._helpers import PromptTurn, connected_agent, new_session, quiet_period, run_prompt
 
 
-def _skip_if_cancel_not_exercised(agent, turn: PromptTurn, record_property) -> None:
+def _skip_if_cancel_not_exercised(
+    agent, turn: PromptTurn, record_property, *, race_window: float
+) -> None:
     """Shared by both cancel tests: `pytest.skip(...)` -- never PASS or FAIL -- if this turn's
     cancellation could not actually be observed (module docstring, situations 1 and 2). An
     unexercised cancel says nothing about `stopReason` correctness (ACP-CANCEL-001) or
@@ -58,7 +59,8 @@ def _skip_if_cancel_not_exercised(agent, turn: PromptTurn, record_property) -> N
         return  # either a clean pass, or a genuinely invalid value -- judge it normally either way
     cancel_timestamp = agent.transcript[turn.cancelled_at_index].timestamp
     elapsed_ms = (turn.response_entry.timestamp - cancel_timestamp) * 1000
-    if elapsed_ms < _CANCEL_RACE_WINDOW * 1000:
+    record_property("acp_tck_cancel_race_window_ms", f"{race_window * 1000:.0f}")
+    if elapsed_ms < race_window * 1000:
         record_property("acp_tck_cancel_race_ms", f"{elapsed_ms:.0f}")
         pytest.skip(
             f"cancellation not exercised: response arrived {elapsed_ms:.0f} ms after cancel; "
@@ -80,7 +82,9 @@ async def test_cancel_resolves_with_cancelled_stop_reason(
             on_cancel=True,
             timeout=agent_launch.default_timeout,
         )
-        _skip_if_cancel_not_exercised(agent, turn, record_property)
+        _skip_if_cancel_not_exercised(
+            agent, turn, record_property, race_window=quiet_period(agent_launch.default_timeout)
+        )
 
         msg = turn.response_entry.parsed
         assert isinstance(msg, dict) and "result" in msg, (
@@ -114,17 +118,17 @@ async def test_no_session_update_follows_the_cancelled_response(
             on_cancel=True,
             timeout=agent_launch.default_timeout,
         )
-        _skip_if_cancel_not_exercised(agent, turn, record_property)
+        _skip_if_cancel_not_exercised(
+            agent, turn, record_property, race_window=quiet_period(agent_launch.default_timeout)
+        )
 
         msg = turn.response_entry.parsed
         assert isinstance(msg, dict) and "result" in msg, (
             f"cancel must resolve the prompt with a success result, not an error: {msg!r}"
         )
-        for _, entry in turn.updates:
-            carried_session_id = (entry.parsed.get("params") or {}).get("sessionId")
-            assert carried_session_id == session_id, (
-                f"session/update carried sessionId {carried_session_id!r}, expected {session_id!r}"
-            )
+        # Only ordering is this test's concern (Req 28); whether each update carries the right
+        # sessionId is ACP-PROMPT-002/Req 1 territory, asserted there -- attributing that here
+        # would mis-blame Req 28 for a mis-attributed-update defect (review S5).
 
         def _is_late_update_for_this_session(entry) -> bool:
             candidate = entry.parsed
@@ -135,4 +139,6 @@ async def test_no_session_update_follows_the_cancelled_response(
             )
 
         with pytest.raises(AgentTimeout):
-            await agent.wait_for_message(_is_late_update_for_this_session, timeout=0.3)
+            await agent.wait_for_message(
+                _is_late_update_for_this_session, timeout=quiet_period(agent_launch.default_timeout)
+            )

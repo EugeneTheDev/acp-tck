@@ -34,9 +34,16 @@ class TranscriptEntry:
     """The `json.loads` result, or `None` if parsing failed or `text` is `None`."""
     parse_error: str | None
     """`str()` of the `json.JSONDecodeError`, if `text` was not valid JSON."""
+    oversize: bool = False
+    """True if this line exceeded the harness's stream buffer limit (`AgentLaunch.max_line_bytes`)
+    while being read. The full raw bytes are still recovered and recorded -- this harness never
+    drops bytes just because a line is unexpectedly large -- but a line this big is itself worth
+    flagging separately from an ordinary parse failure."""
 
     @staticmethod
-    def build(direction: Direction, raw: bytes, timestamp: float) -> "TranscriptEntry":
+    def build(
+        direction: Direction, raw: bytes, timestamp: float, *, oversize: bool = False
+    ) -> "TranscriptEntry":
         text: str | None = None
         text_error: str | None = None
         try:
@@ -60,6 +67,7 @@ class TranscriptEntry:
             text_error=text_error,
             parsed=parsed,
             parse_error=parse_error,
+            oversize=oversize,
         )
 
     def matches_id(self, id_value: Any) -> bool:

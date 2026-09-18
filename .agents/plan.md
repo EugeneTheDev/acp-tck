@@ -45,6 +45,7 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   gating, `auth/login`, v2 prompt lifecycle are excluded; see transport report Discrepancies 1, 7.
 
 ## Done
+- Slice 5b — hardening per review: 64 MiB line limit with lossless oversize handling, write deadline, per-test watchdog (`--test-timeout`), close() drains stdout, TRANSPORT-002 split, mock client everywhere, JSONRPC-002 evidence from mandatory paths, `_tck/` probes, capability marker boolean/object encodings (94 passed, 3 skipped).
 - Slice 5 — `tck/report.py` (Status/TestOutcome/RequirementResult/Verdict/Report), `--report-json`, verdict-based exit code, per-tier counts, meta-tests, README (79 passed, 3 skipped).
 - Slice 4b — raced cancel → SKIPPED; `--cancel-prompt` / `--tck-cancel-prompt`; CLI passes `-rs`.
 - Slice 4 — ACP-SESSION-001/002, ACP-PROMPT-001/002/003, ACP-CANCEL-001/002; `_helpers.run_prompt` mock-client driver; 7 defect fixtures (56 tests total).
@@ -55,7 +56,7 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   `research/a2a-tck-structure.md`, `research/reference-sdks-as-harness.md`.
 
 ## In progress
-- **Slice 5b — hardening from review** (programmer). See "Next slices" 5b.
+- **Slice 6 — capability-conditional tests + INIT-003 strengthening** (programmer).
 
 ## Next slices (in order)
 5b. **Hardening from `research/review-slices-1-4.md`** (1 blocker, 9 should-fix, 9 nits) — do before slice 6:
