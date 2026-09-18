@@ -1,7 +1,7 @@
 # State
 
 **Last updated:** 2026-09-18 (session 1, after research round 1)
-**Last commit pushed:** 459fcd9 (Add initial plan and state for research round 1) — decision commit pending
+**Last commit pushed:** see git log (slice 1 committed together with this file)
 
 ## Deliverable shape (decided)
 See `plan.md` § "Decided deliverable shape". Summary: installable `acp-tck` package with the
@@ -30,10 +30,17 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
   for negotiation tests); non-conforming fixtures must be hand-written raw-byte scripts.
 
 ## Implemented and verified
-Nothing yet. Repo has `pyproject.toml` skeleton, empty `src/tck/__init__.py`, empty `AGENTS.md`.
+- **Slice 1 — harness core** (13 tests green, `uv run pytest -q`): `src/tck/harness/{process,transcript}.py`
+  (`AgentLaunch`, `AgentProcess`, `TranscriptEntry`, `AgentTimeout`, `AgentExited`; process-group spawn,
+  raw/JSON send, deadline reads, full two-way transcript, stderr capture, close-stdin→SIGTERM→SIGKILL
+  ladder). Fixture agents in `tests/fixtures/agents/` (`_base.py`, `conforming.py`, `banner_on_stdout.py`,
+  `stderr_chatter.py`, `never_responds.py`, `exits_immediately.py`; conforming agent supports a `__hang__`
+  prompt for cancel tests and a `_tck/env` extension method). `AGENTS.md` documents layout/API/conventions.
+  `pyproject.toml`: `pytest==9.1.1` runtime dep, `[tool.uv.build-backend] module-name = "tck"`. Tests use
+  `asyncio.run` directly (no pytest-asyncio). `acp-tck` CLI is a stub exiting 2.
 
 ## In flight
-- **Programmer — Slice 1** (harness core + fixture agents + tests). See `plan.md` "In progress".
+- **Programmer — Slice 2** (vendored v1 JSON schema + `tck/protocol.py` + `validate_agent_message`).
 - **Researcher — authentication semantics** → `.agents/research/acp-v1-authentication.md`.
 
 ## Open questions / blockers
@@ -41,6 +48,6 @@ Nothing yet. Repo has `pyproject.toml` skeleton, empty `src/tck/__init__.py`, em
 - Transcript format choice (conductor `.jsons` compatibility) before slice 5.
 
 ## Next actions
-1. On programmer return: run `uv run pytest`, check `git diff --stat`, commit + push slice 1.
-2. Spawn slice 2 (vendored schema + validation).
+1. On slice 2 return: verify (`uv run pytest`, `git diff --stat`), commit + push.
+2. Spawn slice 3 (requirement registry + pytest plugin + CLI + transport/initialize conformance tests).
 3. Read auth research; fold into registry when reached.

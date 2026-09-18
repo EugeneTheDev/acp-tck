@@ -45,14 +45,12 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   gating, `auth/login`, v2 prompt lifecycle are excluded; see transport report Discrepancies 1, 7.
 
 ## Done
+- Slice 1 — harness core + fixture agents + 13 unit tests (`src/tck/harness/`, `tests/`).
 - Research round 1: `research/acp-v1-protocol-surface.md`, `research/acp-v1-transport-and-jsonrpc.md`,
   `research/a2a-tck-structure.md`, `research/reference-sdks-as-harness.md`.
 
 ## In progress
-- **Slice 1 — harness core + fixture agents** (programmer). Goal: `src/tck/harness/` raw stdio
-  client with transcript/stderr/deadlines/termination; `tests/fixtures/agents/conforming.py`,
-  `banner_on_stdout.py`, `never_responds.py`, `exits_immediately.py`; unit tests exercising all of
-  them. Acceptance: `uv run pytest` green; harness API documented in `AGENTS.md`.
+- **Slice 2 — vendored schema + validation** (programmer). See "Next slices" item 2.
 - **Research: authentication semantics** → `research/acp-v1-authentication.md` (does an agent
   advertising `authMethods` have to return `-32000` before `authenticate`?).
 
