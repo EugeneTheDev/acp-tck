@@ -45,6 +45,13 @@ class ConformingAgent:
         on_message: Callable[[str], None] | None = None,
         capabilities: dict[str, Any] | None = None,
         agent_name: str = "tck-fixture-conforming",
+        modes: dict[str, Any] | None = None,
+        config_options: list[dict[str, Any]] | None = None,
+        auth_methods: list[dict[str, Any]] | None = None,
+        require_auth: bool = False,
+        emit_mode_update: bool = False,
+        mode_update_field: str = "currentModeId",
+        ignore_boolean_gating: bool = False,
     ) -> None:
         self._session_count = 0
         self._pending_prompt: dict[str, Any] | None = None
@@ -53,6 +60,15 @@ class ConformingAgent:
         self._capabilities = capabilities if capabilities is not None else {}
         self._agent_name = agent_name
         self._sessions: dict[str, dict[str, Any]] = {}
+        self._modes = modes
+        self._config_options = config_options
+        self._auth_methods = auth_methods
+        self._require_auth = require_auth
+        self._authenticated = False
+        self._emit_mode_update = emit_mode_update
+        self._mode_update_field = mode_update_field
+        self._ignore_boolean_gating = ignore_boolean_gating
+        self._client_capabilities: dict[str, Any] = {}
 
     def run(self) -> None:
         if self._on_start is not None:
@@ -82,12 +98,10 @@ class ConformingAgent:
 
     def _handle_request(self, method: str, msg_id: Any, params: dict[str, Any]) -> None:
         if method == "initialize":
+            self._client_capabilities = params.get("clientCapabilities") or {}
             self._reply(msg_id, self._initialize_result())
         elif method == "session/new":
-            self._session_count += 1
-            session_id = f"sess-{self._session_count:04d}"
-            self._sessions[session_id] = {"cwd": params.get("cwd"), "history": []}
-            self._reply(msg_id, {"sessionId": session_id})
+            self._handle_new_session(msg_id, params)
         elif method == "session/prompt":
             self._handle_prompt(msg_id, params)
         elif method == "session/load":
@@ -100,6 +114,14 @@ class ConformingAgent:
             self._handle_delete(msg_id, params)
         elif method == "session/close":
             self._handle_close(msg_id, params)
+        elif method == "session/set_mode":
+            self._handle_set_mode(msg_id, params)
+        elif method == "session/set_config_option":
+            self._handle_set_config_option(msg_id, params)
+        elif method == "authenticate":
+            self._handle_authenticate(msg_id, params)
+        elif method == "logout":
+            self._handle_logout(msg_id, params)
         elif method == "_tck/env":
             self._reply(msg_id, {"value": os.environ.get(params.get("name", ""))})
         elif method == "_tck/big":
@@ -122,11 +144,82 @@ class ConformingAgent:
     def _initialize_result(self) -> dict[str, Any]:
         # Only version 1 is supported, so the response is always 1 -- never echo a version
         # the agent does not actually support (protocol-surface report, Req #5).
-        return {
+        result: dict[str, Any] = {
             "protocolVersion": PROTOCOL_VERSION,
             "agentCapabilities": dict(self._capabilities),
             "agentInfo": {"name": self._agent_name, "version": "0.0.0"},
         }
+        if self._auth_methods is not None:
+            result["authMethods"] = self._auth_methods
+        return result
+
+    def _client_advertised_boolean_config(self) -> bool:
+        session_caps = self._client_capabilities.get("session")
+        if not isinstance(session_caps, dict):
+            return False
+        return session_caps.get("configOptions", {}).get("boolean") is not None
+
+    def _visible_config_options(self) -> list[dict[str, Any]] | None:
+        """`self._config_options`, filtered to honor Req 33: a `type: "boolean"` option is
+        dropped unless the client advertised `clientCapabilities.session.configOptions.boolean`
+        -- unless `ignore_boolean_gating` is set (used by the `boolean_option_unadvertised.py`
+        defect fixture, which deliberately violates this MUST NOT for ACP-CONFIG-003)."""
+        if self._config_options is None:
+            return None
+        if self._ignore_boolean_gating or self._client_advertised_boolean_config():
+            return list(self._config_options)
+        return [opt for opt in self._config_options if opt.get("type") != "boolean"]
+
+    def _handle_new_session(self, msg_id: Any, params: dict[str, Any]) -> None:
+        if self._require_auth and not self._authenticated:
+            self._error(msg_id, -32000, "Authentication required")
+            return
+        self._session_count += 1
+        session_id = f"sess-{self._session_count:04d}"
+        self._sessions[session_id] = {"cwd": params.get("cwd"), "history": []}
+        result: dict[str, Any] = {"sessionId": session_id}
+        if self._modes is not None:
+            result["modes"] = self._modes
+        visible_config = self._visible_config_options()
+        if visible_config is not None:
+            result["configOptions"] = visible_config
+        self._reply(msg_id, result)
+
+    def _handle_set_mode(self, msg_id: Any, params: dict[str, Any]) -> None:
+        session_id = params.get("sessionId")
+        mode_id = params.get("modeId")
+        if self._modes is not None:
+            self._modes["currentModeId"] = mode_id
+        self._reply(msg_id, {})
+        if self._emit_mode_update:
+            self._notify(
+                "session/update",
+                {
+                    "sessionId": session_id,
+                    "update": {
+                        "sessionUpdate": "current_mode_update",
+                        self._mode_update_field: mode_id,
+                    },
+                },
+            )
+
+    def _handle_set_config_option(self, msg_id: Any, params: dict[str, Any]) -> None:
+        config_id = params.get("configId")
+        value = params.get("value")
+        if self._config_options is not None:
+            for option in self._config_options:
+                if option.get("id") == config_id:
+                    option["currentValue"] = value
+                    break
+        self._reply(msg_id, {"configOptions": self._visible_config_options() or []})
+
+    def _handle_authenticate(self, msg_id: Any, params: dict[str, Any]) -> None:
+        self._authenticated = True
+        self._reply(msg_id, {})
+
+    def _handle_logout(self, msg_id: Any, params: dict[str, Any]) -> None:
+        self._authenticated = False
+        self._reply(msg_id, {})
 
     def _handle_prompt(self, msg_id: Any, params: dict[str, Any]) -> None:
         session_id = params.get("sessionId")

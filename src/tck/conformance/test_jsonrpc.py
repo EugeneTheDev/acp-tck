@@ -19,7 +19,7 @@ from tck.harness import AgentTimeout
 from tck.protocol import METHOD_NOT_FOUND, PROTOCOL_VERSION
 from tck.validation import validate_response_envelope
 
-from ._helpers import connected_agent, quiet_period
+from ._helpers import connected_agent, new_session, quiet_period
 
 
 @pytest.mark.requirement("ACP-JSONRPC-001")
@@ -88,13 +88,13 @@ async def test_notification_receives_no_response(agent_launch, tmp_path):
     This also stands in for a would-be `ACP-CANCEL-003` ("`session/cancel` itself is a
     notification and receives no response", J2 applied to cancel): the slice-4 task considered
     a dedicated requirement id for that, but it is exactly what this test already asserts, so no
-    separate id was registered -- see `.agents/plan.md` slice 4 notes."""
+    separate id was registered -- see `.agents/plan.md` slice 4 notes.
+
+    Uses the `new_session()` helper (not a hand-rolled `session/new`) so it SKIPs, via
+    `skip_if_auth_gated`, instead of crashing with a `KeyError` on an agent that gates
+    `session/new` behind authentication and was run without `--auth-method`."""
     async with connected_agent(agent_launch) as agent:
-        session_req = await agent.send_request(
-            "session/new", {"cwd": str(tmp_path), "mcpServers": []}
-        )
-        session_entry = await agent.wait_for_response(session_req, timeout=agent_launch.default_timeout)
-        session_id = session_entry.parsed["result"]["sessionId"]
+        session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
 
         await agent.send_notification("session/cancel", {"sessionId": session_id})
 
@@ -111,15 +111,14 @@ async def test_notification_receives_no_response(agent_launch, tmp_path):
 
 @pytest.mark.requirement("ACP-JSONRPC-005")
 async def test_connection_survives_an_erroneous_request(agent_launch, tmp_path):
-    """ACP-JSONRPC-005 (ADVISORY -- see `tck.requirements` for why this isn't MANDATORY)."""
+    """ACP-JSONRPC-005 (ADVISORY -- see `tck.requirements` for why this isn't MANDATORY).
+
+    Uses the `new_session()` helper (not a hand-rolled `session/new`) so it SKIPs, via
+    `skip_if_auth_gated`, instead of failing on an agent that gates `session/new` behind
+    authentication and was run without `--auth-method`."""
     async with connected_agent(agent_launch) as agent:
         bad_id = await agent.send_request("_tck/does_not_exist")
         await agent.wait_for_response(bad_id, timeout=agent_launch.default_timeout)
 
-        session_req = await agent.send_request(
-            "session/new", {"cwd": str(tmp_path), "mcpServers": []}
-        )
-        entry = await agent.wait_for_response(session_req, timeout=agent_launch.default_timeout)
-        msg = entry.parsed
-        assert "result" in msg, f"request after an error must still succeed: {msg!r}"
-        assert isinstance(msg["result"].get("sessionId"), str)
+        session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
+        assert isinstance(session_id, str)

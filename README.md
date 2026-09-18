@@ -42,6 +42,11 @@ process per test, so one crash can't cascade into unrelated failures.
   every other prompt test uses. Pick something that keeps a real agent busy long enough for
   `session/cancel` to land while the turn is still in flight -- otherwise those tests report
   `SKIPPED` ("cancellation not exercised"), which means exactly that, not a conformance failure.
+- `--auth-method ID` -- authenticate with this method id (one advertised in `initialize`'s
+  `authMethods`) right after `initialize`, before any session-dependent test runs. Needed for
+  any agent that gates `session/new` behind authentication -- without it, session-dependent
+  tests report `SKIPPED` with an "AUTH-GATED" hint and the run is forced `NOT CONFORMANT`, since
+  those requirements were never actually exercised.
 - `--report-json PATH` -- write the full JSON report (see below).
 - `-k EXPR` -- run only tests matching a pytest `-k` expression.
 - `-v` -- verbose pytest output.
@@ -60,7 +65,7 @@ by per-tier counts and a `VERDICT: CONFORMANT` / `VERDICT: NOT CONFORMANT (...)`
   test's outcome (`nodeid`, `status`, `message`, `duration_s`, `properties`). A `FAIL` outcome
   additionally carries `transcript` (the full wire traffic for that test) and `stderr`
   (truncated to the last 20 kB), so a failure is diagnosable from the JSON alone.
-- `verdict`: `{"conformant": bool, "tier_counts": {...}}`.
+- `verdict`: `{"conformant": bool, "blocked_by_auth": bool, "tier_counts": {...}}`.
 
 ## The tier / status / verdict model
 
@@ -83,7 +88,9 @@ agent that never gets past `initialize` can't score 100% by starving every other
 record.
 
 **Verdict:** `conformant` is `true` iff there is no `MANDATORY` `FAIL`, no `MANDATORY`
-`NOT_TESTED`, and no `CAPABILITY` `FAIL`.
+`NOT_TESTED`, no `CAPABILITY` `FAIL`, and the run was not `blocked_by_auth` (i.e. no
+session-dependent test was skipped because the agent requires authentication and no
+`--auth-method` was given -- see "Options" above).
 
 **Exit code:** `0` iff `conformant`, `1` otherwise (including "the agent never responded to
 anything" -- every `MANDATORY` requirement ends up `FAIL`/`NOT_TESTED`, but the run still
@@ -92,11 +99,12 @@ completes and still writes a report). No agent command after `--` is a usage err
 ## Protocol scope
 
 ACP **v1 only** (`PROTOCOL_VERSION = 1`, pinned in `tck.protocol`). Batch JSON-RPC arrays,
-pre-`initialize` request gating, `auth/login`, and v2 prompt-lifecycle changes are all out of
-scope. Capability-conditional coverage now includes `session/load`, `session/resume`,
-`session/list`, `session/delete`, `session/close`, and `additionalDirectories`; MCP/terminal/fs
-capabilities are still to come -- see `AGENTS.md` for the current requirement registry and
-what's implemented so far.
+pre-`initialize` request gating, and v2 prompt-lifecycle changes are all out of scope.
+Capability-conditional coverage now includes `session/load`, `session/resume`, `session/list`,
+`session/delete`, `session/close`, `additionalDirectories`, session `modes`/`configOptions`,
+`promptCapabilities` (`image`/`audio`/`embeddedContext`), and the authentication surface
+(`authMethods`, `authenticate`, `logout`); MCP/terminal/fs capabilities are still to come -- see
+`AGENTS.md` for the current requirement registry and what's implemented so far.
 
 ## Contributing
 

@@ -27,7 +27,7 @@ from tck.harness import AgentTimeout
 from tck.protocol import STOP_REASONS
 from tck.validation import validate_agent_response
 
-from ._helpers import connected_agent, new_session, quiet_period, run_prompt
+from ._helpers import connected_agent, new_session, quiet_period, run_prompt, skip_if_auth_gated
 
 
 # --- session/load ---
@@ -417,6 +417,7 @@ async def test_new_session_with_additional_directories_is_accepted(agent_launch,
             },
         )
         entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
+        skip_if_auth_gated(entry)
         msg = entry.parsed
         assert isinstance(msg, dict) and "result" in msg, (
             f"session/new with an additionalDirectories entry did not succeed: {entry.text!r}"

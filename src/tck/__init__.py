@@ -51,6 +51,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "agent failed conformance. Default: a long free-form writing prompt.",
     )
     parser.add_argument(
+        "--auth-method",
+        default=None,
+        metavar="ID",
+        help="An `authMethods[*].id` advertised by the agent under test, passed through as "
+        "--tck-auth-method. Required to test session-dependent requirements against an agent "
+        "that gates session/new behind authentication -- without it, those tests SKIP with a "
+        "hint and the verdict cannot be CONFORMANT.",
+    )
+    parser.add_argument(
         "--report-json",
         default=None,
         metavar="PATH",
@@ -115,6 +124,8 @@ def main(argv: list[str] | None = None) -> int:
         pytest_args += ["--tck-agent-env", env]
     if args.cancel_prompt is not None:
         pytest_args += ["--tck-cancel-prompt", args.cancel_prompt]
+    if args.auth_method is not None:
+        pytest_args += ["--tck-auth-method", args.auth_method]
     if args.report_json is not None:
         pytest_args += ["--tck-report-json", args.report_json]
     if args.expression is not None:

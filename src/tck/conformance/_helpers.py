@@ -8,14 +8,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator
 
+import pytest
+
 from tck.harness import AgentLaunch, AgentProcess, AgentTimeout, TranscriptEntry
-from tck.plugin import register_active_process
-from tck.protocol import METHOD_NOT_FOUND, PROTOCOL_VERSION
+from tck.plugin import current_auth_method_id, register_active_process
+from tck.protocol import AUTHENTICATION_REQUIRED, METHOD_NOT_FOUND, PROTOCOL_VERSION
 
 
 @contextlib.asynccontextmanager
 async def connected_agent(
-    launch: AgentLaunch, *, handshake: bool = True
+    launch: AgentLaunch,
+    *,
+    handshake: bool = True,
+    client_capabilities: dict[str, Any] | None = None,
 ) -> AsyncIterator[AgentProcess]:
     """Spawn a fresh `AgentProcess` for `launch`, optionally perform an `initialize` handshake,
     yield it, and always close it.
@@ -23,16 +28,64 @@ async def connected_agent(
     Registers the process with the plugin's failure-diagnostics tracker (`tck.plugin`) so a
     test failure attaches its transcript and stderr to the pytest report, regardless of which
     requirement(s) the test is checking.
+
+    When `handshake` is true and `--tck-auth-method` was given (`current_auth_method_id()`),
+    an `authenticate` call for that method id is sent right after `initialize` -- this lets
+    every existing/new test that calls `new_session()` afterwards just work against an agent
+    that requires authentication before `session/new`, without each test having to know about
+    auth at all. Note: this auto-authenticate step only fires for `handshake=True` callers --
+    `test_initialize.py::test_full_exchange_validates_against_schema` deliberately drives its
+    own `initialize` with `handshake=False` and is out of scope for auth-gating (it never
+    exercises an auth-gated fixture).
     """
     async with AgentProcess(launch) as agent:
         register_active_process(agent)
         if handshake:
             req_id = await agent.send_request(
                 "initialize",
-                {"protocolVersion": PROTOCOL_VERSION, "clientCapabilities": {}},
+                {
+                    "protocolVersion": PROTOCOL_VERSION,
+                    "clientCapabilities": client_capabilities
+                    if client_capabilities is not None
+                    else {},
+                },
             )
             await agent.wait_for_response(req_id, timeout=launch.startup_timeout)
+            method_id = current_auth_method_id()
+            if method_id is not None:
+                auth_id = await agent.send_request("authenticate", {"methodId": method_id})
+                auth_entry = await agent.wait_for_response(auth_id, timeout=launch.startup_timeout)
+                auth_msg = auth_entry.parsed
+                assert isinstance(auth_msg, dict) and isinstance(auth_msg.get("result"), dict), (
+                    f"authenticate with methodId={method_id!r} did not succeed: {auth_entry.text!r}"
+                )
         yield agent
+
+
+def skip_if_auth_gated(entry: TranscriptEntry) -> None:
+    """Skip the current test, with a message pointing at `--auth-method`, if `entry` (a
+    `session/new` response) is the `AUTHENTICATION_REQUIRED` (`-32000`) error.
+
+    v1 never requires an agent to gate `session/new` behind authentication (it's a MAY, not a
+    MUST -- `.agents/research/acp-v1-authentication.md`), so this is not itself a conformance
+    failure; but it does mean the TCK cannot exercise session/prompt-dependent requirements
+    against this agent unless the harness operator supplies a valid `--auth-method <id>`. The
+    message is prefixed with the literal marker string `AUTH-GATED:` so `tck.plugin` can detect
+    this specific reason (as opposed to an ordinary capability-not-advertised skip) and set
+    `Verdict.blocked_by_auth`.
+    """
+    msg = entry.parsed
+    if (
+        isinstance(msg, dict)
+        and isinstance(msg.get("error"), dict)
+        and msg["error"].get("code") == AUTHENTICATION_REQUIRED
+        and current_auth_method_id() is None
+    ):
+        pytest.skip(
+            "AUTH-GATED: session/new returned -32000 (authentication required) and no "
+            "--auth-method was given; pass --auth-method <id> (one of the ids advertised in "
+            "initialize's authMethods) to test session-dependent requirements against this agent"
+        )
 
 
 async def new_session(agent: AgentProcess, cwd: Path, *, timeout: float | None = None) -> str:
@@ -41,9 +94,13 @@ async def new_session(agent: AgentProcess, cwd: Path, *, timeout: float | None =
 
     Raises `AssertionError` with a protocol-level message (not a bare `TypeError`/`KeyError`)
     if the response is not a well-formed success -- callers see a diagnosis, not a Python
-    traceback, when the agent errors or replies with a malformed shape (review N14)."""
+    traceback, when the agent errors or replies with a malformed shape (review N14).
+
+    SKIPs (via `skip_if_auth_gated`) rather than failing when the agent requires authentication
+    and no `--auth-method` was configured."""
     req_id = await agent.send_request("session/new", {"cwd": str(cwd), "mcpServers": []})
     entry = await agent.wait_for_response(req_id, timeout=timeout)
+    skip_if_auth_gated(entry)
     msg = entry.parsed
     assert isinstance(msg, dict) and isinstance(msg.get("result"), dict), (
         f"session/new did not return a result object: {entry.text!r}"

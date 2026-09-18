@@ -9,9 +9,13 @@ applicable, or were never exercised.
 Slices so far add an installable CLI (`acp-tck`), a requirement registry, a pytest plugin,
 transport/`initialize` conformance tests, mandatory session/prompt/cancel conformance tests, full
 reporting (a JSON report via `--report-json`, the four-status verdict, and a verdict-based exit
-code), and capability-conditional session-method tests: `session/load`, `session/resume`,
+code), capability-conditional session-method tests: `session/load`, `session/resume`,
 `session/list`, `session/delete`, `session/close`, and `additionalDirectories`, each gated on the
-`initialize` result advertising the relevant capability.
+`initialize` result advertising the relevant capability, and (slice 6b) session modes/config
+options (support *inferred* from `session/new`'s own response, not an `initialize` marker),
+prompt content capabilities (`image`/`audio`/`embeddedContext`), and the authentication surface
+(`authMethods`, `authenticate`, `logout`, plus a `--auth-method` option so the TCK can drive a
+real authenticate handshake before `session/new`).
 
 ## Layout
 
@@ -21,13 +25,26 @@ src/tck/
                           the packaged conformance suite via `pytest.main(...)`
   __main__.py            `python -m tck` -- same as the console script (used by the self-tests
                           so they don't depend on the console script being on PATH)
-  requirements.py        the requirement registry: `Tier`, `Requirement`, `REGISTRY`, `get()`
+  requirements.py        the requirement registry: `Tier`, `Requirement`, `REGISTRY`, `get()`.
+                          Requirements gated by *inferred* support (no `initialize`-result
+                          marker -- e.g. `modes`/`configOptions`, only observable in
+                          `session/new`'s own response) use a documentation-only
+                          `capability="inferred:modes"`/`"inferred:configOptions"` string that
+                          satisfies `Requirement.__post_init__`'s invariant but is not looked up
+                          by `@pytest.mark.capability(...)`/`_tck_capability_gate` -- those tests
+                          instead `pytest.skip(...)` manually when the field is absent.
   plugin.py               the `tck.plugin` pytest plugin: `--tck-*` options (including
-                          `--tck-report-json`), `requirement`/`capability` markers, async test
-                          support, fixtures, the per-test result collector, the terminal summary
-                          table, JSON report writing, and the verdict-based exit code
+                          `--tck-report-json`, `--tck-auth-method`), `requirement`/`capability`
+                          markers, async test support, fixtures, the per-test result collector,
+                          the terminal summary table, JSON report writing, and the verdict-based
+                          exit code. Also holds the `_AUTH_METHOD` contextvar and
+                          `current_auth_method_id()` accessor (mirrors `_ACTIVE_PROCESSES`),
+                          set per-test by the autouse `_tck_auth_method_context` fixture from
+                          `--tck-auth-method`; `_build_report()` scans skip messages for the
+                          literal `"AUTH-GATED:"` marker to compute `Verdict.blocked_by_auth`.
   report.py              the report model: `Status`, `TestOutcome`, `RequirementResult`,
-                          `Verdict`, `Report` -- pure data + aggregation, no pytest dependency
+                          `Verdict` (including `blocked_by_auth: bool`), `Report` -- pure data +
+                          aggregation, no pytest dependency
   protocol.py            PROTOCOL_VERSION, SCHEMA_REVISION, error codes, StopReason values,
                           method inventories
   validation.py          schema validation for agent-authored JSON-RPC messages
@@ -57,6 +74,18 @@ src/tck/
                             and `additionalDirectories`, each gated by
                             `@pytest.mark.capability(...)` on the corresponding
                             `agentCapabilities`/`sessionCapabilities` path
+    test_session_config.py  ACP-MODES-001/002, ACP-CONFIG-001/002/003 -- session `modes`/
+                            `configOptions` (support inferred from `session/new`'s own response,
+                            manually skipped when absent -- see `requirements.py` note above) and
+                            the Req 33 negative control (no `type: "boolean"` config option
+                            without `clientCapabilities.session.configOptions.boolean`)
+    test_prompt_capabilities.py  ACP-PROMPTCAP-001/002/003 -- `image`/`audio`/`embeddedContext`
+                            prompt content blocks, each a boolean
+                            `agentCapabilities.promptCapabilities.*` gate
+    test_authentication.py  ACP-AUTH-001..004 -- `authMethods` shape/uniqueness, the Req 23
+                            terminal-method client-capability gate, the `authenticate` ->
+                            `session/new` flow (only when `--tck-auth-method` was given), and
+                            `logout` (gated on the `agentCapabilities.auth.logout` object marker)
 
 tests/
   conftest.py              agent_launch() helper for spawning fixture agents (harness unit tests)
@@ -72,13 +101,23 @@ tests/
                           implements `session/load` (replays stored history before responding),
                           `session/resume` (no replay), `session/list` (filtered by `cwd`),
                           `session/delete`/`session/close` (remove the session; close also
-                          resolves an in-flight prompt as `cancelled`)
+                          resolves an in-flight prompt as `cancelled`). Also (slice 6b) accepts
+                          `modes`, `config_options`, `auth_methods`, `require_auth`,
+                          `emit_mode_update`, `mode_update_field` (default `"currentModeId"`,
+                          overridable by defect fixtures), and implements
+                          `session/set_mode`/`session/set_config_option`/`authenticate`/
+                          `logout`, plus filters `type: "boolean"` config options out of
+                          `session/new`'s result unless the client advertised
+                          `clientCapabilities.session.configOptions.boolean` (Req 33).
     conforming.py          deterministic, offline, conforming ACP v1 agent; advertises
                           `agentCapabilities: {}`, so every capability-conditional test SKIPs
-    conforming_full.py     conforming.py plus `loadSession: true` and every
-                          `sessionCapabilities` marker (`list`/`delete`/`resume`/`close`/
-                          `additionalDirectories`), all correctly implemented via `_base.py` --
-                          drives every CAPABILITY-tier session-method test to PASS
+    conforming_full.py     conforming.py plus `loadSession: true`, every `sessionCapabilities`
+                          marker (`list`/`delete`/`resume`/`close`/`additionalDirectories`),
+                          `promptCapabilities: {image, audio, embeddedContext}`, two `modes`, a
+                          select and a boolean `configOptions` entry, an `authMethods` entry
+                          (id `"tck"`), and `auth: {logout: {}}` -- all correctly implemented via
+                          `_base.py` -- drives every CAPABILITY-tier requirement in this slice to
+                          PASS when run with `--auth-method tck` (see "Running" below)
     banner_on_stdout.py     conforming + prints a non-ACP banner line to stdout first
     stderr_chatter.py      conforming + logs every received message to stderr
     never_responds.py      reads stdin forever, never writes anything
@@ -131,6 +170,25 @@ tests/
     advertises_load_but_errors.py  advertises `loadSession: true` but always errors on
                           `session/load` -- a CAPABILITY-tier FAIL (ACP-LOAD-001), which flips
                           the overall verdict to NOT CONFORMANT
+    mode_update_uses_modeId.py  conforming_full.py, but its `current_mode_update` carries the
+                          docs-bug field name `modeId` instead of the schema's `currentModeId`
+                          (ACP-MODES-002 only)
+    config_partial_list.py  conforming_full.py, but `session/set_config_option` returns only the
+                          changed entry instead of the complete `configOptions` list
+                          (ACP-CONFIG-002 only)
+    boolean_option_unadvertised.py  conforming_full.py, but always includes its `type: "boolean"`
+                          config option in `session/new`'s result even when the client didn't
+                          advertise `clientCapabilities.session.configOptions.boolean` (ACP-CONFIG-003,
+                          MANDATORY -- flips the verdict to NOT CONFORMANT)
+    terminal_auth_unadvertised.py  conforming_full.py, but advertises an
+                          `authMethods[*].type == "terminal"` entry regardless of whether the
+                          client advertised `clientCapabilities.auth.terminal` (ACP-AUTH-002,
+                          MANDATORY -- flips the verdict to NOT CONFORMANT)
+    gated_by_auth.py       conforming_full.py, but `session/new` always errors with
+                          `-32000` (`AUTHENTICATION_REQUIRED`) unless the client has
+                          successfully called `authenticate` first with the advertised
+                          `"tck"` method id -- self-test-only fixture for
+                          `--auth-method`/`Verdict.blocked_by_auth`
 ```
 
 ## Running the TCK against an agent
@@ -168,6 +226,16 @@ before, or too soon after, `session/cancel` was sent for the TCK to tell whether
 actually reacted to it -- not that the agent failed conformance. Passing a longer or slower
 `--cancel-prompt` (and, if needed, a larger `--timeout`) may let a fast agent's turn stay in
 flight long enough to exercise the requirement for real.
+
+`--auth-method ID` (plugin: `--tck-auth-method`) tells the harness to send an `authenticate`
+request with this `methodId` right after a successful `initialize`, before any session-dependent
+test runs (`connected_agent(..., handshake=True)`, the default). Needed for any agent whose
+`session/new` gates behind authentication: without it, session-dependent tests SKIP with a
+message prefixed `"AUTH-GATED:"`, and the run is forced NOT CONFORMANT
+(`Verdict.blocked_by_auth`) even if no MANDATORY/CAPABILITY requirement otherwise failed --
+because those requirements were never actually exercised. `ACP-AUTH-003` itself additionally
+SKIPs outright whenever `--auth-method` is omitted (it can't guess a valid method id) or the
+agent advertises no `authMethods` at all.
 
 You can also run the suite directly with plain pytest, e.g. to add pytest's own flags:
 
@@ -249,14 +317,18 @@ ran (`status: "NOT_TESTED"`, `tests: []`) -- each carrying its `tier`/`capabilit
 outcomes only, `transcript` (`[{"dir": "sent"|"received", "t": <monotonic ts>, "raw": <line>},
 ...]`) and `stderr` (truncated to the last 20 kB)).
 
-`verdict` is `{"conformant": bool, "tier_counts": {tier: {status: count}}}`.
-`conformant` is computed from `MANDATORY`- and `CAPABILITY`-tier requirements only: `true` iff no
-`MANDATORY` `FAIL`, no `MANDATORY` `NOT_TESTED`, and no `CAPABILITY` `FAIL`. A `CAPABILITY`
-`SKIPPED`/`NOT_TESTED` (not advertised, or simply never exercised) does not affect it -- only a
-*failed* capability check does, since the agent advertised it and it must then work.
-`ADVISORY`/`INFORMATIONAL` never affect it. See `src/tck/report.py` for the full model
-(`Status`, `TestOutcome`, `RequirementResult`, `Verdict`, `Report`) and `tests/test_report.py`
-for the aggregation rules exercised against synthetic data.
+`verdict` is `{"conformant": bool, "blocked_by_auth": bool, "tier_counts": {tier: {status:
+count}}}`. `conformant` is computed from `MANDATORY`- and `CAPABILITY`-tier requirements, plus
+`blocked_by_auth`: `true` iff no `MANDATORY` `FAIL`, no `MANDATORY` `NOT_TESTED`, no `CAPABILITY`
+`FAIL`, and not `blocked_by_auth`. A `CAPABILITY` `SKIPPED`/`NOT_TESTED` (not advertised, or
+simply never exercised) does not affect it -- only a *failed* capability check does, since the
+agent advertised it and it must then work. `ADVISORY`/`INFORMATIONAL` never affect it.
+`blocked_by_auth` is `true` whenever any test was `SKIPPED` with a message starting
+`"AUTH-GATED:"` -- i.e. the agent requires authentication before `session/new` and no
+`--auth-method` was given, so session-dependent requirements were never actually exercised and
+the run cannot be honestly scored conformant regardless of how many other checks passed. See
+`src/tck/report.py` for the full model (`Status`, `TestOutcome`, `RequirementResult`, `Verdict`,
+`Report`) and `tests/test_report.py` for the aggregation rules exercised against synthetic data.
 
 ## Harness API (`tck.harness`)
 

@@ -450,6 +450,205 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         ),
         source_report="acp-v1-session-capabilities.md",
     ),
+    Requirement(
+        id="ACP-MODES-001",
+        tier=Tier.CAPABILITY,
+        capability="inferred:modes",
+        text=(
+            "When `session/new` returns a non-null `modes`, it validates against the schema "
+            "and `currentModeId` refers to one of `availableModes`. Inferred support, not a "
+            "boolean/object marker in `initialize` -- there is no `agentCapabilities` field for "
+            "this; support is inferred from `session/new`'s own response (`capability` is a "
+            "documentation-only string, not a real initialize-result path -- see module "
+            "docstring of `test_session_config.py`). SKIPs with reason 'session/new returned no "
+            "modes/configOptions' when absent."
+        ),
+        citation=_cite(
+            "docs/protocol/v1/session-modes.mdx; schema/v1/schema.json:2911-2944,2945-2974 "
+            "(SessionModeState, SessionMode) (§7, §0)"
+        ),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-MODES-002",
+        tier=Tier.CAPABILITY,
+        capability="inferred:modes",
+        text=(
+            "`session/set_mode` to a different `modeId` succeeds. No echo notification is "
+            "required (§7: \"do not assert an echo notification\"), but if a "
+            "`current_mode_update` (`session/update` with `sessionUpdate: "
+            "\"current_mode_update\"`) for the session is observed, it MUST carry the schema "
+            "field name `currentModeId` -- the docs' `modeId` example "
+            "(`session-modes.mdx:117-119`) is a confirmed docs bug; the schema wins."
+        ),
+        citation=_cite(
+            "docs/protocol/v1/session-modes.mdx:117-119 (docs bug); "
+            "schema/v1/schema.json:5102-5132,4129-4160 (SetSessionModeRequest, "
+            "CurrentModeUpdate) (§7)"
+        ),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-CONFIG-001",
+        tier=Tier.CAPABILITY,
+        capability="inferred:configOptions",
+        text=(
+            "When `session/new` returns a non-null `configOptions`, every entry's "
+            "`currentValue` is valid per its declared type: a `boolean` entry's `currentValue` "
+            "is a bool; a `select` entry's `currentValue` is one of its `options` (flat or "
+            "grouped shape). Inferred support, same encoding as ACP-MODES-001 -- "
+            "`capability=\"inferred:configOptions\"` is documentation-only."
+        ),
+        citation=_cite(
+            "schema/v1/schema.json:2975-3399 (SessionConfigOption and its select/boolean "
+            "variants) (§7, §0)"
+        ),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-CONFIG-002",
+        tier=Tier.CAPABILITY,
+        capability="inferred:configOptions",
+        text=(
+            "`session/set_config_option` responds with the *complete* list of every "
+            "previously-advertised `configOptions` id (not only the changed one), with the new "
+            "value applied to the option that was changed -- stated as a MUST twice in the "
+            "docs."
+        ),
+        citation=_cite(
+            "schema/v1/schema.json:5133-5169,3400-3423 (SetSessionConfigOptionRequest/"
+            "Response) (§7 'complete list' rule)"
+        ),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-CONFIG-003",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "An agent MUST NOT include a `type: \"boolean\"` config option anywhere in "
+            "`session/new`'s `configOptions` unless the client advertised "
+            "`clientCapabilities.session.configOptions.boolean: {}` -- Req 33, a genuine client- "
+            "controlled MUST NOT. Passes vacuously if the agent has no config options, or none "
+            "of `type: \"boolean\"`, at all."
+        ),
+        citation=_cite(
+            "schema/v1/schema.json:2975-3399 (SessionConfigOption boolean variant) "
+            "(Req 33; §7 boolean gating)"
+        ),
+        source_report="acp-v1-session-capabilities.md; acp-v1-protocol-surface.md",
+    ),
+    Requirement(
+        id="ACP-PROMPTCAP-001",
+        tier=Tier.CAPABILITY,
+        capability="agentCapabilities.promptCapabilities.image",
+        text=(
+            "When `agentCapabilities.promptCapabilities.image` is `true`, a `session/prompt` "
+            "containing an `image` content block (`ImageContent`: `data`, `mimeType`) alongside "
+            "text resolves with a successful result whose `stopReason` is a defined value."
+        ),
+        citation=_cite(
+            "schema/v1/schema.json:2480-2523 (PromptCapabilities), 765-802 (ImageContent) "
+            "(§8, Req 8)"
+        ),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-PROMPTCAP-002",
+        tier=Tier.CAPABILITY,
+        capability="agentCapabilities.promptCapabilities.audio",
+        text=(
+            "When `agentCapabilities.promptCapabilities.audio` is `true`, a `session/prompt` "
+            "containing an `audio` content block (`AudioContent`: `data`, `mimeType`) alongside "
+            "text resolves with a successful result whose `stopReason` is a defined value."
+        ),
+        citation=_cite(
+            "schema/v1/schema.json:2480-2523 (PromptCapabilities), 803-838 (AudioContent) "
+            "(§8, Req 8)"
+        ),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-PROMPTCAP-003",
+        tier=Tier.CAPABILITY,
+        capability="agentCapabilities.promptCapabilities.embeddedContext",
+        text=(
+            "When `agentCapabilities.promptCapabilities.embeddedContext` is `true`, a "
+            "`session/prompt` containing a `resource` content block (`EmbeddedResource` "
+            "wrapping a text or blob resource) alongside text resolves with a successful result "
+            "whose `stopReason` is a defined value."
+        ),
+        citation=_cite(
+            "schema/v1/schema.json:2480-2523 (PromptCapabilities), 965-1010 (EmbeddedResource) "
+            "(§8, Req 8)"
+        ),
+        source_report="acp-v1-session-capabilities.md",
+    ),
+    Requirement(
+        id="ACP-AUTH-001",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "When `initialize`'s `authMethods` is present, it is an array of schema-valid "
+            "`AuthMethod` objects with unique `id`s (AUTH-M1/M2 in the auth report's assertion "
+            "table). Schema shape itself is already covered by ACP-SCHEMA-001's full-exchange "
+            "validation; this test adds the id-uniqueness check that schema validation alone "
+            "does not express."
+        ),
+        citation=_cite(
+            "schema/v1/schema.json:2702-2735,2783-2810 (AuthMethod, AuthMethodAgent) "
+            "(AUTH-M1, AUTH-M2)"
+        ),
+        source_report="acp-v1-authentication.md",
+    ),
+    Requirement(
+        id="ACP-AUTH-002",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "No `authMethods[*].type == \"terminal\"` entry is advertised unless the client "
+            "advertised `clientCapabilities.auth.terminal` (Req 23, AUTH-M4) -- a client- "
+            "controlled MUST NOT, checked by connecting once without that capability."
+        ),
+        citation=_cite(
+            "schema/v1/schema.json:2736-2782 (AuthMethodTerminal) (Req 23; AUTH-M4)"
+        ),
+        source_report="acp-v1-authentication.md",
+    ),
+    Requirement(
+        id="ACP-AUTH-003",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "Capability-conditional (AUTH-C3/C4): only exercised when `authMethods` is "
+            "non-empty AND `--tck-auth-method <id>` was given -- SKIPs otherwise, since v1 "
+            "never requires an agent to expose a testable auth flow and the TCK cannot guess a "
+            "valid `methodId`. When exercised: `authenticate` with that `methodId` succeeds "
+            "with an object result, and a subsequent `session/new` on the same connection "
+            "succeeds (not `-32000`)."
+        ),
+        citation=_cite(
+            "schema/v1/schema.json:4712-4734 (AuthenticateRequest/Response) (AUTH-C3, AUTH-C4)"
+        ),
+        source_report="acp-v1-authentication.md",
+    ),
+    Requirement(
+        id="ACP-AUTH-004",
+        tier=Tier.CAPABILITY,
+        capability="agentCapabilities.auth.logout",
+        text=(
+            "When `agentCapabilities.auth.logout` is advertised (object marker), `logout` "
+            "succeeds with an object result (AUTH-C1/C2). Nothing is asserted about sessions "
+            "after logout (must-NOT list) -- if `--tck-auth-method` was given, `logout` is "
+            "called after a successful `authenticate`; otherwise it is called standalone and "
+            "only its own success is checked."
+        ),
+        citation=_cite(
+            "schema/v1/schema.json:2666-2701,4735-4756 (AgentAuthCapabilities, LogoutRequest) "
+            "(AUTH-C1, AUTH-C2)"
+        ),
+        source_report="acp-v1-authentication.md",
+    ),
 )
 
 REGISTRY: dict[str, Requirement] = {requirement.id: requirement for requirement in _DECLARATIONS}

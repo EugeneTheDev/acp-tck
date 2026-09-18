@@ -6,7 +6,7 @@ import pytest
 
 from tck.validation import validate_agent_response
 
-from ._helpers import connected_agent
+from ._helpers import connected_agent, skip_if_auth_gated
 
 
 @pytest.mark.requirement("ACP-SESSION-001")
@@ -17,6 +17,7 @@ async def test_session_new_succeeds_with_a_unique_session_id(agent_launch, tmp_p
             "session/new", {"cwd": str(tmp_path), "mcpServers": []}
         )
         entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
+        skip_if_auth_gated(entry)
         msg = entry.parsed
         assert isinstance(msg, dict) and "result" in msg, f"session/new did not succeed: {msg!r}"
 
@@ -37,6 +38,7 @@ async def test_two_sessions_get_distinct_ids(agent_launch, tmp_path):
             "session/new", {"cwd": str(tmp_path), "mcpServers": []}
         )
         first_entry = await agent.wait_for_response(first_req, timeout=agent_launch.default_timeout)
+        skip_if_auth_gated(first_entry)
         first_msg = first_entry.parsed
         assert isinstance(first_msg, dict) and isinstance(first_msg.get("result"), dict), (
             f"first session/new did not return a result object: {first_entry.text!r}"

@@ -111,6 +111,17 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "still attached to the failure.",
     )
     group.addoption(
+        "--tck-auth-method",
+        action="store",
+        default=None,
+        metavar="ID",
+        help="An `authMethods[*].id` advertised by the agent under test. When given, "
+        "`connected_agent`'s handshake calls `authenticate` with this methodId right after "
+        "`initialize`, before anything else -- required to exercise session-dependent "
+        "requirements against an agent that gates `session/new` behind authentication "
+        "(ACP-AUTH-003 and every test that otherwise relies on `new_session()`/`connected_agent`).",
+    )
+    group.addoption(
         "--tck-report-json",
         action="store",
         default=None,
@@ -214,6 +225,26 @@ def cancel_prompt_text(request: pytest.FixtureRequest) -> str:
     """The `--tck-cancel-prompt` text, used only by the cancellation tests (`test_cancel.py`) --
     every other prompt test keeps its own short, deterministic text."""
     return request.config.getoption("tck_cancel_prompt")
+
+
+# --- auth-method context, for _helpers.connected_agent's auto-authenticate step ---
+
+_AUTH_METHOD: contextvars.ContextVar[str | None] = contextvars.ContextVar("_AUTH_METHOD", default=None)
+
+
+def current_auth_method_id() -> str | None:
+    """The `--tck-auth-method` id configured for the current test, or `None` if none was given.
+    Read by `tck.conformance._helpers.connected_agent`/`skip_if_auth_gated`, which are plain
+    functions with no fixture access of their own -- mirrors the `_ACTIVE_PROCESSES` contextvar
+    pattern used for process registration."""
+    return _AUTH_METHOD.get()
+
+
+@pytest.fixture(autouse=True)
+def _tck_auth_method_context(request: pytest.FixtureRequest) -> Any:
+    token = _AUTH_METHOD.set(request.config.getoption("tck_auth_method"))
+    yield
+    _AUTH_METHOD.reset(token)
 
 
 @dataclass(frozen=True)
@@ -457,12 +488,18 @@ def _agent_command(config: pytest.Config) -> list[str]:
     return shlex.split(cmd) if cmd else []
 
 
+_AUTH_GATED_MARKER = "AUTH-GATED:"
+
+
 def _build_report(config: pytest.Config) -> Report:
     states = config.stash.get(TEST_STATES_KEY, {})
     tests_by_req: dict[str, list[TestOutcome]] = {}
+    blocked_by_auth = False
     for nodeid, state in states.items():
         if state.status is None:
             continue  # no phase produced a verdict for this test (shouldn't normally happen)
+        if state.status is Status.SKIPPED and _AUTH_GATED_MARKER in state.message:
+            blocked_by_auth = True
         outcome = TestOutcome(
             nodeid=nodeid,
             status=state.status,
@@ -476,7 +513,7 @@ def _build_report(config: pytest.Config) -> Report:
             tests_by_req.setdefault(req_id, []).append(outcome)
 
     results = build_requirement_results(tests_by_req)
-    verdict = compute_verdict(results)
+    verdict = compute_verdict(results, blocked_by_auth=blocked_by_auth)
 
     init_outcome: InitializeOutcome | None = config.stash.get(AGENT_INIT_KEY, None)
     agent_info = None
@@ -548,8 +585,11 @@ def pytest_terminal_summary(
     else:
         n_fail = mandatory[Status.FAIL.value]
         n_not_tested = mandatory[Status.NOT_TESTED.value]
+        reason = f"{n_fail} mandatory failures, {n_not_tested} not tested"
+        if verdict.blocked_by_auth:
+            reason += ", blocked by authentication"
         terminalreporter.write_line(
-            f"VERDICT: NOT CONFORMANT ({n_fail} mandatory failures, {n_not_tested} not tested)",
+            f"VERDICT: NOT CONFORMANT ({reason})",
             bold=True,
             red=True,
         )
@@ -558,4 +598,13 @@ def pytest_terminal_summary(
                 "hint: no MANDATORY requirement passed -- the agent may have failed to start or "
                 "never responded; check --agent-cwd/--timeout/--startup-timeout and the stderr "
                 "captured in the JSON report (--report-json).",
+            )
+        if verdict.blocked_by_auth:
+            terminalreporter.write_line(
+                "hint: one or more session-dependent tests were SKIPPED because the agent "
+                "requires authentication before session/new and no --auth-method was given -- "
+                "pass --auth-method <id> (an id from initialize's authMethods) to test this "
+                "agent fully; the run cannot be scored CONFORMANT without it.",
+                bold=True,
+                yellow=True,
             )

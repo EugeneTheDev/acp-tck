@@ -32,6 +32,10 @@ _MANDATORY_IDS = {
     "ACP-PROMPT-002",
     "ACP-CANCEL-001",
     "ACP-CANCEL-002",
+    "ACP-CONFIG-003",
+    "ACP-AUTH-001",
+    "ACP-AUTH-002",
+    "ACP-AUTH-003",
 }
 _ADVISORY_IDS = {
     "ACP-JSONRPC-004",
@@ -52,6 +56,14 @@ _CAPABILITY_IDS = {
     "ACP-CLOSE-001",
     "ACP-CLOSE-002",
     "ACP-ADDDIRS-001",
+    "ACP-MODES-001",
+    "ACP-MODES-002",
+    "ACP-CONFIG-001",
+    "ACP-CONFIG-002",
+    "ACP-PROMPTCAP-001",
+    "ACP-PROMPTCAP-002",
+    "ACP-PROMPTCAP-003",
+    "ACP-AUTH-004",
 }
 _ALL_IDS = _MANDATORY_IDS | _ADVISORY_IDS | _CAPABILITY_IDS
 
@@ -63,12 +75,14 @@ immediately, same as `conforming.py`. So for all of them, `session/cancel` alway
 race and the cancel tests SKIP with "cancellation not exercised" rather than PASS or FAIL (see
 `.agents/plan.md` "Cancel tests and the race")."""
 
-_CAPABILITY_GATED_IDS = _CAPABILITY_IDS | {"ACP-LOAD-003", "ACP-DELETE-002"}
+_CAPABILITY_GATED_IDS = _CAPABILITY_IDS | {"ACP-LOAD-003", "ACP-DELETE-002", "ACP-AUTH-003"}
 """Every id that SKIPs (rather than PASSes) against `conforming.py`, which advertises
-`agentCapabilities: {}` -- the 10 CAPABILITY-tier ids plus the two ADVISORY ids
-(`ACP-LOAD-003`, `ACP-DELETE-002`) that are still gated behind a `@pytest.mark.capability(...)`
-marker on their test function even though their `Requirement.tier` itself is ADVISORY, not
-CAPABILITY (see `test_session_capabilities.py` module docstring)."""
+`agentCapabilities: {}` and no modes/configOptions/authMethods -- every CAPABILITY-tier id, plus
+the two ADVISORY ids (`ACP-LOAD-003`, `ACP-DELETE-002`) that are still gated behind a
+`@pytest.mark.capability(...)` marker on their test function even though their
+`Requirement.tier` itself is ADVISORY, not CAPABILITY (see `test_session_capabilities.py`
+module docstring), plus the MANDATORY-but-conditional `ACP-AUTH-003` (SKIPs whenever
+`--tck-auth-method` was not given, regardless of tier -- see `test_authentication.py`)."""
 
 
 def _run_cli(
@@ -80,6 +94,7 @@ def _run_cli(
     test_timeout: str | None = None,
     startup_timeout: str = "1",
     cancel_prompt: str | None = None,
+    auth_method: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     cmd = [
         sys.executable,
@@ -98,6 +113,8 @@ def _run_cli(
         cmd += ["--report-json", report_json]
     if cancel_prompt is not None:
         cmd += ["--cancel-prompt", cancel_prompt]
+    if auth_method is not None:
+        cmd += ["--auth-method", auth_method]
     cmd += [
         "--",
         sys.executable,
@@ -172,6 +189,12 @@ def test_exits_immediately_fails_gracefully():
     assert "INTERNALERROR" not in result.stderr
     statuses = _table_statuses(result.stdout)
     for req_id in _MANDATORY_IDS:
+        if req_id == "ACP-AUTH-003":
+            # Conditional on --tck-auth-method regardless of the agent's own behavior -- SKIPs
+            # even against a dead agent, since the TCK never even attempts to connect for it
+            # without a configured auth method (see test_authentication.py).
+            assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP without --auth-method"
+            continue
         assert statuses.get(req_id) == "FAIL", f"{req_id} should FAIL when the agent never responds"
 
 
@@ -185,9 +208,9 @@ def test_banner_on_stdout_fails_transport_001_but_passes_transport_002():
     assert statuses.get("ACP-TRANSPORT-001") == "FAIL", result.stdout
     assert statuses.get("ACP-TRANSPORT-002") == "PASS", result.stdout
     assert statuses.get("ACP-SCHEMA-001") == "FAIL", result.stdout
-    for req_id in _CANCEL_IDS:
+    for req_id in _CANCEL_IDS | {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
-    for req_id in _MANDATORY_IDS - {"ACP-TRANSPORT-001", "ACP-SCHEMA-001"} - _CANCEL_IDS:
+    for req_id in _MANDATORY_IDS - {"ACP-TRANSPORT-001", "ACP-SCHEMA-001"} - _CANCEL_IDS - {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
 
 
@@ -220,9 +243,9 @@ def test_asks_permission_agent_passes_everything():
     assert result.returncode == 0, result.stdout + result.stderr
 
     statuses = _table_statuses(result.stdout)
-    for req_id in _CANCEL_IDS:
+    for req_id in _CANCEL_IDS | {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
-    for req_id in _MANDATORY_IDS - _CANCEL_IDS:
+    for req_id in _MANDATORY_IDS - _CANCEL_IDS - {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "PASS", f"{req_id} is {statuses.get(req_id)}, expected PASS:\n{result.stdout}"
 
 
@@ -242,9 +265,9 @@ def test_version_mismatch_errors_fails_init_003_only():
 
     statuses = _table_statuses(result.stdout)
     assert statuses.get("ACP-INIT-003") == "FAIL", result.stdout
-    for req_id in _CANCEL_IDS:
+    for req_id in _CANCEL_IDS | {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
-    for req_id in _MANDATORY_IDS - {"ACP-INIT-003"} - _CANCEL_IDS:
+    for req_id in _MANDATORY_IDS - {"ACP-INIT-003"} - _CANCEL_IDS - {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
 
 
@@ -259,9 +282,9 @@ def test_echoes_any_version_fails_init_003_only():
     statuses = _table_statuses(result.stdout)
     assert statuses.get("ACP-INIT-003") == "FAIL", result.stdout
     assert statuses.get("ACP-INIT-002") == "PASS", result.stdout
-    for req_id in _CANCEL_IDS:
+    for req_id in _CANCEL_IDS | {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
-    for req_id in _MANDATORY_IDS - {"ACP-INIT-003"} - _CANCEL_IDS:
+    for req_id in _MANDATORY_IDS - {"ACP-INIT-003"} - _CANCEL_IDS - {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
 
 
@@ -278,9 +301,9 @@ def test_result_and_error_fails_init_001_and_schema_001():
     assert statuses.get("ACP-SCHEMA-001") == "FAIL", result.stdout
     assert statuses.get("ACP-JSONRPC-002") == "FAIL", result.stdout
     _failing = {"ACP-INIT-001", "ACP-SCHEMA-001", "ACP-JSONRPC-002"}
-    for req_id in _CANCEL_IDS:
+    for req_id in _CANCEL_IDS | {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
-    for req_id in _MANDATORY_IDS - _failing - _CANCEL_IDS:
+    for req_id in _MANDATORY_IDS - _failing - _CANCEL_IDS - {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
 
 
@@ -290,9 +313,9 @@ def test_answers_notifications_fails_jsonrpc_003_only():
 
     statuses = _table_statuses(result.stdout)
     assert statuses.get("ACP-JSONRPC-003") == "FAIL", result.stdout
-    for req_id in _CANCEL_IDS:
+    for req_id in _CANCEL_IDS | {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
-    for req_id in _MANDATORY_IDS - {"ACP-JSONRPC-003"} - _CANCEL_IDS:
+    for req_id in _MANDATORY_IDS - {"ACP-JSONRPC-003"} - _CANCEL_IDS - {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
 
 
@@ -305,9 +328,9 @@ def test_unknown_method_no_error_only_fails_the_advisory_requirement():
 
     statuses = _table_statuses(result.stdout)
     assert statuses.get("ACP-JSONRPC-004") == "FAIL", result.stdout
-    for req_id in _CANCEL_IDS:
+    for req_id in _CANCEL_IDS | {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
-    for req_id in _MANDATORY_IDS - _CANCEL_IDS:
+    for req_id in _MANDATORY_IDS - _CANCEL_IDS - {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
 
 
@@ -317,9 +340,9 @@ def test_duplicate_session_id_fails_session_002_only():
 
     statuses = _table_statuses(result.stdout)
     assert statuses.get("ACP-SESSION-002") == "FAIL", result.stdout
-    for req_id in _CANCEL_IDS:
+    for req_id in _CANCEL_IDS | {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
-    for req_id in _MANDATORY_IDS - {"ACP-SESSION-002"} - _CANCEL_IDS:
+    for req_id in _MANDATORY_IDS - {"ACP-SESSION-002"} - _CANCEL_IDS - {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
 
 
@@ -336,9 +359,9 @@ def test_bad_stop_reason_fails_prompt_001_and_schema_001_only():
     expected_fails = {"ACP-PROMPT-001", "ACP-SCHEMA-001"}
     for req_id in expected_fails:
         assert statuses.get(req_id) == "FAIL", result.stdout
-    for req_id in _CANCEL_IDS:
+    for req_id in _CANCEL_IDS | {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
-    for req_id in _MANDATORY_IDS - expected_fails - _CANCEL_IDS:
+    for req_id in _MANDATORY_IDS - expected_fails - _CANCEL_IDS - {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
 
 
@@ -357,9 +380,9 @@ def test_update_wrong_session_fails_prompt_002_only():
     expected_fails = {"ACP-PROMPT-002"}
     for req_id in expected_fails:
         assert statuses.get(req_id) == "FAIL", result.stdout
-    for req_id in _CANCEL_IDS:
+    for req_id in _CANCEL_IDS | {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
-    for req_id in _MANDATORY_IDS - expected_fails - _CANCEL_IDS:
+    for req_id in _MANDATORY_IDS - expected_fails - _CANCEL_IDS - {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
 
 
@@ -445,16 +468,18 @@ def test_per_test_watchdog_fails_a_hung_test_fast():
 
 
 def test_conforming_full_agent_passes_everything_with_cancel_prompt_hang():
-    """`conforming_full.py` advertises `loadSession: true` and every `sessionCapabilities`
-    marker, so every CAPABILITY-tier id (plus the two capability-gated ADVISORY ids) should
-    PASS instead of SKIPPING. `--cancel-prompt __hang__` is used deliberately: `conforming.py`
-    (and hence `conforming_full.py`, which shares its `_base.py` prompt handling) only ever
-    withholds a response for the literal `__hang__` prompt text, so this is the one prompt text
-    that lets *both* ACP-CANCEL-001/002 *and* ACP-CLOSE-002 actually exercise their
-    cancellation/close-race logic instead of SKIPPING as "not exercised" -- a real agent
-    wouldn't recognize this sentinel either, but this fixture's whole cancellation story is
-    built around it (see `_base.py`'s `_handle_prompt`)."""
-    result = _run_cli("conforming_full.py", cancel_prompt="__hang__")
+    """`conforming_full.py` advertises `loadSession: true`, every `sessionCapabilities` marker,
+    modes, config options, every `promptCapabilities`, and the auth surface -- so every
+    CAPABILITY-tier id (plus the two capability-gated ADVISORY ids) should PASS instead of
+    SKIPPING. `--cancel-prompt __hang__` is used deliberately: `conforming.py` (and hence
+    `conforming_full.py`, which shares its `_base.py` prompt handling) only ever withholds a
+    response for the literal `__hang__` prompt text, so this is the one prompt text that lets
+    *both* ACP-CANCEL-001/002 *and* ACP-CLOSE-002 actually exercise their cancellation/close-race
+    logic instead of SKIPPING as "not exercised" -- a real agent wouldn't recognize this
+    sentinel either, but this fixture's whole cancellation story is built around it (see
+    `_base.py`'s `_handle_prompt`). `--auth-method tck` is required for ACP-AUTH-003 to PASS
+    instead of SKIP, since `conforming_full.py` advertises an `authMethods` entry with that id."""
+    result = _run_cli("conforming_full.py", cancel_prompt="__hang__", auth_method="tck")
     assert result.returncode == 0, result.stdout + result.stderr
     assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
 
@@ -504,6 +529,139 @@ def test_load_returns_null_fails_load_003_advisory_only():
     assert statuses.get("ACP-LOAD-001") == "PASS", result.stdout
     assert statuses.get("ACP-LOAD-002") == "PASS", result.stdout
     assert statuses.get("ACP-LOAD-003") == "FAIL", result.stdout
+
+
+def test_mode_update_uses_modeId_fails_modes_002_only():
+    """`mode_update_uses_modeId.py` advertises `modes` and emits a `current_mode_update` with
+    the docs-bug field name `modeId` instead of the schema-true `currentModeId` --
+    ACP-MODES-001 (which never inspects a mode-update notification) still PASSes."""
+    result = _run_cli("mode_update_uses_modeId.py", k="mode")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-MODES-001") == "PASS", result.stdout
+    assert statuses.get("ACP-MODES-002") == "FAIL", result.stdout
+
+
+def test_config_partial_list_fails_config_002_only():
+    """`config_partial_list.py` advertises `configOptions` and answers `session/set_config_option`
+    with only the changed option, not the complete list -- ACP-CONFIG-001 (which only checks
+    `session/new`'s own configOptions) still PASSes."""
+    result = _run_cli("config_partial_list.py", k="config")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-CONFIG-001") == "PASS", result.stdout
+    assert statuses.get("ACP-CONFIG-002") == "FAIL", result.stdout
+
+
+def test_boolean_option_unadvertised_fails_config_003():
+    """`boolean_option_unadvertised.py` advertises a `type: "boolean"` config option even to a
+    client that never advertised `clientCapabilities.session.configOptions.boolean` -- a
+    MANDATORY (Req 33) FAIL, which must flip the overall verdict."""
+    result = _run_cli("boolean_option_unadvertised.py")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-CONFIG-003") == "FAIL", result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_terminal_auth_unadvertised_fails_auth_002():
+    """`terminal_auth_unadvertised.py` advertises `authMethods[*].type == "terminal"` even to a
+    client that never advertised `clientCapabilities.auth.terminal` -- a MANDATORY (Req 23) FAIL."""
+    result = _run_cli("terminal_auth_unadvertised.py", k="auth")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-AUTH-002") == "FAIL", result.stdout
+
+
+def test_gated_by_auth_without_auth_method_skips_with_hint_and_is_not_conformant():
+    """`gated_by_auth.py` requires `authenticate` before `session/new` succeeds. Without
+    `--auth-method`, every session-dependent test SKIPs (not FAILs) with a message pointing at
+    the flag, and the run is scored NOT CONFORMANT via `Verdict.blocked_by_auth` even though no
+    MANDATORY test actually FAILed."""
+    result = _run_cli("gated_by_auth.py", k="session")
+    assert result.returncode != 0
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+    assert "blocked by authentication" in result.stdout, result.stdout
+    assert "--auth-method" in result.stdout, result.stdout
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-SESSION-001") == "SKIPPED", result.stdout
+    assert statuses.get("ACP-SESSION-002") == "SKIPPED", result.stdout
+
+
+def test_gated_by_auth_with_auth_method_succeeds():
+    """The same fixture, scoped the same way, but with `--auth-method tck` -- the auto-
+    authenticate step in `connected_agent` makes it behave like a normal conforming agent for
+    every session-dependent test in scope. The overall exit code is *not* asserted here (see
+    `test_hangs_until_cancel_agent_passes_cancel_requirements` for why): a `-k`-scoped run
+    necessarily leaves every out-of-scope MANDATORY requirement NOT_TESTED, which by itself
+    forces a non-conformant verdict regardless of whether authentication itself worked -- what
+    this test checks is that the in-scope session tests PASS instead of SKIPPING."""
+    result = _run_cli("gated_by_auth.py", k="session", auth_method="tck")
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-SESSION-001") == "PASS", result.stdout
+    assert statuses.get("ACP-SESSION-002") == "PASS", result.stdout
+    assert "blocked by authentication" not in result.stdout, result.stdout
+
+
+def test_gated_by_auth_full_run_without_auth_method_is_not_conformant_and_blocked_by_auth(
+    tmp_path,
+):
+    """A full (unscoped) run against `gated_by_auth.py` without `--auth-method`: every
+    session-dependent test SKIPs with the auth hint, no MANDATORY requirement actually FAILs
+    (everything reachable without a session -- `initialize`, JSON-RPC envelope/id echo, the
+    schema-less parts of ACP-AUTH-001/002 -- still PASSes), and the run is scored NOT CONFORMANT
+    solely via `Verdict.blocked_by_auth`. The JSON report's `verdict.blocked_by_auth` must be
+    `true` and `verdict.conformant` `false`."""
+    report_path = tmp_path / "report.json"
+    result = _run_cli(
+        "gated_by_auth.py",
+        cancel_prompt="__hang__",
+        report_json=str(report_path),
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+    assert "blocked by authentication" in result.stdout, result.stdout
+
+    statuses = _table_statuses(result.stdout)
+    mandatory_fails = {
+        req_id for req_id in _MANDATORY_IDS if statuses.get(req_id) == "FAIL"
+    }
+    assert not mandatory_fails, f"unexpected MANDATORY FAILs: {mandatory_fails}\n{result.stdout}"
+
+    report = json.loads(report_path.read_text())
+    assert report["verdict"]["blocked_by_auth"] is True, report["verdict"]
+    assert report["verdict"]["conformant"] is False, report["verdict"]
+
+
+def test_gated_by_auth_full_run_with_auth_method_is_fully_conformant():
+    """The same full (unscoped) run, but with `--auth-method tck`: the auto-authenticate step
+    in `connected_agent` makes `gated_by_auth.py` behave exactly like `conforming_full.py` minus
+    the extra capabilities it doesn't advertise (`loadSession`, `sessionCapabilities`,
+    `promptCapabilities`, `auth.logout`, `modes`/`configOptions`) -- every one of those SKIPs as
+    "not advertised", every other MANDATORY/ADVISORY requirement PASSes, and the overall exit
+    code is 0/CONFORMANT. `--cancel-prompt __hang__` is needed for the same reason
+    `conforming_full.py`'s own self-test needs it: `_base.py`'s hang-on-`__hang__` behavior is
+    unconditional, so ACP-CANCEL-001/002 need that exact prompt text to exercise the race
+    instead of SKIPping as "cancellation not exercised"."""
+    result = _run_cli("gated_by_auth.py", cancel_prompt="__hang__", auth_method="tck")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
+    assert "NOT TESTED" not in result.stdout, result.stdout
+
+    statuses = _table_statuses(result.stdout)
+    capability_gated = _CAPABILITY_GATED_IDS - {"ACP-AUTH-003"}
+    for req_id in capability_gated:
+        assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (not advertised):\n{result.stdout}"
+    for req_id, status in statuses.items():
+        if req_id in capability_gated:
+            continue
+        assert status == "PASS", f"{req_id} is {status}, expected PASS:\n{result.stdout}"
 
 
 def test_advertises_load_but_errors_fails_load_001_and_verdict():
@@ -590,5 +748,9 @@ def test_report_json_for_exits_immediately_has_no_crash_and_all_mandatory_fail_o
     report = json.loads(report_path.read_text())
     assert report["verdict"]["conformant"] is False
     for requirement in report["requirements"]:
-        if requirement["tier"] == "MANDATORY":
+        if requirement["id"] == "ACP-AUTH-003":
+            # Conditional on --tck-auth-method regardless of the agent's own behavior -- see
+            # test_exits_immediately_fails_gracefully.
+            assert requirement["status"] == "SKIPPED", requirement
+        elif requirement["tier"] == "MANDATORY":
             assert requirement["status"] in ("FAIL", "NOT_TESTED"), requirement

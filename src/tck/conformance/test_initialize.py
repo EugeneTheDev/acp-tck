@@ -127,13 +127,16 @@ async def test_full_exchange_validates_against_schema(agent_launch, tmp_path):
     each reply must validate against -- is derived automatically by scanning the SENT
     transcript for `{"method", "id"}` pairs rather than threading it through the helpers by
     hand, so this test stays agnostic to how `run_prompt`/`new_session` are implemented.
-    """
-    async with connected_agent(agent_launch, handshake=False) as agent:
-        init_id = await agent.send_request(
-            "initialize", {"protocolVersion": PROTOCOL_VERSION, "clientCapabilities": {}}
-        )
-        await agent.wait_for_response(init_id, timeout=agent_launch.default_timeout)
 
+    Uses `connected_agent`'s default `handshake=True` (not a hand-rolled `initialize` call like
+    the other tests in this module) specifically so its built-in auto-`authenticate` step (when
+    `--tck-auth-method` is given) runs before `session/new` -- an agent that gates `session/new`
+    behind authentication must not fail this MANDATORY requirement just because the harness
+    never authenticated. The `initialize` (and, if it ran, `authenticate`) traffic is still
+    present in `agent.transcript` and still schema-validated below, exactly as if this test had
+    sent it by hand.
+    """
+    async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
 
         await run_prompt(

@@ -236,6 +236,33 @@ def test_every_requirement_in_the_json_report_has_a_valid_status():
         assert requirement["status"] in valid
 
 
+# --- blocked_by_auth ---
+
+
+def test_verdict_conformant_by_default_when_blocked_by_auth_not_set():
+    results = _fake_results({})
+    verdict = compute_verdict(results)
+    assert verdict.blocked_by_auth is False
+    assert verdict.conformant is True
+
+
+def test_verdict_not_conformant_when_blocked_by_auth_even_with_no_mandatory_failures():
+    """An agent that gates `session/new` behind authentication, run without `--auth-method`,
+    can have every requirement PASS/SKIP cleanly and still must not be scored CONFORMANT: the
+    session-dependent requirements were never actually exercised."""
+    results = _fake_results({})
+    verdict = compute_verdict(results, blocked_by_auth=True)
+    assert verdict.conformant is False
+
+
+def test_verdict_to_dict_includes_blocked_by_auth():
+    results = _fake_results({})
+    verdict = compute_verdict(results, blocked_by_auth=True)
+    d = verdict.to_dict()
+    assert d["blocked_by_auth"] is True
+    assert d["conformant"] is False
+
+
 def test_report_verdict_is_not_conformant_when_a_registry_id_is_missing_a_record():
     """A registered but never-run requirement (NOT_TESTED, since `build_requirement_results`
     covers the whole registry) counts as a verdict failure -- a dead agent that never gets past

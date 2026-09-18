@@ -149,15 +149,23 @@ class Verdict:
     conformant: bool
     tier_counts: dict[str, dict[str, int]]
     """`tier.value -> status.value -> count`, over every `RequirementResult` (not test)."""
+    blocked_by_auth: bool = False
+    """`True` if at least one test was SKIPPED because the agent requires authentication before
+    `session/new` and no `--auth-method` was configured (see
+    `tck.conformance._helpers.skip_if_auth_gated`). Such a run cannot claim conformance --
+    mandatory/capability requirements that depend on a session were never actually exercised,
+    even though they show up as an ordinary SKIPPED rather than FAIL/NOT_TESTED -- so
+    `conformant` is forced `False` whenever this is set, regardless of the tier counts."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "conformant": self.conformant,
             "tier_counts": {tier: dict(counts) for tier, counts in self.tier_counts.items()},
+            "blocked_by_auth": self.blocked_by_auth,
         }
 
 
-def compute_verdict(results: list[RequirementResult]) -> Verdict:
+def compute_verdict(results: list[RequirementResult], *, blocked_by_auth: bool = False) -> Verdict:
     tier_counts: dict[str, dict[str, int]] = {
         tier.value: {status.value: 0 for status in Status} for tier in Tier
     }
@@ -170,8 +178,9 @@ def compute_verdict(results: list[RequirementResult]) -> Verdict:
         mandatory[Status.FAIL.value] == 0
         and mandatory[Status.NOT_TESTED.value] == 0
         and capability[Status.FAIL.value] == 0
+        and not blocked_by_auth
     )
-    return Verdict(conformant=conformant, tier_counts=tier_counts)
+    return Verdict(conformant=conformant, tier_counts=tier_counts, blocked_by_auth=blocked_by_auth)
 
 
 def current_tck_version() -> str:

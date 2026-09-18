@@ -1,6 +1,6 @@
 # State
 
-**Last updated:** 2026-09-18 (session 1, after slice 6a)
+**Last updated:** 2026-09-18 (session 1, after slice 6b)
 **Last commit pushed:** see `git log -1` (each slice commits this file)
 
 ## Deliverable shape (decided)
@@ -93,8 +93,19 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
   `echoes_any_version.py`, `load_replays_after_response.py`, `resume_replays_history.py`, `load_returns_null.py`,
   `advertises_load_but_errors.py`. `conforming_full.py` with `--cancel-prompt __hang__` → 31 PASS.
 
+- **Slice 6b** (113 passed, 1 skipped; registry has 43 requirements): `conformance/test_session_config.py`
+  (MODES/CONFIG, support inferred from `session/new` response, `capability="inferred:..."` documentation-only
+  strings + manual skip), `test_prompt_capabilities.py` (image/audio/embeddedContext boolean gates),
+  `test_authentication.py` (AUTH-001..004). Plugin `--tck-auth-method` / CLI `--auth-method`: `connected_agent`
+  authenticates after initialize; `skip_if_auth_gated` turns `-32000` on `session/new` into a SKIP tagged
+  `AUTH-GATED:`; `Verdict.blocked_by_auth` forces non-conformance. All tests create sessions via
+  `connected_agent(handshake=True)` + `new_session()` (hand-rolled paths were a bug, fixed). Fixtures:
+  `mode_update_uses_modeId.py`, `config_partial_list.py`, `boolean_option_unadvertised.py`,
+  `terminal_auth_unadvertised.py`, `gated_by_auth.py`. `conforming_full.py` with `--cancel-prompt __hang__
+  --auth-method tck` → 43 PASS.
+
 ## In flight
-- **Programmer — Slice 6b** (modes, config options, prompt capabilities, auth surface).
+- **Programmer — Slice 7** (advisory/informational tier, client-capability negative tests).
 
 
 ## Open questions / blockers
@@ -102,5 +113,5 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
 - Transcript format choice (conductor `.jsons` compatibility) before slice 5.
 
 ## Next actions
-1. On slice 6b return: verify, commit + push.
-2. Slice 7 (advisory/informational + client-capability negative tests), then slice 8 (cross-check script).
+1. On slice 7 return: verify, commit + push.
+2. Slice 8 (cross-check script vs testy/echo_agent), then a second review pass, then v0.1 tag decision.
