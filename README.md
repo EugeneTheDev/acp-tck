@@ -143,3 +143,7 @@ for the latest result table with explanations of every non-`PASS`.
 See [`AGENTS.md`](AGENTS.md) for the package layout, the harness/validation/plugin internals,
 how to add a new requirement + test, and the conventions this repo follows (`uv`-only dependency
 management, exact pins, `.agents/` as the project's own planning workbench).
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).

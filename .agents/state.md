@@ -66,7 +66,7 @@ Registry: **56 requirements** in `src/tck/requirements.py` (see `AGENTS.md` for 
 - Docs: `AGENTS.md` (contributor guide, catalogue), `README.md` (user guide).
 
 ## In flight
-- **Programmer — license** (LICENSE file, `license = "Apache-2.0"`, `license-files`, README/AGENTS lines).
+Nothing. All planned work is done and pushed; awaiting user direction.
 
 Slice 8 done and committed: `scripts/cross-check.sh` (builds testy `--no-default-features`, runs TCK with
 `--cancel-prompt wait_for_cancel`; runs echo_agent via `uv run --no-project --with agent-client-protocol==1.0.0rc1`),
@@ -93,9 +93,9 @@ CONFORMANT; `--collect-only` exit 0.
 - v0.1 release/tag: decide after slice 8 and a final review pass.
 
 ## Next actions
-1. User decided (2026-09-18): license **Apache-2.0** (programmer adding LICENSE + pyproject fields, in flight);
+1. User decided (2026-09-18): license **Apache-2.0** (LICENSE + PEP 639 fields committed);
    **no v0.1.0 tag yet**; upstream issue drafts in `research/upstream-issues.md` stay **internal notes only**
    (do not file).
-2. After the license commit: nothing scheduled. Await user direction (tagging, publishing, new scope).
+2. Nothing scheduled. Await user direction (tagging v0.1.0, publishing, new scope such as v2).
 3. Possible follow-ups (not planned): deferred nits N12/N20 from review-slices-5-6 and N9 from review-slices-7;
    optional `testy` scenario tests behind an env flag; v2 support is explicitly separate work.

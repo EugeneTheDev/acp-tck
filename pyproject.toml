@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "Test Compatibility Kit for Agent Client Protocol (ACP) v1 agents"
 readme = "README.md"
 requires-python = ">=3.14"
-# TODO: decide on a license (not yet chosen) and add `license = "..."` here.
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 dependencies = [
     "jsonschema==4.26.0",
     "pytest==9.1.1",

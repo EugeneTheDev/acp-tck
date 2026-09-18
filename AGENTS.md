@@ -669,3 +669,4 @@ never raises, always returns issues.
 - Protocol scope is ACP **v1 only**; v2/draft surfaces are out of scope.
 - `.agents/` is the orchestrator's workbench. `.agents/research/*.md` are read-only inputs --
   they are the specification this code implements; do not edit them.
+- Licensed under Apache-2.0 (`LICENSE`); `pyproject.toml`'s `license`/`license-files` (PEP 639) are the source of truth -- do not add a `License ::` classifier alongside them.
