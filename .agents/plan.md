@@ -105,6 +105,11 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   slice 6/7 alongside other capability-conditional work.
 
 ## Decisions (orchestrator)
+- **Spec drift** (`research/spec-drift-check.md`, upstream HEAD d3c1dd7): `schema/v1/` byte-identical → no
+  re-vendor; registry citations stay pinned at 6d08f412 where line numbers are exact. Slice 8 fixes three
+  citation texts: MODES-002 must not call `session-modes.mdx:117-119` a docs bug any more (fixed upstream in
+  b96b439); LOAD-003 cites `ac82df6` as why `null` stays tolerated; INFO-UNKNOWNSESSION-001 path is
+  `docs/protocol/v1/error.mdx`.
 - **ACP-INIT-003 strengthening** (`research/testy-cross-check.md` finding 1): the response to an unsupported
   requested version (65535) must carry an integer `protocolVersion` that is *not* 65535 and equals the
   version the agent returns for a v1 request (its latest supported). Both `testy` and `echo_agent.py` echo
