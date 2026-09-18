@@ -41,10 +41,10 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
 
 ## In flight
 - **Programmer — Slice 2** (vendored v1 JSON schema + `tck/protocol.py` + `validate_agent_message`).
-- **Researcher — authentication semantics** → `.agents/research/acp-v1-authentication.md`.
+
 
 ## Open questions / blockers
-- Auth `-32000` semantics (research in flight; blocks auth tests only, not slices 1–5).
+- (none blocking) Auth research landed: see plan.md "Decisions from follow-up research".
 - Transcript format choice (conductor `.jsons` compatibility) before slice 5.
 
 ## Next actions

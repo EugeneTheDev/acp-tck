@@ -67,8 +67,16 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
 7. Advisory/informational tier (unknown method −32601, error shape, stdin-EOF exit, `_meta` round-trip,
    `_ext` method response).
 
+## Decisions from follow-up research
+- **Authentication** (`research/acp-v1-authentication.md`): v1 never requires `-32000` gating; auth
+  tests are surface checks (authMethods shape; no `terminal` method advertised unless client sent
+  `clientCapabilities.auth.terminal`; `authenticate`/`logout` return objects) plus two conditional
+  properties. Harness policy: CLI gets `--auth-method <id>`; when set, the per-test setup calls
+  `authenticate` after `initialize`. If `session/new` returns `-32000` and no `--auth-method` was
+  given, the test is reported as NOT TESTED with a pointer to the flag, not as FAIL. Auth lands in
+  slice 6/7 alongside other capability-conditional work.
+
 ## Open questions
-- Authentication `-32000` semantics (research in flight).
 - Unknown `sessionId` error code: unspecified in v1 → informational only (decided, no research needed).
 - Is a second concurrent `session/prompt` per session legal in v1? Route to research before slice 4
   only if a test would depend on it (currently none planned).
