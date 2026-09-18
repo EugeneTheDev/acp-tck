@@ -1,6 +1,6 @@
 # State
 
-**Last updated:** 2026-09-18 (session 1, after slice 7b; session paused by user — flushed and pushed)
+**Last updated:** 2026-09-18 (session 2, slice 8 + review of slices 7–7b in flight)
 **Last commit pushed:** see `git log -1` (each slice commits this file)
 
 ## How to resume (fresh orchestrator)
@@ -66,7 +66,10 @@ Registry: **57 requirements** in `src/tck/requirements.py` (see `AGENTS.md` for 
 - Docs: `AGENTS.md` (contributor guide, catalogue), `README.md` (user guide).
 
 ## In flight
-Nothing. Slice 7b was completed and committed in this flush. Spot checks that completed before the
+- **Programmer — Slice 8** (`scripts/cross-check.sh`, `scripts/cross-check-summary.py`, `docs/cross-check.md`, citation fixes).
+- **Reviewer (read-only) — slices 7–7b at 3e55deb** → `.agents/research/review-slices-7.md` (includes v0.1 release-readiness).
+
+Slice 7b was completed and committed. Spot checks that completed before the
 pause: full suite 125 passed; `conforming_full.py` and `conforming.py` full runs CONFORMANT. Orchestrator also
 re-ran: `gated_by_auth.py --auth-method wrong` → exit 1 blocked by authentication; `supports_v1_and_v2.py`
 INIT-003 PASS. Programmer-reported only: `echoes_any_version.py` INIT-003 FAIL; `rejects_second_initialize.py`
