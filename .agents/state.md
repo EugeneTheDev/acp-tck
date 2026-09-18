@@ -66,7 +66,7 @@ Registry: **56 requirements** in `src/tck/requirements.py` (see `AGENTS.md` for 
 - Docs: `AGENTS.md` (contributor guide, catalogue), `README.md` (user guide).
 
 ## In flight
-Nothing.
+- **Programmer — license** (LICENSE file, `license = "Apache-2.0"`, `license-files`, README/AGENTS lines).
 
 Slice 8 done and committed: `scripts/cross-check.sh` (builds testy `--no-default-features`, runs TCK with
 `--cancel-prompt wait_for_cancel`; runs echo_agent via `uv run --no-project --with agent-client-protocol==1.0.0rc1`),
@@ -93,9 +93,9 @@ CONFORMANT; `--collect-only` exit 0.
 - v0.1 release/tag: decide after slice 8 and a final review pass.
 
 ## Next actions
-1. **User decisions needed**: (a) license for the package (`pyproject.toml` has a TODO; no `LICENSE` file);
-   (b) whether to tag/publish v0.1.0; (c) whether to file the drafted upstream issues in
-   `research/upstream-issues.md`.
-2. After the license lands: `uv build`, tag `v0.1.0`, push tag; optionally publish to PyPI.
+1. User decided (2026-09-18): license **Apache-2.0** (programmer adding LICENSE + pyproject fields, in flight);
+   **no v0.1.0 tag yet**; upstream issue drafts in `research/upstream-issues.md` stay **internal notes only**
+   (do not file).
+2. After the license commit: nothing scheduled. Await user direction (tagging, publishing, new scope).
 3. Possible follow-ups (not planned): deferred nits N12/N20 from review-slices-5-6 and N9 from review-slices-7;
    optional `testy` scenario tests behind an env flag; v2 support is explicitly separate work.

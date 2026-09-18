@@ -63,7 +63,7 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   `research/a2a-tck-structure.md`, `research/reference-sdks-as-harness.md`.
 
 ## In progress
-- (nothing in progress)
+- License: Apache-2.0 (user decision) — programmer adding files.
 
 ## Next slices (in order)
 7b. **Hardening from `research/review-slices-5-6.md`** (2 blockers, 9 should-fix, 14 nits) — before slice 8:
@@ -118,8 +118,8 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
 - **Informational probes** use `quiet_period()` (short), never the full `--timeout`; harness `send_raw`
   translates `OSError`/`ConnectionResetError`/`BrokenPipeError` into `AgentExited`.
 - **`close()`** must check process exit after each grace stage, not burn the grace twice.
-- **License**: user decision pending — not chosen by the orchestrator. `pyproject.toml` gets description,
-  urls, classifiers; `license` field and `LICENSE` file wait for the user.
+- **License**: Apache-2.0 (user decision, 2026-09-18). **No v0.1.0 tag yet** (user). Upstream issue drafts remain
+  internal (user).
 - `requires-python = ">=3.14"` is a fixed constraint from `prompt.md`; keep.
 
 ## Decisions (orchestrator)
