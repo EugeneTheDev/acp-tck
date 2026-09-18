@@ -19,11 +19,9 @@ non-CAPABILITY tiers, checked in `tck.requirements`).
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
-from tck.harness import AgentTimeout
+from tck.harness import AgentExited, AgentTimeout
 from tck.protocol import STOP_REASONS
 from tck.validation import validate_agent_response
 
@@ -90,7 +88,10 @@ async def test_load_replays_before_responding_and_nothing_after(agent_launch, tm
                 and (candidate.get("params") or {}).get("sessionId") == session_id
             )
 
-        with pytest.raises(AgentTimeout):
+        # An agent that exits promptly rather than staying connected through the quiet period
+        # raises AgentExited on EOF, not AgentTimeout -- still "no late update arrived," not a
+        # defect this requirement is about (review-slices-5-6.md N14).
+        with pytest.raises((AgentTimeout, AgentExited)):
             await agent.wait_for_message(
                 _is_update_for_this_session, timeout=quiet_period(agent_launch.default_timeout)
             )
@@ -295,82 +296,47 @@ async def test_close_in_flight_prompt_resolves_cancelled(
     ordering between the `session/close` response and the prompt's own response (research's
     "must NOT assert" list) -- both are simply awaited independently, in whichever order they
     arrive.
+
+    Driven through `run_prompt`'s `on_action` hook (review-slices-5-6.md S3) instead of a
+    hand-rolled read loop: the previous version of this test only dispatched three message
+    shapes and silently dropped any agent -> client *request* (e.g. `session/request_permission`)
+    the agent sent while the close was in flight, deadlocking against a conforming,
+    permission-asking agent. `run_prompt` answers everything a mock client is expected to.
     """
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
 
-        prompt_id = await agent.send_request(
-            "session/prompt", {"sessionId": session_id, "prompt": [{"type": "text", "text": cancel_prompt_text}]}
+        async def _send_close() -> str:
+            close_id = "tck-close"
+            await agent.send_request("session/close", {"sessionId": session_id}, id=close_id)
+            return close_id
+
+        turn = await run_prompt(
+            agent,
+            session_id,
+            [{"type": "text", "text": cancel_prompt_text}],
+            on_action=_send_close,
+            timeout=agent_launch.default_timeout,
         )
 
-        close_id = "tck-close"
-        close_sent = False
-        closed_at_index: int | None = None
-        cancel_wait = 0.5
-
-        loop = asyncio.get_running_loop()
-        overall_deadline = loop.time() + agent_launch.default_timeout
-        close_deadline = loop.time() + cancel_wait
-
-        prompt_response_entry = None
-        close_response_entry = None
-
-        while prompt_response_entry is None or close_response_entry is None:
-            now = loop.time()
-            remaining = overall_deadline - now
-            if remaining <= 0:
-                raise AgentTimeout(
-                    f"session/prompt {prompt_id!r} / session/close {close_id!r} did not both "
-                    f"resolve within {agent_launch.default_timeout}s",
-                    agent.transcript,
-                    stderr=agent.stderr_text(),
-                )
-
-            if not close_sent:
-                wait_remaining = close_deadline - now
-                read_timeout = min(remaining, wait_remaining) if wait_remaining > 0 else min(remaining, 0.05)
-            else:
-                read_timeout = remaining
-
-            try:
-                entry = await agent.read_line(timeout=read_timeout)
-            except AgentTimeout:
-                if not close_sent:
-                    await agent.send_request("session/close", {"sessionId": session_id}, id=close_id)
-                    close_sent = True
-                    closed_at_index = len(agent.transcript) - 1
-                    continue
-                raise
-
-            if entry.matches_id(prompt_id):
-                prompt_response_entry = entry
-                continue
-            if entry.matches_id(close_id):
-                close_response_entry = entry
-                continue
-
-            msg = entry.parsed
-            if (
-                not close_sent
-                and isinstance(msg, dict)
-                and msg.get("method") == "session/update"
-                and (msg.get("params") or {}).get("sessionId") == session_id
-            ):
-                await agent.send_request("session/close", {"sessionId": session_id}, id=close_id)
-                close_sent = True
-                closed_at_index = len(agent.transcript) - 1
-
-        close_msg = close_response_entry.parsed
-        assert isinstance(close_msg, dict) and "result" in close_msg, (
-            f"session/close did not succeed: {close_response_entry.text!r}"
-        )
-
-        if closed_at_index is None:
+        close_response_entry = turn.action_response
+        if close_response_entry is None:
             pytest.skip(
                 "close-cancellation not exercised: prompt turn completed before session/close "
                 "could be sent"
             )
+        close_msg = close_response_entry.parsed
+        if not (isinstance(close_msg, dict) and "result" in close_msg):
+            # An error-shaped session/close response is ACP-CLOSE-001's finding to make, not
+            # this test's -- asserting it here too would double-report the same defect against
+            # both requirements (review-slices-5-6.md N15).
+            pytest.skip(
+                "prerequisite not met: session/close did not succeed (see ACP-CLOSE-001): "
+                f"{close_response_entry.text!r}"
+            )
 
+        closed_at_index = turn.action_sent_at_index
+        prompt_response_entry = turn.response_entry
         prompt_msg = prompt_response_entry.parsed
         if isinstance(prompt_msg, dict) and "result" in prompt_msg:
             stop_reason = prompt_msg["result"].get("stopReason")

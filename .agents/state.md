@@ -1,7 +1,15 @@
 # State
 
-**Last updated:** 2026-09-18 (session 1, after slice 7)
+**Last updated:** 2026-09-18 (session 1, after slice 7b; session paused by user — flushed and pushed)
 **Last commit pushed:** see `git log -1` (each slice commits this file)
+
+## How to resume (fresh orchestrator)
+1. Read `prompt.md`, this file, `plan.md`. Research reports in `research/` are the only protocol truth
+   the code may encode. Reviews are in `research/review-*.md`.
+2. Verify the tree: `uv run pytest -q` (≈118 s, run in background; expect 125 passed) and
+   `uv run acp-tck --cancel-prompt __hang__ --auth-method tck -- python tests/fixtures/agents/conforming_full.py`
+   (expect exit 0, VERDICT: CONFORMANT, only ACP-AUTH-005 SKIPPED).
+3. Continue with **Slice 8** (see "Next actions").
 
 ## Deliverable shape (decided)
 See `plan.md` § "Decided deliverable shape". Summary: installable `acp-tck` package with the
@@ -10,118 +18,74 @@ pytest programmatically with `-p tck.plugin`; agent under test is a stdio subpro
 process per test; hand-rolled asyncio NDJSON raw harness (no Python-SDK runtime dependency);
 vendored spec JSON schema v1 validated via `jsonschema`; requirement registry with tiers
 mandatory / capability:<path> / advisory / informational; four-status verdict PASS/FAIL/SKIPPED/NOT
-TESTED; console + JSON report; self-tests in repo-only `tests/` against pure-Python fixture agents.
-Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
+TESTED; console + JSON report; verdict-based exit code; self-tests in repo-only `tests/` against
+pure-Python fixture agents. Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
 
-## Research completed (authoritative inputs; all cite spec @ 6d08f41, rust-sdk @ b28b8ad, python-sdk @ c1004f8)
-- `.agents/research/acp-v1-protocol-surface.md` — 46 requirements with tiers; baseline MUST set is
-  `initialize`, `session/new`, `session/prompt`, `session/cancel`, ability to send `session/update`.
-  Version mismatch → success result carrying agent's latest version, never an error. Docs bug:
-  `current_mode_update` uses `currentModeId` in schema (schema wins). `error.mdx` is a stub → no
-  mandatory error-code tests for unknown session / unadvertised methods.
-- `.agents/research/acp-v1-transport-and-jsonrpc.md` — framing MUSTs (UTF-8, one JSON-RPC message
-  per line, no embedded newlines, nothing else on stdout, stderr free). Error codes from schema crate.
-  Batch = v2 only. Malformed-JSON handling: Rust replies −32700, Python silently drops → informational.
-  No shutdown method; stdin EOF exit is a warning-level check only.
-- `.agents/research/a2a-tck-structure.md` — design ideas: requirement registry, four-status verdict,
-  crash safety-net hook, meta-tests, ship tests in wheel.
-- `.agents/research/reference-sdks-as-harness.md` — Python SDK typed layer unsuitable for edge cases;
-  Rust `testy` and `examples/echo_agent.py` are conforming fixtures but echo protocolVersion (unsafe
-  for negotiation tests); non-conforming fixtures must be hand-written raw-byte scripts.
+## Research completed (all in `.agents/research/`)
+- `acp-v1-protocol-surface.md` — 46 requirements with tiers; baseline MUST set; version negotiation;
+  docs bugs (`currentModeId`; `error.mdx` stub).
+- `acp-v1-transport-and-jsonrpc.md` — framing MUSTs, error codes, batch = v2 only, SDK divergence on
+  malformed input (informational), no shutdown method.
+- `a2a-tck-structure.md` — design inspiration (registry, four-status verdict, ship tests in wheel).
+- `reference-sdks-as-harness.md` — why raw harness; `testy`/`echo_agent.py` as fixtures.
+- `acp-v1-authentication.md` — v1 never requires `-32000` gating; auth is surface checks + `--auth-method`.
+- `acp-v1-session-capabilities.md` — per-method shapes/orderings for load/resume/list/delete/close/
+  additionalDirectories/modes/configOptions/prompt caps; capability encodings (boolean `=== true` vs
+  object marker non-null); 20 must-NOT-assert items.
+- `testy-cross-check.md` — how to build/run Rust `testy` (17 s build, no CLI, scenarios by prompt text,
+  `--cancel-prompt wait_for_cancel`); measured CONFORMANT; found INIT-003 false negative (fixed 6a/7b).
+- `spec-drift-check.md` — upstream HEAD d3c1dd7: `schema/v1/` byte-identical to vendored 6d08f41 → no
+  re-vendor; citations stay pinned at 6d08f412; three citation text fixes pending (slice 8).
+- `review-slices-1-4.md`, `review-slices-5-6.md` — code reviews; all blockers/should-fix addressed in
+  slices 5b and 7b (deferred nits N12, N20 listed below).
 
-## Implemented and verified
-- **Slice 1 — harness core** (13 tests green, `uv run pytest -q`): `src/tck/harness/{process,transcript}.py`
-  (`AgentLaunch`, `AgentProcess`, `TranscriptEntry`, `AgentTimeout`, `AgentExited`; process-group spawn,
-  raw/JSON send, deadline reads, full two-way transcript, stderr capture, close-stdin→SIGTERM→SIGKILL
-  ladder). Fixture agents in `tests/fixtures/agents/` (`_base.py`, `conforming.py`, `banner_on_stdout.py`,
-  `stderr_chatter.py`, `never_responds.py`, `exits_immediately.py`; conforming agent supports a `__hang__`
-  prompt for cancel tests and a `_tck/env` extension method). `AGENTS.md` documents layout/API/conventions.
-  `pyproject.toml`: `pytest==9.1.1` runtime dep, `[tool.uv.build-backend] module-name = "tck"`. Tests use
-  `asyncio.run` directly (no pytest-asyncio). `acp-tck` CLI is a stub exiting 2.
-
-- **Slice 2 — schema + validation** (32 tests green total): `src/tck/schema/v1/{schema.json,meta.json,VENDORED.md}`
-  vendored verbatim from spec @ 6d08f41; `src/tck/protocol.py` (`PROTOCOL_VERSION = 1`, error-code constants,
-  `STOP_REASONS`, `AGENT_METHODS`/`CLIENT_METHODS`/`*_NOTIFICATIONS` derived from meta.json + x-method annotations);
-  `src/tck/validation.py` (`ValidationIssue`, `validate_agent_message`, `validate_agent_response`; Draft 2020-12;
-  `null` accepted for all-optional object responses like `session/load`; `_`-prefixed methods skipped). Runtime dep
-  `jsonschema==4.26.0`. Schema root has three branches: Agent, Client, ProtocolLevel (`$/cancel_request`).
-
-- **Slice 3 — registry, plugin, CLI, first conformance tests** (49 tests green): `src/tck/requirements.py`
-  (`Tier`, `Requirement`, `REGISTRY`, 12 requirements ACP-TRANSPORT-001/002, ACP-JSONRPC-001..005,
-  ACP-INIT-001..004, ACP-SCHEMA-001); `src/tck/plugin.py` (`--tck-agent-cmd/-cwd/-env/-timeout/-startup-timeout`,
-  `requirement`/`capability` markers, async tests via `pytest_pyfunc_call`, `agent_launch` + session-scoped
-  `agent_initialize_result` fixtures, transcript+stderr attached to failure reports, `RequirementRecord`
-  collector, tier-grouped terminal table with NOT TESTED; JSON report + verdict exit code are TODO slice 5);
-  `src/tck/conformance/{_helpers.py,test_transport.py,test_jsonrpc.py,test_initialize.py}`;
-  CLI `acp-tck [--agent-cwd] [--agent-env K=V] [--timeout] [--startup-timeout] [-k] [-v] -- <cmd>` plus
-  `python -m tck`; defect fixtures `wrong_id_echo.py`, `version_mismatch_errors.py`, `result_and_error.py`,
-  `answers_notifications.py`, `unknown_method_no_error.py`; `tests/test_registry.py`, `tests/test_cli.py`
-  (subprocess end-to-end). Verified: conforming → exit 0, 12 PASS; banner → exit 1, TRANSPORT-001/002 +
-  SCHEMA-001 FAIL.
-
-- **Slice 4 — session/prompt/cancel** (56 tests green): ACP-SESSION-001/002, ACP-PROMPT-001/002 (+003 advisory
-  resource_link), ACP-CANCEL-001/002 (CANCEL-003 folded into JSONRPC-003). `conformance/_helpers.py` gained
-  `new_session()`, `PromptTurn`, `run_prompt()` (answers `session/request_permission`, replies −32601 to other
-  agent→client requests and records them, collects updates, race-aware cancel). Fixtures: `hangs_until_cancel.py`,
-  `cancel_returns_error.py`, `cancel_wrong_stop_reason.py`, `update_after_response.py`, `bad_stop_reason.py`,
-  `duplicate_session_id.py`, `update_wrong_session.py`. CLI self-tests use `-k` subsets for hanging fixtures.
-- Research: `.agents/research/acp-v1-session-capabilities.md` (input for slice 6) and decisions in plan.md.
-
-- **Slice 4b** (56 tests green): cancel tests SKIP when not exercised (response before cancel, or valid
-  non-cancelled stop reason within 1.0 s after cancel); `--tck-cancel-prompt` / CLI `--cancel-prompt`; CLI
-  passes `-rs`. `cancel_wrong_stop_reason.py` sleeps 1.2 s after cancel to stay detectable.
-
-- **Slice 5 — reporting** (79 passed, 3 skipped): `src/tck/report.py`; plugin writes `--tck-report-json`, sets
-  `session.exitstatus` from `verdict.conformant` (MANDATORY FAIL/NOT_TESTED or CAPABILITY FAIL → not conformant;
-  ADVISORY/INFORMATIONAL never affect it); `agent_initialize_result` autouse session fixture; FAIL outcomes carry
-  transcript + stderr (20 kB tail). `tck.protocol.SCHEMA_REVISION` is the single source of the spec hash.
-  `README.md` written. CLI `--report-json`.
-- Review: `.agents/research/review-slices-1-4.md` — 1 blocker (64 KiB asyncio line limit), 9 should-fix, 9 nits.
-
-- **Slice 5b — hardening** (94 passed, 3 skipped): `AgentLaunch.max_line_bytes` (64 MiB) + lossless oversize
-  read loop; `send_raw` drain deadline; per-test watchdog `--tck-test-timeout`/CLI `--test-timeout` (120 s);
-  `close()` drains remaining stdout into the transcript; TRANSPORT-001/002 separate tests; all prompt turns via
-  `run_prompt`; JSONRPC-002 evidence from `initialize` + invalid-params `session/new`; probes `_tck/...`;
-  `capability_is_supported(result, path, boolean=)` + `@pytest.mark.capability(path, boolean=True)`. New fixtures
-  `asks_permission.py`, `garbage_after_response.py`, `invalid_utf8.py`; `tests/test_plugin.py`.
-- Research: `.agents/research/testy-cross-check.md` — testy builds in ~17 s, no CLI, scenarios by prompt text;
-  measured CONFORMANT; INIT-003 is a false negative (echoes 65535) → strengthen in slice 6.
-
-- **Slice 6a** (102 passed, 1 skipped): INIT-003 now requires version ≠ 65535 and == the v1-request answer;
-  `conformance/test_session_capabilities.py` with LOAD/RESUME/LIST/DELETE/CLOSE/ADDDIRS ids (31 requirements
-  total); `_base.py` gained capability plumbing + session store; fixtures `conforming_full.py`,
-  `echoes_any_version.py`, `load_replays_after_response.py`, `resume_replays_history.py`, `load_returns_null.py`,
-  `advertises_load_but_errors.py`. `conforming_full.py` with `--cancel-prompt __hang__` → 31 PASS.
-
-- **Slice 6b** (113 passed, 1 skipped; registry has 43 requirements): `conformance/test_session_config.py`
-  (MODES/CONFIG, support inferred from `session/new` response, `capability="inferred:..."` documentation-only
-  strings + manual skip), `test_prompt_capabilities.py` (image/audio/embeddedContext boolean gates),
-  `test_authentication.py` (AUTH-001..004). Plugin `--tck-auth-method` / CLI `--auth-method`: `connected_agent`
-  authenticates after initialize; `skip_if_auth_gated` turns `-32000` on `session/new` into a SKIP tagged
-  `AUTH-GATED:`; `Verdict.blocked_by_auth` forces non-conformance. All tests create sessions via
-  `connected_agent(handshake=True)` + `new_session()` (hand-rolled paths were a bug, fixed). Fixtures:
-  `mode_update_uses_modeId.py`, `config_partial_list.py`, `boolean_option_unadvertised.py`,
-  `terminal_auth_unadvertised.py`, `gated_by_auth.py`. `conforming_full.py` with `--cancel-prompt __hang__
-  --auth-method tck` → 43 PASS.
-
-- **Slice 7** (123 passed; 57 requirements): `conformance/test_client_capabilities.py` (CLIENTCAP-001/002/003 as
-  one sweep test — to be split in 7b), `test_extensibility.py` (EXT-001 MANDATORY "must respond to `_` custom
-  request", META-001, SCHEMA-002 via `validation.find_unknown_root_keys`), `test_diagnostics.py` (ERROR-001,
-  SHUTDOWN-001, STDERR-001), `test_informational.py` (ACP-INFO-PARSE/INVALIDREQ/UNKNOWNSESSION-001, record-only).
-  Terminal table shows one-line notes for INFORMATIONAL ids. Fixtures: `calls_fs_unadvertised.py`,
-  `calls_terminal_unadvertised.py`, `calls_elicitation_unadvertised.py`, `noisy_stderr_and_parse_error_reply.py`;
-  `_base.py` gained `SendsClientRequestAgent`. Registry id pattern allows multi-segment areas.
-- Review: `.agents/research/review-slices-5-6.md` — 2 blockers (AUTH-001 double initialize; INIT-003 too strict
-  for multi-version agents), 9 should-fix, 14 nits → slice 7b.
+## Implemented and verified (all on `main`, suite green: 125 passed ≈118 s)
+Registry: **57 requirements** in `src/tck/requirements.py` (see `AGENTS.md` for the catalogue).
+- Harness `src/tck/harness/` — `AgentLaunch` (command, cwd, env overrides, timeouts, `max_line_bytes`
+  64 MiB, `close_grace`), `AgentProcess` (process-group spawn, raw/JSON send with drain deadline,
+  lossless oversize reads, deadline reads, two-way transcript incl. malformed lines, stderr capture,
+  `close()` drains stdout then close-stdin→SIGTERM→SIGKILL).
+- `src/tck/protocol.py` (`PROTOCOL_VERSION`, `SCHEMA_REVISION`, error codes, `STOP_REASONS`, method sets
+  from meta.json), `src/tck/validation.py` (schema validation; `find_unknown_root_keys`),
+  `src/tck/schema/v1/` vendored @ 6d08f412.
+- `src/tck/plugin.py` — options `--tck-agent-cmd/-cwd/-env/-timeout/-startup-timeout/-test-timeout/
+  -cancel-prompt/-auth-method/-close-grace/-report-json`; markers `requirement`, `capability(path,
+  boolean=)`; async tests via `pytest_pyfunc_call` + watchdog; autouse session-scoped
+  `agent_initialize_result`; per-test outcome collector; tier-grouped table with INFORMATIONAL notes;
+  JSON report; verdict → `session.exitstatus` (not for `--collect-only`); xfail forbidden.
+- `src/tck/report.py` — `Status`, `TestOutcome`, `RequirementResult`, `Verdict` (`conformant`,
+  `blocked_by_auth`, tier counts), `Report.to_dict()`; transcript cap 400 entries / 4 kB per line.
+- `src/tck/conformance/` — `_helpers.py` (`connected_agent` with auto-authenticate, `new_session`,
+  `run_prompt` mock client with `on_action` hook, `skip_if_auth_gated`), tests: transport, jsonrpc,
+  initialize, session, prompt, cancel, session_capabilities, session_config, prompt_capabilities,
+  authentication, client_capabilities, extensibility, diagnostics, informational.
+- CLI `src/tck/__init__.py` (`acp-tck [options] -- <cmd>`, `--version`, `--help`), `src/tck/__main__.py`.
+- Fixtures `tests/fixtures/agents/` (~35 scripts; `_base.py` conforming core; `conforming.py`,
+  `conforming_full.py`, `gated_by_auth.py`, plus single-defect agents). Self-tests `tests/`
+  (`test_harness`, `test_validation`, `test_registry`, `test_plugin`, `test_report`, `test_cli`).
+- Docs: `AGENTS.md` (contributor guide, catalogue), `README.md` (user guide).
 
 ## In flight
-- **Programmer — Slice 7b** (hardening).
+Nothing. Slice 7b was completed and committed in this flush. Spot checks that completed before the
+pause: full suite 125 passed; `conforming_full.py` and `conforming.py` full runs CONFORMANT. The
+programmer additionally reported (not independently re-run by orchestrator): `gated_by_auth.py
+--auth-method wrong` → exit 1 blocked_by_auth; `supports_v1_and_v2.py` INIT-003 PASS;
+`echoes_any_version.py` INIT-003 FAIL; `rejects_second_initialize.py` CONFORMANT; `--collect-only` exit 0.
+Re-run these first if anything looks off.
 
-
-## Open questions / blockers
-- (none blocking) Auth research landed: see plan.md "Decisions from follow-up research".
-- Transcript format choice (conductor `.jsons` compatibility) before slice 5.
+## Open questions / deferred
+- Deferred nits from review-slices-5-6: N12 (pytester-based plugin test), N20 (O(n²) `transcript.index`).
+- Citation text fixes from `spec-drift-check.md` (MODES-002 wording, LOAD-003 cite `ac82df6`,
+  INFO-UNKNOWNSESSION-001 path) → slice 8.
+- Req 10 (stdio MCP MUST) deliberately untested (not client-observable).
+- v0.1 release/tag: decide after slice 8 and a final review pass.
 
 ## Next actions
-1. On slice 7b return: verify (full suite > 120 s: run in background), commit + push.
-2. Slice 8 (cross-check script vs testy/echo_agent), then v0.1 readiness review.
+1. **Slice 8** (programmer): `scripts/cross-check.sh` building `testy` from the rust-sdk checkout path in
+   `.agents/skills/check-rust-sdk/.repo` (`cargo build -p agent-client-protocol-test --bin testy
+   --no-default-features`) and running `acp-tck --cancel-prompt wait_for_cancel --report-json`; also run
+   python-sdk `examples/echo_agent.py` pinned to `agent-client-protocol==1.0.0rc1`. Not part of
+   `uv run pytest`. Expected per `testy-cross-check.md`: testy CONFORMANT except INIT-003 FAIL and
+   INIT-004 advisory FAIL. Plus the three citation text fixes. Document in AGENTS.md/README.md.
+2. Final review pass (read-only Opus reviewer) over slices 7–8; fix; decide v0.1 tag.
+3. Optional: GitHub Actions workflow (pytest on 3.14; cross-check job with cached cargo).

@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from tck.harness import AgentTimeout
+from tck.harness import AgentExited, AgentTimeout
 from tck.validation import validate_agent_response
 
 from ._helpers import connected_agent, quiet_period, skip_if_auth_gated
@@ -85,7 +85,7 @@ async def test_modes_validate_and_current_mode_is_available(agent_launch, tmp_pa
 
 
 @pytest.mark.requirement("ACP-MODES-002")
-async def test_set_mode_succeeds_and_update_uses_currentModeId(agent_launch, tmp_path):
+async def test_set_mode_succeeds_and_update_uses_currentModeId(agent_launch, tmp_path, record_property):
     """ACP-MODES-002. Do not assert an echo `current_mode_update` is emitted at all -- only that
     *if* one is observed, it carries the schema field name `currentModeId`, not the docs-bug
     `modeId`."""
@@ -135,7 +135,10 @@ async def test_set_mode_succeeds_and_update_uses_currentModeId(agent_launch, tmp
                 update_entry = await agent.wait_for_message(
                     _is_mode_update, timeout=quiet_period(agent_launch.default_timeout)
                 )
-            except AgentTimeout:
+            except (AgentTimeout, AgentExited):
+                # An agent that exits promptly rather than staying connected through the quiet
+                # period also means "no update observed" -- not a defect (review-slices-5-6.md
+                # N14).
                 update_entry = None
 
         if update_entry is not None:
@@ -144,10 +147,12 @@ async def test_set_mode_succeeds_and_update_uses_currentModeId(agent_launch, tmp
                 "current_mode_update must carry the schema field name 'currentModeId' (the "
                 f"docs' 'modeId' is a confirmed docs bug); got {update!r}"
             )
-            assert update["currentModeId"] == target_mode_id, (
-                f"current_mode_update.currentModeId {update['currentModeId']!r} does not match "
-                f"the modeId {target_mode_id!r} that was set"
-            )
+            # Only the field *name* is pinned by the spec; must-NOT #16 explicitly disclaims any
+            # requirement that a client-driven mode change be echoed back with a particular
+            # value (an agent may autonomously switch again inside the quiet period and that is
+            # still conforming) -- record the observed value for a human reader instead of
+            # asserting it (review-slices-5-6.md N16).
+            record_property("acp_tck_mode_update_current_mode_id", update["currentModeId"])
 
 
 # --- config options ---
@@ -193,7 +198,12 @@ async def test_set_config_option_returns_the_complete_list(agent_launch, tmp_pat
         if not config_options:
             pytest.skip("session/new returned no modes/configOptions")
         session_id = result["sessionId"]
-        original_ids = {option["id"] for option in config_options}
+        # Guard against a non-dict/missing-"id" entry the same way CONFIG-001 does at its own
+        # set-comprehension (review-slices-5-6.md N21) -- this test runs independently of
+        # CONFIG-001, so it must not rely on that guard having already caught a malformed entry.
+        original_ids = {
+            option["id"] for option in config_options if isinstance(option, dict) and "id" in option
+        }
 
         target = config_options[0]
         if target.get("type") == "boolean":
@@ -223,11 +233,19 @@ async def test_set_config_option_returns_the_complete_list(agent_launch, tmp_pat
             f"session/set_config_option result.configOptions must be an array, got {returned!r}"
         )
         returned_ids = {option.get("id") for option in returned if isinstance(option, dict)}
+        # Subset, not set-equality: `acp-v1-session-capabilities.md`'s Testability note says the
+        # id set "equals" the previously advertised set, but O2's own rationale for the complete-
+        # list requirement is "so Agents can reflect dependent changes" -- which may *add*
+        # options a stricter reading would wrongly reject. This is intentional (review-slices-5-6.md
+        # N17); do not "fix" this into `==` without re-checking that rationale.
         assert original_ids <= returned_ids, (
             "session/set_config_option must return the *complete* configOptions list -- missing "
             f"ids {original_ids - returned_ids!r}"
         )
-        changed = next((opt for opt in returned if opt.get("id") == target["id"]), None)
+        changed = next(
+            (opt for opt in returned if isinstance(opt, dict) and opt.get("id") == target["id"]),
+            None,
+        )
         assert changed is not None and changed.get("currentValue") == new_value, (
             f"session/set_config_option's returned list does not reflect the new value for "
             f"{target['id']!r}: {changed!r}"
@@ -239,6 +257,9 @@ async def test_no_boolean_config_option_without_client_capability(agent_launch, 
     """ACP-CONFIG-003 (MANDATORY, Req 33). Connects with `clientCapabilities: {}` explicitly
     (no `session.configOptions.boolean`) and asserts no `type: "boolean"` option is present.
     Passes vacuously if the agent has no config options at all, or none of type boolean."""
+    # `client_capabilities={}` is already `connected_agent`'s default -- passed explicitly here
+    # (not load-bearing) so this test reads as "deliberately connects without the capability",
+    # not as an accident of whatever the default happens to be today (review-slices-5-6.md N25).
     async with connected_agent(agent_launch, client_capabilities={}) as agent:
         result = await _new_session_full_result(agent, tmp_path, timeout=agent_launch.default_timeout)
         config_options = result.get("configOptions") or []

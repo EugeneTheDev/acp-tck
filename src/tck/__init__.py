@@ -60,6 +60,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "hint and the verdict cannot be CONFORMANT.",
     )
     parser.add_argument(
+        "--close-grace",
+        type=float,
+        default=None,
+        metavar="S",
+        help="Grace period in seconds budgeted at each stage of the agent-process shutdown "
+        "ladder on teardown, passed through as --tck-close-grace (default: 2.0). A real agent "
+        "under test should not normally need this changed.",
+    )
+    parser.add_argument(
         "--report-json",
         default=None,
         metavar="PATH",
@@ -128,6 +137,8 @@ def main(argv: list[str] | None = None) -> int:
         pytest_args += ["--tck-auth-method", args.auth_method]
     if args.report_json is not None:
         pytest_args += ["--tck-report-json", args.report_json]
+    if args.close_grace is not None:
+        pytest_args += ["--tck-close-grace", str(args.close_grace)]
     if args.expression is not None:
         pytest_args += ["-k", args.expression]
     if args.verbose:

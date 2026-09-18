@@ -122,6 +122,17 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "(ACP-AUTH-003 and every test that otherwise relies on `new_session()`/`connected_agent`).",
     )
     group.addoption(
+        "--tck-close-grace",
+        action="store",
+        type=float,
+        default=2.0,
+        metavar="S",
+        help="Grace period in seconds budgeted at each stage of the agent-process shutdown "
+        "ladder (stdin-close wait, post-SIGTERM wait, post-SIGKILL wait) on teardown "
+        "(default: 2.0). Lower it to speed up tests/fixtures that deliberately never exit on "
+        "their own -- a real agent under test should not normally need this changed.",
+    )
+    group.addoption(
         "--tck-report-json",
         action="store",
         default=None,
@@ -147,6 +158,7 @@ def _build_launch(config: pytest.Config) -> AgentLaunch | None:
         env_overrides=env_overrides,
         startup_timeout=config.getoption("tck_startup_timeout"),
         default_timeout=config.getoption("tck_timeout"),
+        close_grace=config.getoption("tck_close_grace"),
     )
 
 
@@ -175,8 +187,21 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             for req_id in marker.args:
                 if req_id not in REGISTRY:
                     errors.append(f"{item.nodeid}: unknown requirement id {req_id!r}")
+        # `_phase_status` (below) folds a non-strict xpass into PASS and an xfail into SKIPPED --
+        # not documented, plausible to misread as the test having genuinely run, and a
+        # conformance suite has no legitimate use for "expected failure" (review-slices-5-6.md
+        # N23): forbid the marker outright rather than let its silent-status-remap behaviour
+        # bite someone later.
+        if item.get_closest_marker("xfail") is not None:
+            errors.append(
+                f"{item.nodeid}: @pytest.mark.xfail is not allowed in the conformance suite -- "
+                "it is remapped to PASS/SKIPPED by _phase_status, not reported as-is; use "
+                "pytest.skip with a reason instead"
+            )
     if errors:
-        raise pytest.UsageError("Unknown requirement id(s) in @pytest.mark.requirement:\n" + "\n".join(errors))
+        raise pytest.UsageError(
+            "Invalid test(s) in the conformance suite:\n" + "\n".join(errors)
+        )
 
 
 # --- async test support (no pytest-asyncio dependency) ---
@@ -240,11 +265,34 @@ def current_auth_method_id() -> str | None:
     return _AUTH_METHOD.get()
 
 
+_INIT_AUTH_METHODS: contextvars.ContextVar[list[Any] | None] = contextvars.ContextVar(
+    "_INIT_AUTH_METHODS", default=None
+)
+
+
+def current_initialize_auth_methods() -> list[Any] | None:
+    """The cached `initialize` result's `authMethods` for the current test (`None` if
+    `initialize` failed or the field is absent/not a list) -- read by
+    `tck.conformance._helpers.skip_if_auth_gated` (review-slices-5-6.md S4: a `-32000` from
+    `session/new` is only excusable as "needs --auth-method" when the agent actually advertised
+    at least one auth method; an agent with none advertised has no defined remedy and the
+    `-32000` is an ordinary failure, not something to skip)."""
+    return _INIT_AUTH_METHODS.get()
+
+
 @pytest.fixture(autouse=True)
 def _tck_auth_method_context(request: pytest.FixtureRequest) -> Any:
     token = _AUTH_METHOD.set(request.config.getoption("tck_auth_method"))
+    init_outcome: InitializeOutcome = request.getfixturevalue("agent_initialize_result")
+    auth_methods = None
+    if init_outcome.result is not None:
+        candidate = init_outcome.result.get("authMethods")
+        if isinstance(candidate, list):
+            auth_methods = candidate
+    methods_token = _INIT_AUTH_METHODS.set(auth_methods)
     yield
     _AUTH_METHOD.reset(token)
+    _INIT_AUTH_METHODS.reset(methods_token)
 
 
 @dataclass(frozen=True)
@@ -386,15 +434,44 @@ def _truncate_stderr(text: str) -> str:
     return _STDERR_TRUNCATE_MARKER + tail
 
 
+_TRANSCRIPT_ENTRY_RAW_BYTES = 4 * 1024
+"""Per-entry cap on the JSON report's `raw` field, mirroring `_truncate_stderr`'s cap
+(`.agents/research/review-slices-5-6.md` S8) -- a single oversize line (an embedded image
+content block, a huge diff) must not blow up the report the way an unbounded stderr tail
+would."""
+
+_TRANSCRIPT_MAX_ENTRIES = 400
+"""Cap on the number of entries kept per failing test's JSON transcript: the first/last half
+each, with a gap marker in between -- the start (handshake/setup) and the end (the failure
+itself) are almost always what's interesting; a chatty middle (many `session/update`s) is the
+part safest to elide (S8)."""
+
+
+def _truncate_raw(text: str) -> str:
+    encoded = text.encode("utf-8")
+    if len(encoded) <= _TRANSCRIPT_ENTRY_RAW_BYTES:
+        return text
+    head = encoded[:_TRANSCRIPT_ENTRY_RAW_BYTES].decode("utf-8", errors="replace")
+    return f"{head}...[truncated {len(encoded) - _TRANSCRIPT_ENTRY_RAW_BYTES} byte(s)]..."
+
+
 def _transcript_entries_dict(transcript: list[TranscriptEntry]) -> list[dict[str, Any]]:
-    return [
+    entries = [
         {
             "dir": entry.direction.value,
             "t": entry.timestamp,
-            "raw": entry.text if entry.text is not None else f"<undecodable: {entry.text_error}>",
+            "raw": _truncate_raw(
+                entry.text if entry.text is not None else f"<undecodable: {entry.text_error}>"
+            ),
         }
         for entry in transcript
     ]
+    if len(entries) <= _TRANSCRIPT_MAX_ENTRIES:
+        return entries
+    half = _TRANSCRIPT_MAX_ENTRIES // 2
+    gap = len(entries) - 2 * half
+    marker = {"dir": "gap", "t": 0.0, "raw": f"...[{gap} entry(ies) omitted]..."}
+    return entries[:half] + [marker] + entries[-half:]
 
 
 # --- requirement result collection ---
@@ -446,7 +523,11 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) ->
     state = states.setdefault(item.nodeid, _TestState(req_ids=_requirement_ids(item)))
     state.duration_s += report.duration
     for key, value in report.user_properties:
-        state.properties[key] = value
+        # `record_property` accepts any scalar, but `state.properties`/`TestOutcome.properties`
+        # are typed (and, via the JSON report, actually required to be) `dict[str, str]` --
+        # coerce here, at the single collection point, rather than trust every call site to
+        # already pass a string (review-slices-5-6.md N22).
+        state.properties[key] = str(value)
 
     settled = _phase_status(report)
     if settled is not None:
@@ -548,7 +629,13 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     # Only override pytest's own exit code for a normal completed run (whether it passed or had
     # test failures) -- leave --collect-only, usage errors, and interrupted runs alone, since
     # every requirement would otherwise read NOT_TESTED and falsely force a non-conformant exit.
-    if exitstatus in (pytest.ExitCode.OK, pytest.ExitCode.TESTS_FAILED):
+    # `exitstatus in (OK, TESTS_FAILED)` alone is not enough: a successful `--collect-only` run
+    # (or any run where nothing actually executed, e.g. an empty `-k` match with no failures)
+    # also reports `ExitCode.OK` -- guard with "did any test actually produce a verdict"
+    # (`.agents/research/review-slices-5-6.md` S6) rather than trusting `exitstatus` alone.
+    states = config.stash.get(TEST_STATES_KEY, {})
+    ran_any_test = any(state.status is not None for state in states.values())
+    if exitstatus in (pytest.ExitCode.OK, pytest.ExitCode.TESTS_FAILED) and ran_any_test:
         session.exitstatus = pytest.ExitCode.OK if report.verdict.conformant else pytest.ExitCode.TESTS_FAILED
 
 
@@ -579,6 +666,17 @@ def pytest_terminal_summary(
     report = config.stash.get(REPORT_KEY, None)
     if report is None:
         return  # e.g. --collect-only: sessionfinish still ran, but nothing was ever executed
+
+    states = config.stash.get(TEST_STATES_KEY, {})
+    if not any(state.status is not None for state in states.values()):
+        # Nothing actually ran (e.g. --collect-only, or a -k/-m that matched zero tests) --
+        # every requirement would read NOT_TESTED, which would print a misleading verdict for a
+        # run that never intended to produce one at all (S6/S7 companion fix).
+        terminalreporter.write_line(
+            "ACP TCK: no test executed in this run (collection-only, or the selection matched "
+            "nothing) -- no requirement verdict to report.",
+        )
+        return
 
     results_by_id = {result.id: result for result in report.requirements}
 
@@ -618,11 +716,22 @@ def pytest_terminal_summary(
             red=True,
         )
         if mandatory[Status.PASS.value] == 0 and (n_fail + n_not_tested) > 0:
-            terminalreporter.write_line(
-                "hint: no MANDATORY requirement passed -- the agent may have failed to start or "
-                "never responded; check --agent-cwd/--timeout/--startup-timeout and the stderr "
-                "captured in the JSON report (--report-json).",
-            )
+            keyword = config.getoption("keyword", "") or ""
+            markexpr = config.getoption("markexpr", "") or ""
+            if keyword or markexpr:
+                selector = f"-k {keyword!r}" if keyword else f"-m {markexpr!r}"
+                terminalreporter.write_line(
+                    f"hint: this run was scoped ({selector}), so most requirements were "
+                    "deselected (NOT TESTED) rather than exercised at all -- this reflects the "
+                    "selection, not a failure of the agent under test; run the full suite "
+                    "(no -k/-m) for a real conformance verdict.",
+                )
+            else:
+                terminalreporter.write_line(
+                    "hint: no MANDATORY requirement passed -- the agent may have failed to start or "
+                    "never responded; check --agent-cwd/--timeout/--startup-timeout and the stderr "
+                    "captured in the JSON report (--report-json).",
+                )
         if verdict.blocked_by_auth:
             terminalreporter.write_line(
                 "hint: one or more session-dependent tests were SKIPPED because the agent "

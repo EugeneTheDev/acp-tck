@@ -87,9 +87,9 @@ Every requirement has a **tier**:
 Each test produces one of `PASS` / `FAIL` / `SKIPPED`; a setup/teardown error (including a
 harness-level agent timeout or crash) is reported as `FAIL`. A requirement's status is the worst
 across every test bound to it (`FAIL` > `PASS` > `SKIPPED`); a requirement no test ever ran is
-`NOT_TESTED` -- deliberately counted as a failure for `MANDATORY`/`CAPABILITY` tiers, so a dead
-agent that never gets past `initialize` can't score 100% by starving every other check of a
-record.
+`NOT_TESTED` -- deliberately counted as a failure for the `MANDATORY` tier (see "Verdict" below),
+so a dead agent that never gets past `initialize` can't score 100% by starving every other check
+of a record.
 
 **Verdict:** `conformant` is `true` iff there is no `MANDATORY` `FAIL`, no `MANDATORY`
 `NOT_TESTED`, no `CAPABILITY` `FAIL`, and the run was not `blocked_by_auth` (i.e. no

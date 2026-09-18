@@ -159,15 +159,19 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "When the client requests an unsupported protocol version (65535), the agent "
-            "returns a successful result carrying an integer protocolVersion that is not "
-            "65535 and equals the version the same agent returns for a v1 request -- echoing "
-            "the client's requested version verbatim is not conformant, even though it is a "
-            "successful result with an integer protocolVersion (strengthened: both `testy` "
-            "and `examples/echo_agent.py` echo 65535 verbatim and must FAIL this)."
+            "returns a successful result carrying an integer protocolVersion that (a) is not "
+            "65535 -- echoing the client's requested version verbatim is not conformant, even "
+            "though it is a successful result with an integer protocolVersion -- and (b) is at "
+            "least the version the same agent returns for a v1 request. Equality is NOT "
+            "required: an agent that legitimately supports multiple versions (e.g. answers 1 "
+            "for a v1 request and 2 for anything >= 2) may correctly answer higher than its "
+            "v1-request answer; only echoing 65535 verbatim, or answering something lower than "
+            "its own v1 answer, is a violation (review-slices-5-6.md B2 -- the prior equality "
+            "rule produced a false FAIL against dual-version agents)."
         ),
         citation=_cite(
             "docs/protocol/v1/initialization.mdx:94-98; testy-cross-check.md finding 1 "
-            "(strengthening rationale)"
+            "(strengthening rationale); review-slices-5-6.md B2 (weakened to >=)"
         ),
         source_report="acp-v1-protocol-surface.md; testy-cross-check.md",
     ),
@@ -620,15 +624,20 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         tier=Tier.MANDATORY,
         capability=None,
         text=(
-            "Capability-conditional (AUTH-C3/C4): only exercised when `authMethods` is "
-            "non-empty AND `--tck-auth-method <id>` was given -- SKIPs otherwise, since v1 "
-            "never requires an agent to expose a testable auth flow and the TCK cannot guess a "
-            "valid `methodId`. When exercised: `authenticate` with that `methodId` succeeds "
-            "with an object result, and a subsequent `session/new` on the same connection "
-            "succeeds (not `-32000`)."
+            "Capability-conditional (AUTH-C4): only exercised when `authMethods` is non-empty "
+            "AND `--tck-auth-method <id>` was given -- SKIPs otherwise, since v1 never requires "
+            "an agent to expose a testable auth flow and the TCK cannot guess a valid "
+            "`methodId`. `authenticate` succeeding is NOT itself assertable (must-NOT list #10: "
+            "a real agent may legitimately reject bad/expired/cancelled credentials) -- an "
+            "`authenticate` error SKIPs with a distinct reason instead of failing. Only when "
+            "`authenticate` returns a result is anything asserted, and only two things: (AUTH-C3, "
+            "shape-only) the result is a JSON object; (AUTH-C4, the one hard assertion this "
+            "requirement makes) a subsequent `session/new` on the same connection does not fail "
+            "with `-32000`."
         ),
         citation=_cite(
-            "schema/v1/schema.json:4712-4734 (AuthenticateRequest/Response) (AUTH-C3, AUTH-C4)"
+            "schema/v1/schema.json:4712-4734 (AuthenticateRequest/Response) (AUTH-C3, AUTH-C4); "
+            "acp-v1-authentication.md must-NOT list #10"
         ),
         source_report="acp-v1-authentication.md",
     ),
@@ -646,6 +655,27 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         citation=_cite(
             "schema/v1/schema.json:2666-2701,4735-4756 (AgentAuthCapabilities, LogoutRequest) "
             "(AUTH-C1, AUTH-C2)"
+        ),
+        source_report="acp-v1-authentication.md",
+    ),
+    Requirement(
+        id="ACP-AUTH-005",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "AUTH-A1: if `initialize`'s `authMethods` is empty or absent, `session/new` does "
+            "not fail with `-32000`. Nothing in v1 requires an agent to gate anything behind "
+            "`authenticate`, and `authMethods` is not required in `InitializeResponse`; an "
+            "agent that advertises none and then returns -32000 has made the connection "
+            "unusable with no defined remedy (v2 makes this rule explicit; v1 leaves it "
+            "advisory). `skip_if_auth_gated` only excuses `-32000` when `authMethods` is "
+            "non-empty -- with it empty/absent, the ordinary `session/new` assertion is left to "
+            "fail on its own terms, which is deliberate (a broken agent legitimately fails "
+            "whatever MANDATORY requirement needed that session, not just this one)."
+        ),
+        citation=_cite(
+            "docs/protocol/v1/schema.mdx (InitializeResponse.authMethods optional) "
+            "(AUTH-A1)"
         ),
         source_report="acp-v1-authentication.md",
     ),

@@ -23,18 +23,29 @@ from ._helpers import connected_agent, new_session, quiet_period
 
 
 @pytest.mark.requirement("ACP-JSONRPC-001")
-async def test_id_is_echoed_for_integer_and_string_ids(agent_launch):
-    """ACP-JSONRPC-001."""
-    async with connected_agent(agent_launch, handshake=False) as agent:
-        params = {"protocolVersion": PROTOCOL_VERSION, "clientCapabilities": {}}
+async def test_id_is_echoed_for_integer_and_string_ids(agent_launch, tmp_path):
+    """ACP-JSONRPC-001.
 
-        int_id = await agent.send_request("initialize", params, id=424242)
+    Only ever sends one `initialize` per connection: a second `initialize` on an
+    already-initialized connection is unspecified in v1, and a strict agent may legitimately
+    reject it with `-32600`, which would falsely FAIL an agent that echoes ids perfectly fine
+    (review-slices-5-6.md B1). The integer-id half uses `initialize` itself (a request every
+    agent MUST answer); the string-id half uses `session/new` (via `new_session`, which SKIPs
+    -- not crashes -- on an auth-gated agent) instead of a second `initialize`."""
+    async with connected_agent(agent_launch, handshake=False) as agent:
+        int_id = await agent.send_request(
+            "initialize",
+            {"protocolVersion": PROTOCOL_VERSION, "clientCapabilities": {}},
+            id=424242,
+        )
         int_entry = await agent.wait_for_response(int_id, timeout=agent_launch.default_timeout)
         assert int_entry.parsed["id"] == 424242, f"integer id not echoed: {int_entry.parsed!r}"
 
-        str_id = await agent.send_request("initialize", params, id="tck-string-id")
-        str_entry = await agent.wait_for_response(str_id, timeout=agent_launch.default_timeout)
-        assert str_entry.parsed["id"] == "tck-string-id", f"string id not echoed: {str_entry.parsed!r}"
+        req_id = await agent.send_request(
+            "session/new", {"cwd": str(tmp_path), "mcpServers": []}, id="tck-string-id"
+        )
+        entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
+        assert entry.parsed["id"] == "tck-string-id", f"string id not echoed: {entry.parsed!r}"
 
 
 def _assert_valid_response_envelope(entry, *, what: str) -> None:

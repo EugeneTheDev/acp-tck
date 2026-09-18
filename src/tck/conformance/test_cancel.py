@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import pytest
 
-from tck.harness import AgentTimeout
+from tck.harness import AgentExited, AgentTimeout
 from tck.protocol import STOP_REASONS
 
 from ._helpers import PromptTurn, connected_agent, new_session, quiet_period, run_prompt
@@ -123,9 +123,15 @@ async def test_no_session_update_follows_the_cancelled_response(
         )
 
         msg = turn.response_entry.parsed
-        assert isinstance(msg, dict) and "result" in msg, (
-            f"cancel must resolve the prompt with a success result, not an error: {msg!r}"
-        )
+        if not (isinstance(msg, dict) and "result" in msg):
+            # An error-shaped cancel response is ACP-CANCEL-001's finding to make, not this
+            # test's -- asserting it here too would double-report the same defect as an
+            # *ordering* violation of Req 28, which is this test's actual and only concern
+            # (review-slices-5-6.md N15).
+            pytest.skip(
+                "prerequisite not met: cancel did not resolve the prompt with a success "
+                f"result (see ACP-CANCEL-001): {msg!r}"
+            )
         # Only ordering is this test's concern (Req 28); whether each update carries the right
         # sessionId is ACP-PROMPT-002/Req 1 territory, asserted there -- attributing that here
         # would mis-blame Req 28 for a mis-attributed-update defect (review S5).
@@ -138,7 +144,11 @@ async def test_no_session_update_follows_the_cancelled_response(
                 and (candidate.get("params") or {}).get("sessionId") == session_id
             )
 
-        with pytest.raises(AgentTimeout):
+        # An agent that exits promptly after resolving the prompt (rather than staying connected
+        # through the quiet period) raises AgentExited on EOF, not AgentTimeout -- that is still
+        # "no late update arrived," not a defect this requirement is about (review-slices-5-6.md
+        # N14).
+        with pytest.raises((AgentTimeout, AgentExited)):
             await agent.wait_for_message(
                 _is_late_update_for_this_session, timeout=quiet_period(agent_launch.default_timeout)
             )

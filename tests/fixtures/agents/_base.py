@@ -17,6 +17,35 @@ from typing import Any, Callable
 
 PROTOCOL_VERSION = 1
 
+# The five `ContentBlock` variants (`schema/v1/schema.json:601-688`, discriminated by `type`) --
+# used by `_content_block_error` below to give `session/prompt` schema-shape strictness (review-
+# slices-5-6.md S9) equivalent to `_handle_authenticate`'s `methodId` check.
+_VALID_CONTENT_BLOCK_TYPES = {"text", "image", "audio", "resource", "resource_link"}
+
+
+def _content_block_error(block: Any) -> str | None:
+    """`None` if `block` is a structurally valid `ContentBlock`, else a short description of what
+    is wrong. Deliberately cheap (required-field presence and type only, not exhaustive schema
+    validation) per S9's "fix cheapest first" guidance."""
+    if not isinstance(block, dict):
+        return f"content block must be an object, got {type(block).__name__}"
+    block_type = block.get("type")
+    if block_type not in _VALID_CONTENT_BLOCK_TYPES:
+        return f"unknown content block type {block_type!r}"
+    if block_type == "text" and not isinstance(block.get("text"), str):
+        return "'text' block missing a string 'text' field"
+    if block_type in ("image", "audio") and not (
+        isinstance(block.get("data"), str) and isinstance(block.get("mimeType"), str)
+    ):
+        return f"'{block_type}' block missing a string 'data' and/or 'mimeType' field"
+    if block_type == "resource_link" and not (
+        isinstance(block.get("uri"), str) and isinstance(block.get("name"), str)
+    ):
+        return "'resource_link' block missing a string 'uri' and/or 'name' field"
+    if block_type == "resource" and not isinstance(block.get("resource"), dict):
+        return "'resource' block missing an object 'resource' field"
+    return None
+
 
 class ConformingAgent:
     """A minimal, deterministic, offline ACP v1 agent.
@@ -214,6 +243,17 @@ class ConformingAgent:
         self._reply(msg_id, {"configOptions": self._visible_config_options() or []})
 
     def _handle_authenticate(self, msg_id: Any, params: dict[str, Any]) -> None:
+        # `methodId` is schema-required (`acp-v1-authentication.md` Req 5, AUTH-C5) and must name
+        # one of the ids this agent actually advertised in `initialize`'s `authMethods` -- fixture
+        # strictness (review-slices-5-6.md S9): a lenient fixture that authenticates on any (or
+        # no) methodId hides whether the TCK's own `authenticate` request has the right shape,
+        # and lets a wrong `--tck-auth-method` silently "succeed" instead of leaving the agent
+        # gated (see `gated_by_auth.py`).
+        method_id = params.get("methodId")
+        valid_ids = {m.get("id") for m in (self._auth_methods or [])}
+        if not isinstance(method_id, str) or method_id not in valid_ids:
+            self._error(msg_id, -32602, "Invalid params: unknown or missing methodId")
+            return
         self._authenticated = True
         self._reply(msg_id, {})
 
@@ -223,7 +263,25 @@ class ConformingAgent:
 
     def _handle_prompt(self, msg_id: Any, params: dict[str, Any]) -> None:
         session_id = params.get("sessionId")
-        prompt = params.get("prompt") or []
+        # Fixture strictness (review-slices-5-6.md S9/item 8): reject a `sessionId` this agent
+        # never created, and validate every content block's shape, instead of silently accepting
+        # anything -- this is the fixture's own outgoing-request-shape policy, scoped to
+        # `session/prompt` only (not `session/load`/`resume`/`list`/`delete`/`close`, whose
+        # existing upsert/silent-success semantics are deliberately exercised elsewhere and are
+        # not something the TCK asserts an error code for -- see
+        # `test_informational.py::test_unknown_session_id_behaviour`, which never asserts).
+        if session_id not in self._sessions:
+            self._error(msg_id, -32602, f"Invalid params: unknown sessionId {session_id!r}")
+            return
+        prompt = params.get("prompt")
+        if not isinstance(prompt, list) or not prompt:
+            self._error(msg_id, -32602, "Invalid params: 'prompt' must be a non-empty array")
+            return
+        for block in prompt:
+            block_error = _content_block_error(block)
+            if block_error is not None:
+                self._error(msg_id, -32602, f"Invalid params: {block_error}")
+                return
         first_text = next(
             (
                 block.get("text", "")

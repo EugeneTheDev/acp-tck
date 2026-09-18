@@ -9,6 +9,7 @@ running session.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -58,6 +59,7 @@ _ADVISORY_IDS = {
     "ACP-ERROR-001",
     "ACP-SHUTDOWN-001",
     "ACP-SCHEMA-002",
+    "ACP-AUTH-005",
 }
 _INFORMATIONAL_IDS = {
     "ACP-STDERR-001",
@@ -115,6 +117,7 @@ def _run_cli(
     startup_timeout: str = "1",
     cancel_prompt: str | None = None,
     auth_method: str | None = None,
+    close_grace: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     cmd = [
         sys.executable,
@@ -135,6 +138,8 @@ def _run_cli(
         cmd += ["--cancel-prompt", cancel_prompt]
     if auth_method is not None:
         cmd += ["--auth-method", auth_method]
+    if close_grace is not None:
+        cmd += ["--close-grace", close_grace]
     cmd += [
         "--",
         sys.executable,
@@ -143,13 +148,22 @@ def _run_cli(
     return subprocess.run(cmd, capture_output=True, text=True, timeout=CLI_SUBPROCESS_TIMEOUT)
 
 
+_TABLE_ROW_RE = re.compile(r"^\s*(ACP-\S+)\s+(PASS|FAIL|SKIPPED|NOT TESTED)\b")
+
+
 def _table_statuses(output: str) -> dict[str, str]:
-    """Parse `<id> <STATUS>` pairs out of the terminal summary table."""
+    """Parse `<id> <STATUS>` pairs out of the terminal summary table. The status label is not
+    always one token -- `NOT TESTED` is two words (`plugin.py:675`) -- and a row can carry a
+    trailing `  (note)` suffix (`_informational_note`), so match the known status labels by
+    regex instead of assuming exactly two whitespace-split tokens (review-slices-5-6.md N13);
+    without this, `NOT TESTED` rows silently vanished from the parsed dict instead of being
+    recorded, and every `statuses.get(x) == "PASS"` check elsewhere only worked by accident
+    (`None != "PASS"`)."""
     statuses: dict[str, str] = {}
     for line in output.splitlines():
-        parts = line.split()
-        if len(parts) == 2 and parts[0].startswith("ACP-"):
-            statuses[parts[0]] = parts[1]
+        match = _TABLE_ROW_RE.match(line)
+        if match:
+            statuses[match.group(1)] = match.group(2).replace("NOT TESTED", "NOT_TESTED")
     return statuses
 
 
@@ -190,7 +204,13 @@ def test_conforming_agent_passes_everything():
     assert result.returncode == 0, result.stdout + result.stderr
 
     statuses = _table_statuses(result.stdout)
-    assert set(statuses) == _ALL_IDS, f"requirement table missing/extra ids: {result.stdout}"
+    # N13's regex-based `_table_statuses` fix now actually parses INFORMATIONAL-tier rows too
+    # (they carry a trailing `(note)` suffix that used to make them silently vanish, coincidentally
+    # matching `_ALL_IDS`, which was never meant to include them) -- so compare against the union
+    # explicitly rather than let that omission look intentional.
+    assert set(statuses) == _ALL_IDS | _INFORMATIONAL_IDS, (
+        f"requirement table missing/extra ids: {result.stdout}"
+    )
     skip_ids = _CANCEL_IDS | _CAPABILITY_GATED_IDS
     for req_id in skip_ids:
         assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised/unadvertised):\n{result.stdout}"
@@ -269,11 +289,58 @@ def test_asks_permission_agent_passes_everything():
         assert statuses.get(req_id) == "PASS", f"{req_id} is {statuses.get(req_id)}, expected PASS:\n{result.stdout}"
 
 
+def test_asks_permission_closable_agent_passes_close_002():
+    """`asks_permission_closable.py` (review-slices-5-6.md S3 self-test) combines
+    `asks_permission.py`'s mid-turn `session/request_permission` with `sessionCapabilities.close`
+    support: `session/close` on an in-flight, permission-pending prompt must resolve it as
+    cancelled. Before S3, `ACP-CLOSE-002` drove a hand-rolled read loop that deadlocked
+    (`AgentTimeout`) against exactly this shape of agent instead of ever reaching a verdict; the
+    `run_prompt`-based rewrite makes it PASS deterministically.
+
+    Uses a longer `--timeout` than this module's default (`_run_cli`'s `timeout="1"`) because the
+    fixture deliberately delays its permission request past `run_prompt`'s short post-update peek
+    window to keep the close-vs-permission race deterministic (see the fixture's docstring).
+    Scoped to `close` (review-slices-5-6.md item 10/S11): every prompt turn against this fixture
+    pays that same deliberate delay, so an unscoped run against the full suite costs 30+s just
+    from that, for no attribution benefit over the `session_capabilities`-only subset."""
+    result = _run_cli(
+        "asks_permission_closable.py", timeout="5", k="close", cancel_prompt="__hang__"
+    )
+    assert result.returncode != 0  # `-k`-scoped: MANDATORY ids are NOT_TESTED, verdict non-zero
+
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-CLOSE-002") == "PASS", f"expected PASS:\n{result.stdout}"
+    assert statuses.get("ACP-CLOSE-001") == "PASS", f"expected PASS:\n{result.stdout}"
+
+
+def test_asks_permission_closable_agent_also_exercises_cancelled_outcome():
+    """Same fixture as above, driven through `test_cancel.py` instead: its permission request
+    also arrives after `session/cancel` fires (same post-update-peek delay), so `run_prompt`
+    answers it `{"outcome": {"outcome": "cancelled"}}` -- the one branch of `run_prompt`'s
+    permission-answering logic that `asks_permission.py` alone never exercises (review-
+    slices-5-6.md S10(a): before this fixture existed, every cancel test against a
+    permission-asking agent lost the race and only SKIPPED)."""
+    result = _run_cli(
+        "asks_permission_closable.py", timeout="5", k="cancel", cancel_prompt="__hang__"
+    )
+    # Exit code not asserted: a `-k`-scoped run necessarily leaves every MANDATORY requirement
+    # NOT_TESTED, which by itself forces a non-conformant (nonzero) verdict regardless of these
+    # two ids' own status (see `test_load_returns_null_fails_load_003_advisory_only`).
+    statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-CANCEL-001") == "PASS", f"expected PASS:\n{result.stdout}"
+    assert statuses.get("ACP-CANCEL-002") == "PASS", f"expected PASS:\n{result.stdout}"
+
+
 def test_wrong_id_echo_fails_id_dependent_requirements():
     """`wrong_id_echo.py` mangles every response id, which breaks id-correlated waits (used by
     almost every test's setup, not only the id-echo test itself) -- so nearly everything times
-    out and fails. This is expected: a broken id-echo genuinely makes the agent unusable."""
-    result = _run_cli("wrong_id_echo.py")
+    out and fails. This is expected: a broken id-echo genuinely makes the agent unusable.
+
+    Scoped to `jsonrpc` (review-slices-5-6.md item 10/S11): an unscoped run against this fixture
+    means *every* test in the suite times out waiting for an id-correlated response before
+    failing, which cost ~40s on its own for a fact this one id already demonstrates -- narrowing
+    to the id-echo tests themselves keeps the same assertion true in a fraction of the time."""
+    result = _run_cli("wrong_id_echo.py", k="jsonrpc")
     assert result.returncode != 0
     statuses = _table_statuses(result.stdout)
     assert statuses.get("ACP-JSONRPC-001") == "FAIL", result.stdout
@@ -471,13 +538,18 @@ def test_per_test_watchdog_fails_a_hung_test_fast():
     larger, well before any individual read/write deadline would ever fire on its own (review
     S7) -- proving the watchdog itself is what caught it, not the ordinary per-response
     timeout. Scoped to one fast, id-echo-only test node so this stays quick even though
-    `--timeout`/`--startup-timeout` are deliberately large."""
+    `--timeout`/`--startup-timeout` are deliberately large. `--close-grace` is also lowered:
+    `never_responds.py` never exits on its own (review S11/item 10), so teardown would otherwise
+    pay the full default 2s stdin-close wait every run just to prove the watchdog fired; this
+    self-test only cares that it fired, not about giving a real agent a generous shutdown
+    window."""
     result = _run_cli(
         "never_responds.py",
         k="test_id_is_echoed_for_integer_and_string_ids",
         timeout="10",
         startup_timeout="1",
         test_timeout="0.3",
+        close_grace="0.2",
     )
     assert result.returncode != 0
     assert "per-test watchdog" in result.stdout, result.stdout + result.stderr
@@ -498,17 +570,29 @@ def test_conforming_full_agent_passes_everything_with_cancel_prompt_hang():
     logic instead of SKIPPING as "not exercised" -- a real agent wouldn't recognize this
     sentinel either, but this fixture's whole cancellation story is built around it (see
     `_base.py`'s `_handle_prompt`). `--auth-method tck` is required for ACP-AUTH-003 to PASS
-    instead of SKIP, since `conforming_full.py` advertises an `authMethods` entry with that id."""
+    instead of SKIP, since `conforming_full.py` advertises an `authMethods` entry with that id.
+
+    `ACP-AUTH-005` (AUTH-A1) is the one ADVISORY id that legitimately SKIPs here rather than
+    PASSing: it only concerns an agent that advertises *no* `authMethods`, and
+    `conforming_full.py` deliberately advertises one -- that is inapplicability, not a
+    conformance gap, exactly like `ACP-AUTH-003` SKIPping without `--auth-method`."""
     result = _run_cli("conforming_full.py", cancel_prompt="__hang__", auth_method="tck")
     assert result.returncode == 0, result.stdout + result.stderr
     assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
 
     statuses = _table_statuses(result.stdout)
-    assert set(statuses) == _ALL_IDS, f"requirement table missing/extra ids: {result.stdout}"
+    assert set(statuses) == _ALL_IDS | _INFORMATIONAL_IDS, (
+        f"requirement table missing/extra ids: {result.stdout}"
+    )
     for req_id, status in statuses.items():
+        if req_id == "ACP-AUTH-005":
+            assert status == "SKIPPED", f"{req_id} is {status}, expected SKIPPED (not applicable):\n{result.stdout}"
+            continue
         assert status == "PASS", f"{req_id} is {status}, expected PASS for conforming_full.py:\n{result.stdout}"
     assert "NOT TESTED" not in result.stdout
-    assert all(status != "SKIPPED" for status in statuses.values()), result.stdout
+    assert all(
+        status != "SKIPPED" for req_id, status in statuses.items() if req_id != "ACP-AUTH-005"
+    ), result.stdout
 
 
 def test_load_replays_after_response_fails_load_002_only():
@@ -675,7 +759,9 @@ def test_gated_by_auth_full_run_with_auth_method_is_fully_conformant():
     assert "NOT TESTED" not in result.stdout, result.stdout
 
     statuses = _table_statuses(result.stdout)
-    capability_gated = _CAPABILITY_GATED_IDS - {"ACP-AUTH-003"}
+    # ACP-AUTH-005 (AUTH-A1) legitimately SKIPs too: it only concerns an agent advertising no
+    # authMethods, and `gated_by_auth.py` advertises one -- inapplicability, not a gap.
+    capability_gated = _CAPABILITY_GATED_IDS - {"ACP-AUTH-003"} | {"ACP-AUTH-005"}
     for req_id in capability_gated:
         assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (not advertised):\n{result.stdout}"
     for req_id, status in statuses.items():
@@ -761,30 +847,40 @@ def test_calls_fs_unadvertised_fails_clientcap_001():
     TCK's mock client never advertised `fs` -- a MANDATORY (Req 29) FAIL that must flip the
     exit code. Scoped to `clientcap` since this fixture's `_handle_prompt` override only ever
     resolves a turn once the client has answered its one client-request, which is exactly what
-    the clientcap test's `run_prompt` call does; other prompt tests would work too, but scoping
-    keeps this self-test fast and focused."""
+    the clientcap tests' `run_prompt` calls do; other prompt tests would work too, but scoping
+    keeps this self-test fast and focused.
+
+    Also asserts ACP-CLIENTCAP-002/003 still PASS (review-slices-5-6.md item 9): the three ids
+    are now three separate tests specifically so that a single-capability violation like this one
+    isn't mis-attributed to the other two."""
     result = _run_cli("calls_fs_unadvertised.py", k="clientcap")
     assert result.returncode != 0, result.stdout + result.stderr
 
     statuses = _table_statuses(result.stdout)
     assert statuses.get("ACP-CLIENTCAP-001") == "FAIL", result.stdout
+    assert statuses.get("ACP-CLIENTCAP-002") == "PASS", result.stdout
+    assert statuses.get("ACP-CLIENTCAP-003") == "PASS", result.stdout
 
 
 def test_calls_terminal_unadvertised_fails_clientcap_002():
-    """Same as above, for `terminal/create` (Req 30)."""
+    """Same as above, for `terminal/create` (Req 30); asserts -001/-003 still PASS."""
     result = _run_cli("calls_terminal_unadvertised.py", k="clientcap")
     assert result.returncode != 0, result.stdout + result.stderr
 
     statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-CLIENTCAP-001") == "PASS", result.stdout
     assert statuses.get("ACP-CLIENTCAP-002") == "FAIL", result.stdout
+    assert statuses.get("ACP-CLIENTCAP-003") == "PASS", result.stdout
 
 
 def test_calls_elicitation_unadvertised_fails_clientcap_003():
-    """Same as above, for `elicitation/create` (Req 32)."""
+    """Same as above, for `elicitation/create` (Req 32); asserts -001/-002 still PASS."""
     result = _run_cli("calls_elicitation_unadvertised.py", k="clientcap")
     assert result.returncode != 0, result.stdout + result.stderr
 
     statuses = _table_statuses(result.stdout)
+    assert statuses.get("ACP-CLIENTCAP-001") == "PASS", result.stdout
+    assert statuses.get("ACP-CLIENTCAP-002") == "PASS", result.stdout
     assert statuses.get("ACP-CLIENTCAP-003") == "FAIL", result.stdout
 
 

@@ -77,6 +77,14 @@ class AgentLaunch:
     line exceeds the limit (`.agents/research/review-slices-1-4.md` B1). This default is
     generous enough that hitting it at all is itself informative; tests that want to exercise
     the oversize path on purpose lower it explicitly."""
+    close_grace: float = 2.0
+    """Passed as `AgentProcess.close()`'s `grace` argument on teardown (`__aexit__`). Each stage
+    of the close ladder (stdin-close wait, post-SIGTERM wait, post-SIGKILL wait) budgets up to
+    this many seconds, so a real agent gets a fair chance to shut down cleanly -- but a fixture
+    that deliberately never exits (e.g. `never_responds.py`) pays the full amount just to prove
+    that. Lowered via `--tck-close-grace` for self-tests that only care about a hang being
+    caught, not about giving a real agent a generous shutdown window (review-slices-5-6.md item
+    10/S11 runtime)."""
 
 
 class AgentProcess:
@@ -121,7 +129,7 @@ class AgentProcess:
         return self
 
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
-        await self.close()
+        await self.close(grace=self._launch.close_grace)
 
     async def _drain_stderr(self) -> None:
         assert self._process is not None

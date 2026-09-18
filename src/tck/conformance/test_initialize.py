@@ -60,6 +60,13 @@ async def test_unsupported_version_still_succeeds(agent_launch):
     client's unsupported requested version (65535) verbatim -- a false negative. The
     requirement text says the agent returns "its latest supported version", so this needs a
     reference point: whatever the same agent returns for a plain v1 request (ACP-INIT-002).
+
+    The rule is `!= 65535 and >= latest_supported`, NOT equality (review-slices-5-6.md B2): an
+    agent legitimately supporting more than one version may answer `1` for a v1 request but
+    something higher for an unsupported/future one (e.g. `2` for anything `>= 2`) -- equality
+    would falsely FAIL that agent even though it never echoed 65535 and never answered *lower*
+    than its own v1 answer, which is the actual defect this requirement exists to catch.
+
     Two fresh processes are used (one per `initialize` call) rather than two handshakes over one
     connection, matching every other test's "one fresh agent process" pattern."""
     async with connected_agent(agent_launch, handshake=False) as reference_agent:
@@ -92,9 +99,14 @@ async def test_unsupported_version_still_succeeds(agent_launch):
             "protocolVersion must not echo the client's unsupported requested version "
             "verbatim -- it must be the agent's own latest supported version"
         )
-        assert version == latest_supported, (
-            f"protocolVersion for an unsupported request ({version!r}) must equal the version "
-            f"the same agent returns for a v1 request ({latest_supported!r})"
+        assert isinstance(latest_supported, int) and not isinstance(latest_supported, bool), (
+            f"reference agent's v1 protocolVersion is not an integer: {latest_supported!r}"
+        )
+        assert version >= latest_supported, (
+            f"protocolVersion for an unsupported request ({version!r}) must be at least the "
+            f"version the same agent returns for a v1 request ({latest_supported!r}) -- "
+            "an agent answering lower than its own v1 answer is not returning its latest "
+            "supported version"
         )
 
 

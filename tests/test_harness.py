@@ -122,7 +122,11 @@ def test_banner_on_stdout_is_recorded_as_parse_error() -> None:
 
 def test_never_responds_raises_agent_timeout_with_transcript() -> None:
     async def scenario() -> None:
-        async with AgentProcess(agent_launch("never_responds.py")) as agent:
+        # `never_responds.py` never exits on its own (SIGTERM/SIGKILL required), so teardown
+        # would otherwise pay the full default 2s stdin-close grace period every run just to
+        # prove the timeout fired; this test only cares that it fired (review-slices-5-6.md
+        # item 10/S11 runtime, same fix as test_cli.py's watchdog self-test).
+        async with AgentProcess(agent_launch("never_responds.py", close_grace=0.2)) as agent:
             req_id = await agent.send_request("initialize", {"protocolVersion": 1})
             with pytest.raises(AgentTimeout) as excinfo:
                 await agent.wait_for_response(req_id, timeout=0.5)

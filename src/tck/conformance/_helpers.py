@@ -6,12 +6,12 @@ import asyncio
 import contextlib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 import pytest
 
 from tck.harness import AgentLaunch, AgentProcess, AgentTimeout, TranscriptEntry
-from tck.plugin import current_auth_method_id, register_active_process
+from tck.plugin import current_auth_method_id, current_initialize_auth_methods, register_active_process
 from tck.protocol import AUTHENTICATION_REQUIRED, METHOD_NOT_FOUND, PROTOCOL_VERSION
 
 
@@ -56,9 +56,20 @@ async def connected_agent(
                 auth_id = await agent.send_request("authenticate", {"methodId": method_id})
                 auth_entry = await agent.wait_for_response(auth_id, timeout=launch.startup_timeout)
                 auth_msg = auth_entry.parsed
-                assert isinstance(auth_msg, dict) and isinstance(auth_msg.get("result"), dict), (
-                    f"authenticate with methodId={method_id!r} did not succeed: {auth_entry.text!r}"
-                )
+                # `authenticate` succeeding is never a MANDATORY assertion (research
+                # `.agents/research/acp-v1-authentication.md`, "must NOT assert" #10: a real
+                # agent may legitimately reject bad/expired/cancelled credentials) -- an error
+                # response here means the TCK cannot exercise anything session-dependent against
+                # this agent with the given --auth-method, so every dependent test SKIPs with a
+                # clear reason instead of failing on an AssertionError that looks like a TCK bug.
+                if not (isinstance(auth_msg, dict) and isinstance(auth_msg.get("result"), dict)):
+                    detail = (
+                        auth_msg.get("error") if isinstance(auth_msg, dict) else None
+                    ) or auth_entry.text
+                    pytest.skip(
+                        f"AUTH-GATED: authenticate with methodId={method_id!r} failed: {detail!r} "
+                        "-- check --tck-auth-method"
+                    )
         yield agent
 
 
@@ -73,19 +84,28 @@ def skip_if_auth_gated(entry: TranscriptEntry) -> None:
     message is prefixed with the literal marker string `AUTH-GATED:` so `tck.plugin` can detect
     this specific reason (as opposed to an ordinary capability-not-advertised skip) and set
     `Verdict.blocked_by_auth`.
+
+    Only excuses the `-32000` when the cached `initialize` result actually advertised at least
+    one `authMethods` entry (AUTH-A1, `.agents/research/acp-v1-authentication.md` §5,
+    review-slices-5-6.md S4) -- an agent that advertises none and still returns `-32000` has no
+    defined remedy; this is left as an ordinary, un-excused failure of whatever the caller was
+    asserting (see `ACP-AUTH-005`), not something the TCK can route around.
     """
     msg = entry.parsed
-    if (
+    if not (
         isinstance(msg, dict)
         and isinstance(msg.get("error"), dict)
         and msg["error"].get("code") == AUTHENTICATION_REQUIRED
         and current_auth_method_id() is None
     ):
-        pytest.skip(
-            "AUTH-GATED: session/new returned -32000 (authentication required) and no "
-            "--auth-method was given; pass --auth-method <id> (one of the ids advertised in "
-            "initialize's authMethods) to test session-dependent requirements against this agent"
-        )
+        return
+    if not current_initialize_auth_methods():
+        return  # AUTH-A1: no advertised authMethods -- not excusable, let the caller's own assert fail
+    pytest.skip(
+        "AUTH-GATED: session/new returned -32000 (authentication required) and no "
+        "--auth-method was given; pass --auth-method <id> (one of the ids advertised in "
+        "initialize's authMethods) to test session-dependent requirements against this agent"
+    )
 
 
 async def new_session(agent: AgentProcess, cwd: Path, *, timeout: float | None = None) -> str:
@@ -148,6 +168,13 @@ class PromptTurn:
     """The transcript index at which `run_prompt` sent `session/cancel`, or `None` if
     `on_cancel` was false or the prompt resolved before a cancel was ever sent (a race the TCK
     cannot always avoid -- see `test_cancel.py`)."""
+    action_response: TranscriptEntry | None = None
+    """The response to `on_action`'s request, if `on_action` was given and fired (see
+    `run_prompt`'s docstring) -- `None` if `on_action` was not given, or was given but the
+    prompt resolved before it ever fired."""
+    action_sent_at_index: int | None = None
+    """The transcript index at which `on_action`'s request was sent, mirroring
+    `cancelled_at_index` -- `None` if `on_action` was not given or never fired."""
 
 
 async def run_prompt(
@@ -156,6 +183,7 @@ async def run_prompt(
     blocks: list[dict[str, Any]],
     *,
     on_cancel: bool = False,
+    on_action: Callable[[], Awaitable[Any]] | None = None,
     cancel_wait: float = 0.5,
     extra_params: dict[str, Any] | None = None,
     timeout: float,
@@ -178,6 +206,17 @@ async def run_prompt(
     is just unlikely the cancel will land while the turn is still in flight (see `test_cancel.py`
     for how the resulting race is handled).
 
+    `on_action`, if given, is a zero-argument async callable fired at that same trigger point
+    (instead of, or alongside, `on_cancel`'s `session/cancel`) -- it must send whatever request
+    it wants (e.g. `session/close`) and return the id used. Whatever else the agent sends while
+    the mock client is waiting for the prompt's own response -- including that action's own
+    response, and any agent -> client request the action's send provokes (e.g. resolving an
+    in-flight `session/request_permission` as cancelled) -- is still handled by this same
+    dispatcher: nothing sent during an in-flight prompt turn is ever silently dropped
+    (review-slices-5-6.md S3; before this, `ACP-CLOSE-002` drove its own hand-rolled loop that
+    read past an unanswered `session/request_permission` and deadlocked against a conforming,
+    permission-asking agent). The action's response comes back as `PromptTurn.action_response`.
+
     A subtlety: an agent that emits an update and then *immediately* replies (e.g. a non-hanging
     fixture) may have already written its response to the pipe before we ever decide to send
     `session/cancel` -- we just haven't read it yet. If we committed to sending cancel purely
@@ -199,29 +238,64 @@ async def run_prompt(
     updates: list[tuple[int, TranscriptEntry]] = []
     client_requests_seen: list[TranscriptEntry] = []
     cancelled_at_index: int | None = None
-    cancel_sent = False
+    action_response: TranscriptEntry | None = None
+    action_sent_at_index: int | None = None
+    action_id: Any = None
+    trigger_armed = on_cancel or on_action is not None
+    trigger_sent = False
 
     loop = asyncio.get_running_loop()
     overall_deadline = loop.time() + timeout
-    cancel_deadline = loop.time() + cancel_wait if on_cancel else None
+    trigger_deadline = loop.time() + cancel_wait if trigger_armed else None
     peek_timeout = cancel_race_peek(timeout)
 
-    async def _send_cancel() -> None:
-        nonlocal cancel_sent, cancelled_at_index
-        if not cancel_sent:
+    async def _fire_trigger() -> None:
+        nonlocal trigger_sent, cancelled_at_index, action_id, action_sent_at_index
+        if trigger_sent:
+            return
+        trigger_sent = True
+        if on_cancel:
             await agent.send_notification("session/cancel", {"sessionId": session_id})
-            cancel_sent = True
             cancelled_at_index = len(agent.transcript) - 1
+        if on_action is not None:
+            action_id = await on_action()
+            action_sent_at_index = len(agent.transcript) - 1
 
     async def _handle_one(entry: TranscriptEntry) -> PromptTurn | None:
         """Dispatch one already-read line. Returns the finished `PromptTurn` if `entry` was the
         prompt's own response, else `None` after doing whatever mock-client bookkeeping it
-        implies (recording an update, answering a permission/other request)."""
+        implies (recording an update, answering a permission/other request, or recording the
+        `on_action` request's own response)."""
+        nonlocal action_response
         msg = entry.parsed
         if not isinstance(msg, dict):
             return None
         if entry.matches_id(prompt_id):
-            return PromptTurn(entry, updates, client_requests_seen, cancelled_at_index)
+            if action_id is not None and action_response is None:
+                # The prompt's own response arrived before the `on_action` request's response --
+                # a valid ordering (must-NOT #8: no claim is made about relative order) that an
+                # agent replying to `session/close` *after* resolving the pending prompt (e.g.
+                # `_base.py`'s stock `_handle_close`) produces on every run, not just under a
+                # race. Give the action's response the same short, already-in-the-pipe-or-not
+                # look `cancel_race_peek` gives an update's immediate response, so it isn't lost
+                # just because we're about to return.
+                try:
+                    peek_entry = await agent.read_line(timeout=peek_timeout)
+                except AgentTimeout:
+                    pass
+                else:
+                    await _handle_one(peek_entry)
+            return PromptTurn(
+                entry,
+                updates,
+                client_requests_seen,
+                cancelled_at_index,
+                action_response,
+                action_sent_at_index,
+            )
+        if action_id is not None and entry.matches_id(action_id):
+            action_response = entry
+            return None
 
         index = agent.transcript.index(entry)
         method = msg.get("method")
@@ -231,7 +305,10 @@ async def run_prompt(
 
         if method == "session/request_permission" and "id" in msg:
             options = (msg.get("params") or {}).get("options") or []
-            if cancelled_at_index is not None:
+            if trigger_sent:
+                # Once `session/cancel` or the `on_action` request (e.g. `session/close`) has
+                # fired, a real client would resolve an in-flight permission prompt as
+                # cancelled rather than picking an option on the user's behalf.
                 outcome: dict[str, Any] = {"outcome": "cancelled"}
             else:
                 first_option_id = options[0].get("optionId") if options else None
@@ -277,8 +354,8 @@ async def run_prompt(
                 stderr=agent.stderr_text(),
             )
 
-        if on_cancel and not cancel_sent:
-            wait_remaining = cancel_deadline - now  # type: ignore[operator]
+        if trigger_armed and not trigger_sent:
+            wait_remaining = trigger_deadline - now  # type: ignore[operator]
             read_timeout = (
                 min(remaining, wait_remaining) if wait_remaining > 0 else min(remaining, 0.05)
             )
@@ -288,8 +365,8 @@ async def run_prompt(
         try:
             entry = await agent.read_line(timeout=read_timeout)
         except AgentTimeout:
-            if on_cancel and not cancel_sent:
-                await _send_cancel()
+            if trigger_armed and not trigger_sent:
+                await _fire_trigger()
                 continue
             raise
 
@@ -298,17 +375,17 @@ async def run_prompt(
             return result
 
         if (
-            on_cancel
-            and not cancel_sent
+            trigger_armed
+            and not trigger_sent
             and isinstance(entry.parsed, dict)
             and entry.parsed.get("method") == "session/update"
         ):
             try:
                 peek_entry = await agent.read_line(timeout=peek_timeout)
             except AgentTimeout:
-                await _send_cancel()
+                await _fire_trigger()
             else:
                 peek_result = await _handle_one(peek_entry)
                 if peek_result is not None:
                     return peek_result
-                await _send_cancel()
+                await _fire_trigger()

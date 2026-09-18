@@ -87,14 +87,23 @@ src/tck/
     test_prompt_capabilities.py  ACP-PROMPTCAP-001/002/003 -- `image`/`audio`/`embeddedContext`
                             prompt content blocks, each a boolean
                             `agentCapabilities.promptCapabilities.*` gate
-    test_authentication.py  ACP-AUTH-001..004 -- `authMethods` shape/uniqueness, the Req 23
+    test_authentication.py  ACP-AUTH-001..005 -- `authMethods` shape/uniqueness, the Req 23
                             terminal-method client-capability gate, the `authenticate` ->
-                            `session/new` flow (only when `--tck-auth-method` was given), and
-                            `logout` (gated on the `agentCapabilities.auth.logout` object marker)
-    test_client_capabilities.py  ACP-CLIENTCAP-001..003 (MANDATORY) -- one sweep asserting no
-                            `fs/*`/`terminal/*`/`elicitation/create` request is ever observed
-                            during a prompt turn run against a mock client that advertises
-                            `clientCapabilities: {}` (Reqs 29, 30, 32)
+                            `session/new` flow (only when `--tck-auth-method` was given; narrowed
+                            to AUTH-C4's "no -32000", not full success -- ACP-SESSION-001 owns
+                            general `session/new` health), `logout` (gated on the
+                            `agentCapabilities.auth.logout` object marker), and AUTH-A1/
+                            ACP-AUTH-005 (ADVISORY): with no `authMethods` advertised,
+                            `session/new` must not fail with `-32000` -- enforced via
+                            `skip_if_auth_gated` only excusing that error when `authMethods` is
+                            non-empty
+    test_client_capabilities.py  ACP-CLIENTCAP-001..003 (MANDATORY) -- three separate tests
+                            (one per id, sharing a helper) each asserting one of
+                            `fs/*`/`terminal/*`/`elicitation/create` is never observed during a
+                            prompt turn run against a mock client that advertises
+                            `clientCapabilities: {}` (Reqs 29, 30, 32); split from a single
+                            combined test so a fixture that only calls one unadvertised surface
+                            fails only that id, not all three (review-slices-5-6.md item 9)
     test_extensibility.py  ACP-EXT-001 (MANDATORY -- Req 42's MUST-respond-to-custom-methods,
                             distinct from ACP-JSONRPC-004's general SHOULD about the `-32601`
                             code), ACP-META-001 (ADVISORY -- `_meta` on `session/prompt` is
@@ -238,8 +247,11 @@ body in `asyncio.wait_for(...)`, so a test hangs for at most this long even if e
 read/write inside it uses a much larger `--timeout`; on expiry the test `FAIL`s with a message
 naming the watchdog, and the agent process is still closed normally so transcript/stderr
 diagnostics are still attached), `--cancel-prompt TEXT` (see below), `--report-json PATH` (see
-"Reporting" below), `-k EXPR`, `-v`, `--version`, `--help`. Everything after `--` is the agent's
-own command line.
+"Reporting" below), `--close-grace S` (plugin: `--tck-close-grace`, default 2.0 -- grace period
+budgeted at each stage of the agent-process shutdown ladder on teardown: stdin-close wait,
+post-SIGTERM wait, post-SIGKILL wait; lower it only to speed up a fixture/test that deliberately
+never exits on its own, a real agent under test should not normally need this changed), `-k EXPR`,
+`-v`, `--version`, `--help`. Everything after `--` is the agent's own command line.
 
 **Exit code** is the four-status verdict, not pytest's own per-test exit code: `0` iff
 `verdict.conformant` (no `MANDATORY` `FAIL`/`NOT_TESTED`, no `CAPABILITY` `FAIL` -- see
@@ -349,7 +361,10 @@ ran (`status: "NOT_TESTED"`, `tests: []`) -- each carrying its `tier`/`capabilit
 `citation` plus every bound test's outcome (`nodeid`, `status`, `message`, `duration_s`,
 `properties` -- `record_property(...)` values such as `acp_tck_cancel_race_ms` -- and, for `FAIL`
 outcomes only, `transcript` (`[{"dir": "sent"|"received", "t": <monotonic ts>, "raw": <line>},
-...]`) and `stderr` (truncated to the last 20 kB)).
+...]`, each entry's own `raw` capped at 4 kB with a `"...[truncated N byte(s)]..."` marker, and
+the whole list capped at 400 entries -- first/last 200 with a gap marker in between, since the
+handshake/setup and the failure itself are almost always what matters and a chatty middle is
+safest to elide; review-slices-5-6.md S8) and `stderr` (truncated to the last 20 kB).
 
 `verdict` is `{"conformant": bool, "blocked_by_auth": bool, "tier_counts": {tier: {status:
 count}}}`. `conformant` is computed from `MANDATORY`- and `CAPABILITY`-tier requirements, plus
@@ -357,8 +372,11 @@ count}}}`. `conformant` is computed from `MANDATORY`- and `CAPABILITY`-tier requ
 `FAIL`, and not `blocked_by_auth`. A `CAPABILITY` `SKIPPED`/`NOT_TESTED` (not advertised, or
 simply never exercised) does not affect it -- only a *failed* capability check does, since the
 agent advertised it and it must then work. `ADVISORY`/`INFORMATIONAL` never affect it.
-`blocked_by_auth` is `true` whenever any test was `SKIPPED` with a message starting
-`"AUTH-GATED:"` -- i.e. the agent requires authentication before `session/new` and no
+`blocked_by_auth` is `true` whenever any test was `SKIPPED` with a message containing the
+literal marker `"AUTH-GATED:"` (a substring match, not a prefix -- the recorded message is
+`str(report.longrepr)`, which for a skip wraps the reason in a `(path, lineno, "Skipped: ...")`
+repr, so a prefix check would never match; see `plugin.py`'s `_AUTH_GATED_MARKER` and
+review-slices-5-6.md N18) -- i.e. the agent requires authentication before `session/new` and no
 `--auth-method` was given, so session-dependent requirements were never actually exercised and
 the run cannot be honestly scored conformant regardless of how many other checks passed. See
 `src/tck/report.py` for the full model (`Status`, `TestOutcome`, `RequirementResult`, `Verdict`,
@@ -425,6 +443,19 @@ All fixtures are pure Python, stdlib only, deterministic, offline, ~50 lines:
 - `stderr_chatter.py` -- conforming, logs to stderr on every message received.
 - `never_responds.py` -- reads stdin forever, never writes; does not exit on stdin EOF.
 - `exits_immediately.py` -- exits 0 without reading anything.
+- `rejects_second_initialize.py` -- conforming, but a second `initialize` on the same connection
+  gets `-32600` instead of a normal handshake response; self-test proving no test in the suite
+  itself ever sends a second `initialize`.
+- `supports_v1_and_v2.py` -- advertises `protocolVersion: 2` support; correctly negotiates down
+  to `1` for a client that only sends `protocolVersion: 1`. Self-test for ACP-INIT-003's
+  `version != 65535 and version >= latest_supported` rule (PASS case, paired with
+  `echoes_any_version.py`'s FAIL case).
+- `asks_permission_closable.py` -- `asks_permission.py` plus `sessionCapabilities.close`;
+  delays its permission request past `run_prompt`'s peek window so `session/close` deterministically
+  wins the race, then replies to `session/close` before resolving the pending permission request
+  as cancelled. Self-test for ACP-CLOSE-002 against a conforming, permission-asking agent, and
+  (via `test_cancel.py`) for the otherwise-dead "cancelled" permission-outcome branch in
+  `run_prompt` (review-slices-5-6.md S3, S10a).
 
 See the layout listing above for the slice-4 defect fixtures (`hangs_until_cancel.py`,
 `cancel_returns_error.py`, `cancel_wrong_stop_reason.py`, `update_after_response.py`,
@@ -442,10 +473,10 @@ reply and ACP-CANCEL-001/002 SKIP for them too -- see `tests/test_cli.py`'s `_CA
 
 ## Mock-client prompt driver (`_helpers.run_prompt`)
 
-`test_session.py`/`test_prompt.py`/`test_cancel.py` drive `session/prompt` through
-`run_prompt(agent, session_id, blocks, *, on_cancel=False, cancel_wait=0.5, timeout)`
-(`_helpers.py`), which acts as a minimal ACP client for whatever the agent under test sends
-during the turn:
+`test_session.py`/`test_prompt.py`/`test_cancel.py`/`test_session_capabilities.py` drive
+`session/prompt` through `run_prompt(agent, session_id, blocks, *, on_cancel=False,
+on_action=None, cancel_wait=0.5, timeout)` (`_helpers.py`), which acts as a minimal ACP client
+for whatever the agent under test sends during the turn:
 
 - `session/request_permission` is answered `{"outcome": {"outcome": "selected", "optionId":
   <first option's optionId>}}`, or `{"outcome": {"outcome": "cancelled"}}` once
@@ -455,9 +486,20 @@ during the turn:
   `PromptTurn.client_requests_seen` for later negative tests to use.
 - `session/update` notifications are recorded, in order, as `(transcript_index, entry)` pairs.
 
-It returns a `PromptTurn(response_entry, updates, client_requests_seen, cancelled_at_index)`.
-`cancelled_at_index` is `None` unless `on_cancel=True` **and** `session/cancel` was actually sent
-before the prompt resolved -- see the race note below.
+It returns a `PromptTurn(response_entry, updates, client_requests_seen, cancelled_at_index,
+action_response, action_sent_at_index)`. `cancelled_at_index` is `None` unless `on_cancel=True`
+**and** `session/cancel` was actually sent before the prompt resolved -- see the race note below.
+
+`on_action`, if given, is a zero-argument async callable fired at the same trigger point as
+`on_cancel` (first update, or `cancel_wait` elapsed) instead of/alongside sending
+`session/cancel` -- used by ACP-CLOSE-002 to send `session/close` mid-turn. Its response lands on
+`PromptTurn.action_response`/`action_sent_at_index` (mirroring `cancelled_at_index`), both `None`
+if `on_action` was not given or never fired. If the prompt's own response arrives before the
+action's response -- a valid ordering the spec makes no claim against -- `run_prompt` does one
+short peek read (the same window `cancel_race_peek` gives an update's immediate response) for the
+action's response before returning, so an agent that replies to the action *after* resolving the
+pending prompt doesn't lose that response to an early return (a real bug found and fixed via
+`conforming_full.py`'s ACP-CLOSE-002 self-test, review-slices-5-6.md S3).
 
 If `on_cancel=True`, `run_prompt` sends `session/cancel` for `session_id` as soon as either the
 first `session/update` arrives or `cancel_wait` seconds elapse, whichever is first. This has an
