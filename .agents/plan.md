@@ -77,6 +77,16 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   slice 6/7 alongside other capability-conditional work.
 
 ## Decisions (orchestrator)
+- **Capability detection** (`research/acp-v1-session-capabilities.md`): boolean gates (`loadSession`,
+  `promptCapabilities.*`, `mcpCapabilities.*`) are supported iff `=== true`; object markers
+  (`sessionCapabilities.*`, `auth.logout`) iff present and non-null. The plugin's `capability` marker must
+  implement both encodings (fix in slice 6 if slice 3 only did non-null).
+- **`null` empty responses**: mandatory validation keeps accepting `null` for all-optional object responses
+  (many agents follow the old docs), and an ADVISORY requirement reports `null` where `{}` is expected
+  (upstream docs fixed in spec commit d89c8d3; `null` was never schema-valid).
+- **Req 10 (stdio MCP MUST)**: not observable from the client (agents connect lazily); no test. Documented
+  as untestable in the registry (INFORMATIONAL entry with no test) or omitted — programmer's call in slice 6.
+- **Spec revision**: schema byte-identical between 6d08f41 and d89c8d3; VENDORED.md stays at 6d08f41.
 - ACP-JSONRPC-005 ("errors are not fatal") is ADVISORY: no normative spec text, only SDK regression tests.
 - Cascading failures (e.g. an agent that mis-echoes ids fails nearly every test) are the correct verdict
   shape; the report must simply attribute each FAIL to its requirement. No special cascade logic.
