@@ -75,6 +75,7 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
 6. Capability-conditional tests (`loadSession` replay ordering, `session/resume`, `session/list`,
    `session/delete`, `session/close`, prompt content caps) + client-capability negative tests
    (fs/terminal/elicitation/boolean config never called when not advertised).
+8. Cross-check script against `testy` and `echo_agent.py` (see decision above); optional GitHub Actions job.
 7. Advisory/informational tier (unknown method −32601, error shape, stdin-EOF exit, `_meta` round-trip,
    `_ext` method response).
 
@@ -88,6 +89,15 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   slice 6/7 alongside other capability-conditional work.
 
 ## Decisions (orchestrator)
+- **ACP-INIT-003 strengthening** (`research/testy-cross-check.md` finding 1): the response to an unsupported
+  requested version (65535) must carry an integer `protocolVersion` that is *not* 65535 and equals the
+  version the agent returns for a v1 request (its latest supported). Both `testy` and `echo_agent.py` echo
+  65535 and must FAIL this. Add a defect fixture `echoes_any_version.py`. → slice 6.
+- **Cross-check against independent agents** → slice 8: `scripts/cross-check.sh` builds `testy`
+  (`cargo build -p agent-client-protocol-test --bin testy --no-default-features`) from the rust-sdk checkout
+  path and runs `acp-tck --cancel-prompt wait_for_cancel`; also runs `echo_agent.py` pinned to
+  `agent-client-protocol==1.0.0rc1`. Not part of `uv run pytest` (needs cargo); document in AGENTS.md.
+  Expected: testy CONFORMANT except INIT-003 FAIL after strengthening, INIT-004 advisory FAIL.
 - **Cancel tests and the race**: the TCK cannot force a real agent's turn to stay in flight. If the prompt
   response was read before `session/cancel` was written, or arrives with a valid non-`cancelled` stop
   reason within 1.0 s after the cancel was written, the cancel requirements are SKIPPED with reason
