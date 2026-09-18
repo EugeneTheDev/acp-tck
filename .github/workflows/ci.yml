@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Pinned per docs/cross-check.md "Latest run" -- update both together when re-vendoring.
+  RUST_SDK_SHA: 8bc6275a3d6b5accf102718d715017bfbb918c5c
+  PYTHON_SDK_SHA: d92b9683346c9e109895503878315e06d3eedb99
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.14
+        run: uv python install 3.14
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Run test suite
+        run: uv run pytest -q
+
+  cross-check:
+    name: cross-check (informational)
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Informational only: independently-implemented upstream agents are expected to FAIL
+    # ACP-INIT-003 (see docs/cross-check.md) -- a red exit here does not mean the TCK broke.
+    continue-on-error: true
+    steps:
+      - name: Checkout acp-tck
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.14
+        run: uv python install 3.14
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Checkout rust-sdk (sibling dir, pinned SHA)
+        run: |
+          mkdir -p ../rust-sdk
+          git -C ../rust-sdk init -q
+          git -C ../rust-sdk remote add origin https://github.com/agentclientprotocol/rust-sdk
+          git -C ../rust-sdk fetch --depth 1 origin "$RUST_SDK_SHA"
+          git -C ../rust-sdk checkout -q FETCH_HEAD
+          echo "ACP_RUST_SDK=$(cd .. && pwd)/rust-sdk" >> "$GITHUB_ENV"
+
+      - name: Checkout python-sdk (sibling dir, pinned SHA)
+        run: |
+          mkdir -p ../python-sdk
+          git -C ../python-sdk init -q
+          git -C ../python-sdk remote add origin https://github.com/agentclientprotocol/python-sdk
+          git -C ../python-sdk fetch --depth 1 origin "$PYTHON_SDK_SHA"
+          git -C ../python-sdk checkout -q FETCH_HEAD
+          echo "ACP_PYTHON_SDK=$(cd .. && pwd)/python-sdk" >> "$GITHUB_ENV"
+
+      - name: Cache cargo (rust-sdk)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ env.ACP_RUST_SDK }}
+          key: rust-sdk-${{ env.RUST_SDK_SHA }}
+
+      - name: Run cross-check
+        env:
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          OUT_DIR: cross-check
+        run: ./scripts/cross-check.sh
+
+      - name: Check expected scorecard (only ACP-INIT-003 MANDATORY FAIL)
+        run: |
+          uv run python3 scripts/cross-check-summary.py \
+            cross-check/testy.json testy \
+            cross-check/echo_agent.json echo_agent \
+            --expect-only-mandatory-fail ACP-INIT-003
+
+      - name: Upload cross-check reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-check-reports
+          path: cross-check/*.json
+          if-no-files-found: warn

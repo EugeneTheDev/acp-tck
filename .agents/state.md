@@ -66,11 +66,13 @@ Registry: **56 requirements** in `src/tck/requirements.py` (see `AGENTS.md` for 
 - Docs: `AGENTS.md` (contributor guide, catalogue), `README.md` (user guide).
 
 ## In flight
-- **Reviewer (read-only) — slices 7–7b at 3e55deb** → `.agents/research/review-slices-7.md` (includes v0.1 release-readiness).
+- **Programmer — Slice 8b** (fixes from `review-slices-7.md`: send_raw OSError→AgentExited, informational probes use quiet_period, close() checks exit per stage, -k hint, AUTH-001 advisory, AUTH-003 inferred capability, EXT-001 assertion scope, nits).
 
 Slice 8 done and committed: `scripts/cross-check.sh` (builds testy `--no-default-features`, runs TCK with
 `--cancel-prompt wait_for_cancel`; runs echo_agent via `uv run --no-project --with agent-client-protocol==1.0.0rc1`),
-`scripts/cross-check-summary.py`, `docs/cross-check.md` (table + explanations). Result: both upstream agents
+`scripts/cross-check-summary.py` (`--expect-only-mandatory-fail`), `docs/cross-check.md` (table + explanations).
+CI: `.github/workflows/ci.yml` — `test` job (uv, Python 3.14) + informational `cross-check` job (clones upstream at
+pinned SHAs, cargo cache). pyproject has description + urls; license deliberately not set (user decision). Result: both upstream agents
 NOT CONFORMANT only because of INIT-003 (they echo 65535) and advisory INIT-004; echo_agent also fails advisory
 JSONRPC-004 (SDK returns `result: null` for unknown `_` methods). No TCK bug found. Spot checks that completed before the
 pause: full suite 125 passed; `conforming_full.py` and `conforming.py` full runs CONFORMANT. Orchestrator also

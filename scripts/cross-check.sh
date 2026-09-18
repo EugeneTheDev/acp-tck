@@ -51,12 +51,17 @@ echo "echo_agent exit code: $ECHO_EXIT" >&2
 
 echo
 echo "== Comparison table =="
+set +e
 python3 "$SCRIPT_DIR/cross-check-summary.py" \
   "$OUT_DIR/testy.json" testy \
-  "$OUT_DIR/echo_agent.json" echo_agent
+  "$OUT_DIR/echo_agent.json" echo_agent \
+  --expect-only-mandatory-fail ACP-INIT-003
+SUMMARY_EXIT=$?
+set -e
 
 echo
 echo "testy exit code: $TESTY_EXIT"
 echo "echo_agent exit code: $ECHO_EXIT"
+echo "cross-check-summary.py --expect-only-mandatory-fail exit code: $SUMMARY_EXIT"
 
 exit 0

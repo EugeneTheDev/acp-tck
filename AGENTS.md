@@ -304,6 +304,23 @@ fixture) runs in well under a minute. Harness unit tests use short (≤2s) per-c
 `asyncio.run(...)` directly -- there is no `pytest-asyncio` dependency. The conformance suite's
 own async tests are run the same way, via `tck.plugin`'s `pytest_pyfunc_call` hook.
 
+## CI
+
+`.github/workflows/ci.yml` runs on every push to `main`, every pull request, and on manual
+`workflow_dispatch`. Two jobs:
+
+- **`test`** -- `astral-sh/setup-uv` (cached), `uv python install 3.14`, `uv sync --locked`,
+  `uv run pytest -q`. This is the required, blocking job.
+- **`cross-check`** -- `needs: test`, `continue-on-error: true` (informational only). Clones
+  `rust-sdk`/`python-sdk` as sibling checkouts pinned to the SHAs recorded in
+  `docs/cross-check.md`, builds `testy` with `Swatinem/rust-cache` caching cargo, runs
+  `scripts/cross-check.sh`, uploads the two `--report-json` reports as an artifact, then runs
+  `scripts/cross-check-summary.py --expect-only-mandatory-fail ACP-INIT-003` to assert the
+  scorecard hasn't drifted from the documented baseline (both upstream agents are expected to
+  FAIL only `ACP-INIT-003`, per "Cross-checking against upstream agents" below). Its own
+  exit code does not fail the workflow -- read the uploaded reports and the summary step's
+  output when it goes red.
+
 ## Cross-checking against upstream agents
 
 `scripts/cross-check.sh` runs the packaged conformance suite against two independently

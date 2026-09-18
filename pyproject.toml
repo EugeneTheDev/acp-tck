@@ -1,13 +1,18 @@
 [project]
 name = "acp-tck"
 version = "0.1.0"
-description = "Add your description here"
+description = "Test Compatibility Kit for Agent Client Protocol (ACP) v1 agents"
 readme = "README.md"
 requires-python = ">=3.14"
+# TODO: decide on a license (not yet chosen) and add `license = "..."` here.
 dependencies = [
     "jsonschema==4.26.0",
     "pytest==9.1.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/EugeneTheDev/acp-tck"
+Repository = "https://github.com/EugeneTheDev/acp-tck"
 
 [project.scripts]
 acp-tck = "tck:main"

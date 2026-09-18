@@ -1,5 +1,7 @@
 # acp-tck
 
+[![CI](https://github.com/EugeneTheDev/acp-tck/actions/workflows/ci.yml/badge.svg)](https://github.com/EugeneTheDev/acp-tck/actions/workflows/ci.yml)
+
 A Test Compatibility Kit for the [Agent Client Protocol](https://agentclientprotocol.com) (ACP)
 **v1**. It launches an agent implementation as a stdio subprocess, drives it through the protocol
 -- initialize, session lifecycle, prompt turns, cancellation, error handling, transport hygiene --
