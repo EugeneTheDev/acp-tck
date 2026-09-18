@@ -21,3 +21,7 @@ module-name = "tck"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "requirement(*ids): bind a conformance test to one or more tck.requirements.REGISTRY ids.",
+    "capability(path): skip a conformance test unless the cached initialize result advertises this capability.",
+]

@@ -1,6 +1,6 @@
 # State
 
-**Last updated:** 2026-09-18 (session 1, after slice 2)
+**Last updated:** 2026-09-18 (session 1, after slice 3)
 **Last commit pushed:** see `git log -1` (each slice commits this file)
 
 ## Deliverable shape (decided)
@@ -46,8 +46,21 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
   `null` accepted for all-optional object responses like `session/load`; `_`-prefixed methods skipped). Runtime dep
   `jsonschema==4.26.0`. Schema root has three branches: Agent, Client, ProtocolLevel (`$/cancel_request`).
 
+- **Slice 3 — registry, plugin, CLI, first conformance tests** (49 tests green): `src/tck/requirements.py`
+  (`Tier`, `Requirement`, `REGISTRY`, 12 requirements ACP-TRANSPORT-001/002, ACP-JSONRPC-001..005,
+  ACP-INIT-001..004, ACP-SCHEMA-001); `src/tck/plugin.py` (`--tck-agent-cmd/-cwd/-env/-timeout/-startup-timeout`,
+  `requirement`/`capability` markers, async tests via `pytest_pyfunc_call`, `agent_launch` + session-scoped
+  `agent_initialize_result` fixtures, transcript+stderr attached to failure reports, `RequirementRecord`
+  collector, tier-grouped terminal table with NOT TESTED; JSON report + verdict exit code are TODO slice 5);
+  `src/tck/conformance/{_helpers.py,test_transport.py,test_jsonrpc.py,test_initialize.py}`;
+  CLI `acp-tck [--agent-cwd] [--agent-env K=V] [--timeout] [--startup-timeout] [-k] [-v] -- <cmd>` plus
+  `python -m tck`; defect fixtures `wrong_id_echo.py`, `version_mismatch_errors.py`, `result_and_error.py`,
+  `answers_notifications.py`, `unknown_method_no_error.py`; `tests/test_registry.py`, `tests/test_cli.py`
+  (subprocess end-to-end). Verified: conforming → exit 0, 12 PASS; banner → exit 1, TRANSPORT-001/002 +
+  SCHEMA-001 FAIL.
+
 ## In flight
-- **Programmer — Slice 3** (requirement registry, pytest plugin, CLI, transport + initialize conformance tests).
+- **Programmer — Slice 4** (session/new, prompt, cancel mandatory tests + defect fixtures).
 
 
 ## Open questions / blockers
@@ -55,5 +68,5 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
 - Transcript format choice (conductor `.jsons` compatibility) before slice 5.
 
 ## Next actions
-1. On slice 3 return: verify (`uv run pytest`, run `uv run acp-tck -- python tests/fixtures/agents/conforming.py` end to end), commit + push.
-2. Spawn slice 4 (session/prompt/cancel mandatory tests + non-conforming fixtures).
+1. On slice 4 return: verify (`uv run pytest`, CLI against conforming + new defect fixtures), commit + push.
+2. Spawn slice 5 (JSON report, verdict-based exit code, meta-tests).

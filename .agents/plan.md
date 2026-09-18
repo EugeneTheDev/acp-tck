@@ -45,13 +45,14 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   gating, `auth/login`, v2 prompt lifecycle are excluded; see transport report Discrepancies 1, 7.
 
 ## Done
+- Slice 3 — `tck/requirements.py` (12 reqs), `tck/plugin.py`, `tck/conformance/{test_transport,test_jsonrpc,test_initialize}.py`, CLI `acp-tck -- <cmd>`, 5 defect fixtures, registry + CLI self-tests (49 tests total).
 - Slice 2 — vendored spec schema @ 6d08f41 (`src/tck/schema/v1/`), `tck/protocol.py`, `tck/validation.py`, 19 tests.
 - Slice 1 — harness core + fixture agents + 13 unit tests (`src/tck/harness/`, `tests/`).
 - Research round 1: `research/acp-v1-protocol-surface.md`, `research/acp-v1-transport-and-jsonrpc.md`,
   `research/a2a-tck-structure.md`, `research/reference-sdks-as-harness.md`.
 
 ## In progress
-- **Slice 3 — registry + pytest plugin + CLI + first conformance tests** (programmer). See "Next slices" item 3.
+- **Slice 4 — session/prompt/cancel mandatory tests + defect fixtures** (programmer). See "Next slices" item 4.
 
 ## Next slices (in order)
 2. Vendored v1 JSON schema + `tck/protocol.py` constants + `validate_agent_message()` + tests.
@@ -75,6 +76,13 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
   given, the test is reported as NOT TESTED with a pointer to the flag, not as FAIL. Auth lands in
   slice 6/7 alongside other capability-conditional work.
 
+## Decisions (orchestrator)
+- ACP-JSONRPC-005 ("errors are not fatal") is ADVISORY: no normative spec text, only SDK regression tests.
+- Cascading failures (e.g. an agent that mis-echoes ids fails nearly every test) are the correct verdict
+  shape; the report must simply attribute each FAIL to its requirement. No special cascade logic.
+- Transcript/report format: our own JSON structure (slice 5). Conductor `.jsons` compatibility deferred;
+  not a goal for v0.1.
+
 ## Open questions
 - Vendored schema has no `additionalProperties: false` anywhere, so Req 41 (no custom root fields) needs a
   custom check (compare emitted object keys against the `$def`'s `properties` + `_meta`). Schedule in slice 7.
@@ -83,4 +91,3 @@ Derived from research round 1 (`research/*.md`). Rationale in each bullet.
 - Unknown `sessionId` error code: unspecified in v1 → informational only (decided, no research needed).
 - Is a second concurrent `session/prompt` per session legal in v1? Route to research before slice 4
   only if a test would depend on it (currently none planned).
-- Whether to emit transcripts in the conductor `.jsons` trace format (cheap to decide before slice 5).
