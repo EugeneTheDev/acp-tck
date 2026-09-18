@@ -1,6 +1,6 @@
 # State
 
-**Last updated:** 2026-09-18 (session 1, after slice 4)
+**Last updated:** 2026-09-18 (session 1, after slice 4b)
 **Last commit pushed:** see `git log -1` (each slice commits this file)
 
 ## Deliverable shape (decided)
@@ -67,8 +67,12 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
   `duplicate_session_id.py`, `update_wrong_session.py`. CLI self-tests use `-k` subsets for hanging fixtures.
 - Research: `.agents/research/acp-v1-session-capabilities.md` (input for slice 6) and decisions in plan.md.
 
+- **Slice 4b** (56 tests green): cancel tests SKIP when not exercised (response before cancel, or valid
+  non-cancelled stop reason within 1.0 s after cancel); `--tck-cancel-prompt` / CLI `--cancel-prompt`; CLI
+  passes `-rs`. `cancel_wrong_stop_reason.py` sleeps 1.2 s after cancel to stay detectable.
+
 ## In flight
-- **Programmer — Slice 4b** (cancel race → SKIPPED, `--tck-cancel-prompt`).
+- **Programmer — Slice 5** (JSON report, verdict exit code, meta-tests).
 
 
 ## Open questions / blockers
@@ -76,5 +80,5 @@ Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
 - Transcript format choice (conductor `.jsons` compatibility) before slice 5.
 
 ## Next actions
-1. On slice 4b return: verify, commit + push.
-2. Spawn slice 5 (JSON report, verdict-based exit code, meta-tests), then slice 6 (capability-conditional, from session-capabilities research).
+1. On slice 5 return: verify, commit + push.
+2. Spawn slice 6 (capability-conditional tests from `research/acp-v1-session-capabilities.md`).

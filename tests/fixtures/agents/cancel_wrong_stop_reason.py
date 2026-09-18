@@ -2,9 +2,15 @@
 """Non-conforming fixture: every prompt hangs until `session/cancel`, but on cancel it responds
 to the prompt with `stopReason: "end_turn"` instead of `"cancelled"`. Violates ACP-CANCEL-001
 (Req 25).
+
+Answering *immediately* on cancel would land inside the TCK's 1.0s "was this actually
+exercised" race window (`test_cancel.py::_CANCEL_RACE_WINDOW`) -- since `"end_turn"` is itself a
+valid `StopReason`, an instant reply would make ACP-CANCEL-001 SKIP instead of FAIL, hiding this
+fixture's whole reason for existing. Sleeping past the window keeps the defect detectable.
 """
 
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +39,7 @@ class CancelWrongStopReasonAgent(ConformingAgent):
             if self._pending_prompt["session_id"] == params.get("sessionId"):
                 pending = self._pending_prompt
                 self._pending_prompt = None
+                time.sleep(1.2)  # stay outside the TCK's 1.0s race window -- see module docstring
                 self._reply(pending["id"], {"stopReason": "end_turn"})
                 return
         super()._handle_notification(method, params)

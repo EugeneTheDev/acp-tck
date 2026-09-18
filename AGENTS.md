@@ -87,10 +87,20 @@ uv run acp-tck -- python tests/fixtures/agents/conforming.py
 ```
 
 Options: `--agent-cwd DIR`, `--agent-env KEY=VAL` (repeatable), `--timeout S` (per-response
-deadline, default 30), `--startup-timeout S` (default 30), `-k EXPR`, `-v`, `--version`,
-`--help`. Everything after `--` is the agent's own command line. Exit code is whatever pytest
-itself returns for the individual test outcomes (a verdict-based exit code driven by the
-four-status model is slice 5).
+deadline, default 30), `--startup-timeout S` (default 30), `--cancel-prompt TEXT` (see below),
+`-k EXPR`, `-v`, `--version`, `--help`. Everything after `--` is the agent's own command line.
+Exit code is whatever pytest itself returns for the individual test outcomes (a verdict-based
+exit code driven by the four-status model is slice 5).
+
+`--cancel-prompt TEXT` (plugin: `--tck-cancel-prompt`) sets the prompt text the cancellation
+tests (ACP-CANCEL-001/002) send -- every other prompt test keeps its own short, deterministic
+text. Default is a long free-form writing prompt, chosen to keep a real agent busy long enough
+for `session/cancel` to land while the turn is still in flight. If ACP-CANCEL-001/002 report
+SKIPPED with reason "cancellation not exercised", it means exactly that -- the turn finished
+before, or too soon after, `session/cancel` was sent for the TCK to tell whether the agent
+actually reacted to it -- not that the agent failed conformance. Passing a longer or slower
+`--cancel-prompt` (and, if needed, a larger `--timeout`) may let a fast agent's turn stay in
+flight long enough to exercise the requirement for real.
 
 You can also run the suite directly with plain pytest, e.g. to add pytest's own flags:
 
@@ -189,6 +199,16 @@ See the layout listing above for the slice-4 defect fixtures (`hangs_until_cance
 `cancel_returns_error.py`, `cancel_wrong_stop_reason.py`, `update_after_response.py`,
 `bad_stop_reason.py`, `duplicate_session_id.py`, `update_wrong_session.py`).
 
+`cancel_wrong_stop_reason.py` sleeps 1.2s after receiving `session/cancel` before replying with
+its (wrong) `stopReason: "end_turn"` -- an instant reply would land inside `test_cancel.py`'s
+1.0s race window and, since `"end_turn"` is itself a valid `StopReason`, would make the cancel
+test SKIP ("cancellation not exercised") instead of catching the defect. None of the other
+fixtures need this: `cancel_returns_error.py`'s JSON-RPC error FAILs regardless of timing, and
+`bad_stop_reason.py`/`update_wrong_session.py`/`conforming.py` etc. don't hang on the cancel
+tests' prompt text at all (only the literal `__hang__` text triggers a hang in `conforming.py`
+and `bad_stop_reason.py`), so `session/cancel` always loses the race against their immediate
+reply and ACP-CANCEL-001/002 SKIP for them too -- see `tests/test_cli.py`'s `_CANCEL_IDS` note.
+
 ## Mock-client prompt driver (`_helpers.run_prompt`)
 
 `test_session.py`/`test_prompt.py`/`test_cancel.py` drive `session/prompt` through
@@ -216,10 +236,21 @@ pipe, before the TCK ever decides to send cancel. `run_prompt` mitigates the mos
 a short (`_CANCEL_RACE_PEEK`, 0.1s) non-blocking-ish look for the response right after an update
 and before committing to cancel -- if the response is already there, it is returned with
 `cancelled_at_index=None`, i.e. as an honest race rather than a false "cancel preceded the
-response". `test_cancel.py::test_cancel_resolves_with_cancelled_stop_reason` (ACP-CANCEL-001)
-handles the remaining, unavoidable race by falling back to "stopReason is one of the defined
-values" and recording the race via `record_property("acp_tck_cancel_raced", ...)` instead of
-asserting `stopReason == "cancelled"` for a turn that may have already finished on its own.
+response".
+
+`test_cancel.py` (ACP-CANCEL-001/002) never turns an unavoidable race into a PASS or FAIL --
+claiming a requirement was exercised when it was not is dishonest. It `pytest.skip("cancellation
+not exercised: ...")` in two situations (`.agents/plan.md` "Cancel tests and the race"): (1)
+`cancelled_at_index is None` -- the response was read before `session/cancel` could be sent at
+all; (2) `session/cancel` was sent, but the response arrives with a valid, non-`cancelled` stop
+reason within 1.0s (`_CANCEL_RACE_WINDOW`, measured off the transcript's monotonic timestamps
+between the cancel notification and the response) -- the agent may simply have finished on its
+own before reading the notification. The elapsed milliseconds are recorded via
+`record_property("acp_tck_cancel_race_ms", ...)`. Outside those two situations the requirement is
+judged normally: `stopReason: "cancelled"` PASSes; a JSON-RPC error, or a non-`cancelled` stop
+reason arriving outside the race window, FAILs. The cancel tests use `--cancel-prompt` text (see
+above) instead of the short text other prompt tests use, specifically to make situations (1)/(2)
+less likely against a real agent.
 
 ## Vendored schema (`tck/schema/v1/`)
 

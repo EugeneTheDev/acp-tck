@@ -8,9 +8,23 @@ The TCK cannot make a real agent's turn "hang": whether `session/cancel` actuall
 the prompt is still in flight depends on how fast the agent under test resolves the turn, which
 this suite has no way to observe from the outside before sending the notification. `run_prompt`
 (`_helpers.py`) mitigates this by sending `session/cancel` as soon as either the first
-`session/update` arrives or 0.5s elapses, but a genuinely instant agent can still finish before
-that. `test_cancel_resolves_with_cancelled_stop_reason` below documents and records that race
-rather than asserting a `stopReason` the spec never promised for an already-finished turn.
+`session/update` arrives or `cancel_wait` seconds elapse, and the cancel tests use the
+`--tck-cancel-prompt` text (long by default) to keep a real agent busy long enough for the
+notification to land while the turn is still in flight -- but a genuinely instant (or very fast)
+agent can still finish before or shortly after that.
+
+A raced/unexercised cancellation is reported as SKIPPED, never PASS -- claiming a PASS for a
+requirement that was never actually exercised would be dishonest. Two situations count as
+"not exercised" (`.agents/plan.md` "Cancel tests and the race"):
+
+1. The response was read before `session/cancel` could be sent at all (`cancelled_at_index is
+   None`) -- `run_prompt` never got a chance to interrupt an in-flight turn.
+2. `session/cancel` was sent, but the response arrives with a valid, non-`cancelled` stop reason
+   within `_CANCEL_RACE_WINDOW` (1.0s) of when the cancel notification was written -- the agent
+   may simply have finished on its own before it ever read the notification.
+
+Anything else is exercised and judged normally: `stopReason: "cancelled"` is a PASS: a
+JSON-RPC error, or a non-`cancelled` stop reason arriving later than the race window, is a FAIL.
 """
 
 from __future__ import annotations
@@ -20,67 +34,88 @@ import pytest
 from tck.harness import AgentTimeout
 from tck.protocol import STOP_REASONS
 
-from ._helpers import connected_agent, new_session, run_prompt
+from ._helpers import PromptTurn, connected_agent, new_session, run_prompt
+
+_CANCEL_RACE_WINDOW = 1.0
+"""Seconds. See module docstring, situation 2."""
+
+
+def _skip_if_cancel_not_exercised(agent, turn: PromptTurn, record_property) -> None:
+    """Shared by both cancel tests: `pytest.skip(...)` -- never PASS or FAIL -- if this turn's
+    cancellation could not actually be observed (module docstring, situations 1 and 2). An
+    unexercised cancel says nothing about `stopReason` correctness (ACP-CANCEL-001) or
+    post-cancel update ordering (ACP-CANCEL-002) either way.
+    """
+    if turn.cancelled_at_index is None:
+        pytest.skip(
+            "cancellation not exercised: prompt turn completed before session/cancel could be sent"
+        )
+    msg = turn.response_entry.parsed
+    if not (isinstance(msg, dict) and "result" in msg):
+        return  # not a success result -- the caller's own assertion will judge this normally
+    stop_reason = msg["result"].get("stopReason")
+    if stop_reason == "cancelled" or stop_reason not in STOP_REASONS:
+        return  # either a clean pass, or a genuinely invalid value -- judge it normally either way
+    cancel_timestamp = agent.transcript[turn.cancelled_at_index].timestamp
+    elapsed_ms = (turn.response_entry.timestamp - cancel_timestamp) * 1000
+    if elapsed_ms < _CANCEL_RACE_WINDOW * 1000:
+        record_property("acp_tck_cancel_race_ms", f"{elapsed_ms:.0f}")
+        pytest.skip(
+            f"cancellation not exercised: response arrived {elapsed_ms:.0f} ms after cancel; "
+            "agent may have finished before reading it"
+        )
 
 
 @pytest.mark.requirement("ACP-CANCEL-001")
-async def test_cancel_resolves_with_cancelled_stop_reason(agent_launch, tmp_path, record_property):
-    """ACP-CANCEL-001 (Reqs 25, 26).
-
-    Sends a prompt, sends `session/cancel` once the turn looks like it is still in flight (see
-    module docstring), then waits for the prompt response. If the response had already arrived
-    before `session/cancel` could be sent -- a race with a fast/no-op agent -- this test cannot
-    exercise "cancel a turn that is actually in flight" at all; it degrades to only checking
-    that `stopReason` is one of the defined values (already covered by ACP-PROMPT-001) and
-    records the race via `record_property`, since asserting `stopReason == "cancelled"` for a
-    turn that had already finished on its own would be asserting a requirement the spec does
-    not place on that scenario.
-    """
+async def test_cancel_resolves_with_cancelled_stop_reason(
+    agent_launch, tmp_path, cancel_prompt_text, record_property
+):
+    """ACP-CANCEL-001 (Reqs 25, 26). See module docstring for the SKIP-vs-FAIL split."""
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         turn = await run_prompt(
             agent,
             session_id,
-            [{"type": "text", "text": "please do some work"}],
+            [{"type": "text", "text": cancel_prompt_text}],
             on_cancel=True,
             timeout=agent_launch.default_timeout,
         )
+        _skip_if_cancel_not_exercised(agent, turn, record_property)
+
         msg = turn.response_entry.parsed
         assert isinstance(msg, dict) and "result" in msg, (
             f"cancel must resolve the prompt with a success result, not an error: {msg!r}"
         )
         stop_reason = msg["result"].get("stopReason")
-        if turn.cancelled_at_index is None:
-            record_property(
-                "acp_tck_cancel_raced",
-                "session/prompt resolved before session/cancel was sent; cancellation was not "
-                "actually exercised",
-            )
-            assert stop_reason in STOP_REASONS, f"invalid stopReason: {stop_reason!r}"
-        else:
-            assert stop_reason == "cancelled", (
-                f"expected stopReason 'cancelled' after session/cancel, got {stop_reason!r}"
-            )
+        assert stop_reason == "cancelled", (
+            f"expected stopReason 'cancelled' after session/cancel, got {stop_reason!r}"
+        )
 
 
 @pytest.mark.requirement("ACP-CANCEL-002")
-async def test_no_session_update_follows_the_cancelled_response(agent_launch, tmp_path):
+async def test_no_session_update_follows_the_cancelled_response(
+    agent_launch, tmp_path, cancel_prompt_text, record_property
+):
     """ACP-CANCEL-002 (Req 28).
 
     Every `session/update` `run_prompt` observed necessarily arrived before the prompt response
     (it reads stdout strictly line-by-line and stops at the matching response), so the "before"
     half of Req 28 is structural. This test adds the other half: after the response, no further
-    `session/update` for this session may arrive.
+    `session/update` for this session may arrive. Skips, rather than passing or failing, under
+    the same conditions as ACP-CANCEL-001 -- see module docstring: an unexercised cancel says
+    nothing about post-cancel ordering.
     """
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         turn = await run_prompt(
             agent,
             session_id,
-            [{"type": "text", "text": "please do some work"}],
+            [{"type": "text", "text": cancel_prompt_text}],
             on_cancel=True,
             timeout=agent_launch.default_timeout,
         )
+        _skip_if_cancel_not_exercised(agent, turn, record_property)
+
         msg = turn.response_entry.parsed
         assert isinstance(msg, dict) and "result" in msg, (
             f"cancel must resolve the prompt with a success result, not an error: {msg!r}"

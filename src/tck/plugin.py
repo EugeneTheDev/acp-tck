@@ -28,6 +28,16 @@ from .requirements import REGISTRY, Tier
 
 # --- options ---
 
+_DEFAULT_CANCEL_PROMPT = (
+    "Write a very long, detailed step-by-step explanation of how a compiler works, at least "
+    "2000 words."
+)
+"""Default `--tck-cancel-prompt` text: long enough that a real, working agent is likely still
+generating it when `session/cancel` arrives, so the cancel tests actually get to exercise
+cancellation instead of racing a near-instant response (see `.agents/plan.md` 'Cancel tests and
+the race'). Deliberately not special-cased by any fixture agent -- fixtures must not know the
+TCK's default prompt text, only the harness/tests do."""
+
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("acp-tck")
@@ -63,6 +73,18 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         type=float,
         default=30.0,
         help="Deadline for the agent's first response (e.g. initialize) in seconds (default: 30).",
+    )
+    group.addoption(
+        "--tck-cancel-prompt",
+        action="store",
+        default=_DEFAULT_CANCEL_PROMPT,
+        metavar="TEXT",
+        help="Prompt text sent by the cancellation tests (ACP-CANCEL-001/002) instead of the "
+        "short deterministic text every other prompt test uses -- pick something that keeps a "
+        "real agent busy long enough for `session/cancel` to land while the turn is still in "
+        "flight (default: %(default)r). A SKIPPED cancel test means cancellation was not "
+        "exercised (the turn finished before or shortly after cancel was sent), not that the "
+        "agent failed conformance.",
     )
 
 
@@ -139,6 +161,13 @@ def agent_launch(request: pytest.FixtureRequest) -> AgentLaunch:
             pytrace=False,
         )
     return launch
+
+
+@pytest.fixture
+def cancel_prompt_text(request: pytest.FixtureRequest) -> str:
+    """The `--tck-cancel-prompt` text, used only by the cancellation tests (`test_cancel.py`) --
+    every other prompt test keeps its own short, deterministic text."""
+    return request.config.getoption("tck_cancel_prompt")
 
 
 @dataclass(frozen=True)
