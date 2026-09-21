@@ -102,8 +102,11 @@ completes and still writes a report). No agent command after `--` is a usage err
 
 ## Protocol scope
 
-ACP **v1 only** (`PROTOCOL_VERSION = 1`, pinned in `tck.protocol`). Batch JSON-RPC arrays,
-pre-`initialize` request gating, and v2 prompt-lifecycle changes are all out of scope.
+ACP **v1 only** is implemented today (`PROTOCOL_VERSION = 1`, pinned in `tck.v1.protocol`) --
+the codebase is structured as a version-agnostic core plus one package per protocol version
+(`src/tck/common/` + `src/tck/v1/`, see `AGENTS.md`) so a future v2 effort does not require
+forking the harness, report model, or pytest plugin. Batch JSON-RPC arrays, pre-`initialize`
+request gating, and v2 prompt-lifecycle changes are all out of scope for now.
 Capability-conditional coverage now includes `session/load`, `session/resume`, `session/list`,
 `session/delete`, `session/close`, `additionalDirectories`, session `modes`/`configOptions`,
 `promptCapabilities` (`image`/`audio`/`embeddedContext`), and the authentication surface

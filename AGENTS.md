@@ -1,10 +1,19 @@
 # acp-tck
 
-A Test Compatibility Kit for the [Agent Client Protocol](https://agentclientprotocol.com) (ACP)
-v1. It launches an agent implementation as a stdio subprocess and drives it through the
-protocol to check conformance -- initialize, session lifecycle, prompt turns, cancellation,
-error handling, and transport hygiene -- reporting which requirements pass, fail, are not
-applicable, or were never exercised.
+A Test Compatibility Kit for the [Agent Client Protocol](https://agentclientprotocol.com) (ACP).
+It launches an agent implementation as a stdio subprocess and drives it through the protocol to
+check conformance -- initialize, session lifecycle, prompt turns, cancellation, error handling,
+and transport hygiene -- reporting which requirements pass, fail, are not applicable, or were
+never exercised.
+
+The codebase is split into a version-agnostic core and one package per protocol version:
+`src/tck/common/` (harness, report model, requirement-tier vocabulary, the pytest plugin's
+version-agnostic core, and the `VersionSpec` glue between them) and `src/tck/v1/` (ACP v1's
+protocol constants, vendored schema, requirement registry, schema validation, the v1 pytest
+plugin shim, and the v1 conformance suite itself -- see "Layout" below). Today only v1 exists;
+this split exists so a future `src/tck/v2/` can be added without duplicating or forking the
+harness, report model, or plugin machinery. Everything below is v1-specific unless a section
+says otherwise.
 
 Slices so far add an installable CLI (`acp-tck`), a requirement registry, a pytest plugin,
 transport/`initialize` conformance tests, mandatory session/prompt/cancel conformance tests, full
@@ -28,10 +37,14 @@ they ride on top of fails -- for behaviour the spec is silent on or SDKs disagre
 ```
 src/tck/
   __init__.py            `acp-tck` console-script entry point (`main()`); argparse CLI, runs
-                          the packaged conformance suite via `pytest.main(...)`
+                          the packaged v1 conformance suite (`tck.v1.conformance`) via
+                          `pytest.main(...)`, loading `tck.v1.plugin` explicitly
   __main__.py            `python -m tck` -- same as the console script (used by the self-tests
                           so they don't depend on the console script being on PATH)
-  requirements.py        the requirement registry: `Tier`, `Requirement`, `REGISTRY`, `get()`.
+  common/                 version-agnostic core, shared by every protocol version's package
+    __init__.py
+    requirements.py        `Tier`, `Requirement`, `make_cite(revision)` -- the shared vocabulary
+                          a version's own `requirements.py` builds its `REGISTRY` from.
                           Requirements gated by *inferred* support (no `initialize`-result
                           marker -- e.g. `modes`/`configOptions`, only observable in
                           `session/new`'s own response) use a documentation-only
@@ -39,56 +52,89 @@ src/tck/
                           satisfies `Requirement.__post_init__`'s invariant but is not looked up
                           by `@pytest.mark.capability(...)`/`_tck_capability_gate` -- those tests
                           instead `pytest.skip(...)` manually when the field is absent.
-  plugin.py               the `tck.plugin` pytest plugin: `--tck-*` options (including
-                          `--tck-report-json`, `--tck-auth-method`), `requirement`/`capability`
-                          markers, async test support, fixtures, the per-test result collector,
-                          the terminal summary table, JSON report writing, and the verdict-based
-                          exit code. Also holds the `_AUTH_METHOD` contextvar and
+    version.py             `VersionSpec` -- the one object a version package (`tck.v1`) hands to
+                          `tck.common.plugin` to make it version-agnostic: `protocol_version`,
+                          `schema_revision`, `schema_dir`, `registry`, `initialize_params`
+                          (callable), `conformance_package`. Stashed via
+                          `pytest.StashKey[VersionSpec]()` (`VERSION_SPEC_KEY`, defined in
+                          `plugin.py`) so `tck.common.plugin` never imports a specific version.
+    plugin.py               `tck.common.plugin`: the version-agnostic pytest plugin core --
+                          `--tck-*` options (including `--tck-report-json`, `--tck-auth-method`),
+                          `requirement`/`capability` markers, async test support, fixtures, the
+                          per-test result collector, the terminal summary table, JSON report
+                          writing, and the verdict-based exit code. Reads
+                          `config.stash[VERSION_SPEC_KEY]` for the active registry/protocol
+                          version/schema revision -- never loaded directly (see `tck.v1.plugin`
+                          below). Also holds the `_AUTH_METHOD` contextvar and
                           `current_auth_method_id()` accessor (mirrors `_ACTIVE_PROCESSES`),
                           set per-test by the autouse `_tck_auth_method_context` fixture from
                           `--tck-auth-method`; `_build_report()` scans skip messages for the
                           literal `"AUTH-GATED:"` marker to compute `Verdict.blocked_by_auth`.
-  report.py              the report model: `Status`, `TestOutcome`, `RequirementResult`,
+    report.py              the report model: `Status`, `TestOutcome`, `RequirementResult`,
                           `Verdict` (including `blocked_by_auth: bool`), `Report` -- pure data +
-                          aggregation, no pytest dependency
-  protocol.py            PROTOCOL_VERSION, SCHEMA_REVISION, error codes, StopReason values,
-                          method inventories
-  validation.py          schema validation for agent-authored JSON-RPC messages
-  harness/
-    __init__.py           public API re-exports
-    process.py            AgentProcess, AgentLaunch, AgentTimeout, AgentExited
-    transcript.py          TranscriptEntry, Direction
-  schema/v1/
-    schema.json            vendored ACP v1 JSON Schema (verbatim, do not hand-edit)
-    meta.json               vendored method-name tables (verbatim, do not hand-edit)
-    VENDORED.md             source repo, commit hash, date, refresh procedure
-  conformance/            the conformance suite itself, shipped inside the wheel
-    __init__.py
-    conftest.py            intentionally empty: `-p tck.plugin` is always passed explicitly
-    _helpers.py             `connected_agent()`, `new_session()`, `run_prompt()`/`PromptTurn` --
+                          aggregation, no pytest dependency; `build_requirement_results(...)`
+                          takes the active version's `registry` as an explicit argument
+    harness/
+      __init__.py           public API re-exports
+      process.py            AgentProcess, AgentLaunch, AgentTimeout, AgentExited
+      transcript.py          TranscriptEntry, Direction
+  v1/                     the ACP v1 package: protocol constants, vendored schema, requirement
+                          registry, schema validation, the v1 pytest plugin shim, and the v1
+                          conformance suite
+    __init__.py             exports `SPEC`, the `tck.common.version.VersionSpec` instance
+                          (`protocol_version=1`, this package's `SCHEMA_REVISION`/`SCHEMA_DIR`/
+                          `REGISTRY`, an `initialize_params()` returning v1's handshake params,
+                          `conformance_package="tck.v1.conformance"`) that `tck.v1.plugin`
+                          stashes for `tck.common.plugin` to read
+    protocol.py            PROTOCOL_VERSION (`1`), SCHEMA_REVISION, SCHEMA_DIR, error codes,
+                          StopReason values, method inventories
+    requirements.py        `SPEC_REVISION`, `_DECLARATIONS`, `REGISTRY`, `get()` -- v1's
+                          concrete requirement registry, built from `tck.common.requirements`'s
+                          `Tier`/`Requirement`/`make_cite(SCHEMA_REVISION)`
+    validation.py          schema validation for agent-authored JSON-RPC messages, against v1's
+                          vendored schema (duplicated per version rather than shared -- see
+                          `.agents/research/common-v1-v2-split-analysis.md` D6)
+    plugin.py               `tck.v1.plugin`: a thin shim over `tck.common.plugin` -- copies
+                          every hook/fixture from `tck.common.plugin`'s namespace (via
+                          `vars()`/`globals().update(...)`, not `from ... import *`, so
+                          underscore-named autouse fixtures like `_tck_capability_gate` are not
+                          silently dropped -- pytest discovers a plugin's hooks/fixtures via
+                          `dir()`/`vars()` on the plugin module object itself), then overrides
+                          `pytest_configure` to stash `tck.v1.SPEC` in
+                          `config.stash[VERSION_SPEC_KEY]` before delegating to
+                          `tck.common.plugin.pytest_configure`. Always load this shim, never
+                          `tck.common.plugin` directly (`-p tck.v1.plugin`).
+    schema/
+      schema.json            vendored ACP v1 JSON Schema (verbatim, do not hand-edit)
+      meta.json               vendored method-name tables (verbatim, do not hand-edit)
+      VENDORED.md             source repo, commit hash, date, refresh procedure
+    conformance/            the v1 conformance suite itself, shipped inside the wheel
+      __init__.py
+      conftest.py            intentionally empty: `-p tck.v1.plugin` is always passed explicitly
+      _helpers.py             `connected_agent()`, `new_session()`, `run_prompt()`/`PromptTurn` --
                             spawn + optional initialize + auto-close, plus the mock-client prompt
                             driver used by every session/prompt/cancel test
-    test_transport.py       ACP-TRANSPORT-001/002 (framing, UTF-8)
-    test_jsonrpc.py         ACP-JSONRPC-001..005 (id echo, result-xor-error, notifications, ...)
-    test_initialize.py      ACP-INIT-001..004, ACP-SCHEMA-001 (handshake + full-exchange schema)
-    test_session.py         ACP-SESSION-001/002 (session/new sessionId, uniqueness)
-    test_prompt.py          ACP-PROMPT-001..003 (stop reason, update validity, resource_link)
-    test_cancel.py           ACP-CANCEL-001/002 (cancelled stop reason, no update after response)
-    test_session_capabilities.py  ACP-LOAD-001..003, ACP-RESUME-001/002, ACP-LIST-001/002,
+      test_transport.py       ACP-TRANSPORT-001/002 (framing, UTF-8)
+      test_jsonrpc.py         ACP-JSONRPC-001..005 (id echo, result-xor-error, notifications, ...)
+      test_initialize.py      ACP-INIT-001..004, ACP-SCHEMA-001 (handshake + full-exchange schema)
+      test_session.py         ACP-SESSION-001/002 (session/new sessionId, uniqueness)
+      test_prompt.py          ACP-PROMPT-001..003 (stop reason, update validity, resource_link)
+      test_cancel.py           ACP-CANCEL-001/002 (cancelled stop reason, no update after response)
+      test_session_capabilities.py  ACP-LOAD-001..003, ACP-RESUME-001/002, ACP-LIST-001/002,
                             ACP-DELETE-001/002, ACP-CLOSE-001/002, ACP-ADDDIRS-001 --
                             capability-conditional `session/load`/`resume`/`list`/`delete`/`close`
                             and `additionalDirectories`, each gated by
                             `@pytest.mark.capability(...)` on the corresponding
                             `agentCapabilities`/`sessionCapabilities` path
-    test_session_config.py  ACP-MODES-001/002, ACP-CONFIG-001/002/003 -- session `modes`/
+      test_session_config.py  ACP-MODES-001/002, ACP-CONFIG-001/002/003 -- session `modes`/
                             `configOptions` (support inferred from `session/new`'s own response,
                             manually skipped when absent -- see `requirements.py` note above) and
                             the Req 33 negative control (no `type: "boolean"` config option
                             without `clientCapabilities.session.configOptions.boolean`)
-    test_prompt_capabilities.py  ACP-PROMPTCAP-001/002/003 -- `image`/`audio`/`embeddedContext`
+      test_prompt_capabilities.py  ACP-PROMPTCAP-001/002/003 -- `image`/`audio`/`embeddedContext`
                             prompt content blocks, each a boolean
                             `agentCapabilities.promptCapabilities.*` gate
-    test_authentication.py  ACP-AUTH-001..005 -- `authMethods` shape/uniqueness, the Req 23
+      test_authentication.py  ACP-AUTH-001..005 -- `authMethods` shape/uniqueness, the Req 23
                             terminal-method client-capability gate, the `authenticate` ->
                             `session/new` flow (only when `--tck-auth-method` was given; narrowed
                             to AUTH-C4's "no -32000", not full success -- ACP-SESSION-001 owns
@@ -98,24 +144,24 @@ src/tck/
                             `session/new` must not fail with `-32000` -- enforced via
                             `skip_if_auth_gated` only excusing that error when `authMethods` is
                             non-empty
-    test_client_capabilities.py  ACP-CLIENTCAP-001..003 (MANDATORY) -- three separate tests
+      test_client_capabilities.py  ACP-CLIENTCAP-001..003 (MANDATORY) -- three separate tests
                             (one per id, sharing a helper) each asserting one of
                             `fs/*`/`terminal/*`/`elicitation/create` is never observed during a
                             prompt turn run against a mock client that advertises
                             `clientCapabilities: {}` (Reqs 29, 30, 32); split from a single
                             combined test so a fixture that only calls one unadvertised surface
                             fails only that id, not all three (review-slices-5-6.md item 9)
-    test_extensibility.py  ACP-EXT-001 (MANDATORY -- Req 42's MUST-respond-to-custom-methods,
+      test_extensibility.py  ACP-EXT-001 (MANDATORY -- Req 42's MUST-respond-to-custom-methods,
                             distinct from ACP-JSONRPC-004's general SHOULD about the `-32601`
                             code), ACP-META-001 (ADVISORY -- `_meta` on `session/prompt` is
                             accepted), ACP-SCHEMA-002 (ADVISORY -- no unknown root-level keys on
                             any agent-authored request/notification `params` or response
                             `result`, via `validation.find_unknown_root_keys`)
-    test_diagnostics.py    ACP-ERROR-001 (ADVISORY -- error `message` non-empty, no embedded
+      test_diagnostics.py    ACP-ERROR-001 (ADVISORY -- error `message` non-empty, no embedded
                             newline), ACP-SHUTDOWN-001 (ADVISORY -- `exited_on_stdin_close` after
                             an ordinary close), ACP-STDERR-001 (INFORMATIONAL -- records stderr
                             byte count; never asserts on the count itself)
-    test_informational.py  ACP-INFO-PARSE-001/INVALIDREQ-001/UNKNOWNSESSION-001 (INFORMATIONAL --
+      test_informational.py  ACP-INFO-PARSE-001/INVALIDREQ-001/UNKNOWNSESSION-001 (INFORMATIONAL --
                             malformed-JSON-line, structurally-invalid-request, and
                             unknown-`sessionId` behaviour, each recorded via `record_property`
                             and never asserted on directly; still FAILs if the prerequisite
@@ -124,14 +170,23 @@ src/tck/
                             `quiet_period()`, never the full `--tck-timeout`)
 
 tests/
-  conftest.py              agent_launch() helper for spawning fixture agents (harness unit tests)
-  test_harness.py          unit tests for the harness, run against the fixtures below
-  test_validation.py       unit tests for tck.protocol / tck.validation
-  test_registry.py          registry invariants + two-way check against conformance markers
-  test_report.py            `tck.report` unit tests: aggregation, verdict rule, JSON round-trip
-  test_cli.py               end-to-end: run `python -m tck -- <fixture>` as a subprocess,
+  conftest.py              agent_launch() helper for spawning fixture agents under
+                          `tests/fixtures/agents/v1/` (harness unit tests); a directory-scoped
+                          conftest, so it applies to both `tests/common/` and `tests/v1/` below
+  common/                 unit tests for the version-agnostic core
+    test_harness.py         unit tests for `tck.common.harness`, run against the v1 fixtures below
+    test_report.py          `tck.common.report` unit tests: aggregation, verdict rule, JSON
+                          round-trip
+    test_plugin.py          unit tests for `tck.common.plugin` helpers (e.g.
+                          `capability_is_supported`)
+    test_cross_check_summary.py  unit tests for `scripts/cross-check-summary.py`
+  v1/                     unit tests specific to the v1 package
+    test_validation.py      unit tests for `tck.v1.protocol` / `tck.v1.validation`
+    test_registry.py         `tck.v1.requirements.REGISTRY` invariants + two-way check against
+                          `tck.v1.conformance` markers
+    test_cli.py               end-to-end: run `python -m tck -- <fixture>` as a subprocess,
                             including `--report-json` output and exit codes
-  fixtures/agents/
+  fixtures/agents/v1/
     _base.py               shared ConformingAgent core (not a standalone script); optionally
                           takes a `capabilities` dict merged into `agentCapabilities`, and
                           implements `session/load` (replays stored history before responding),
@@ -235,13 +290,13 @@ tests/
                           replies `{"id": null, "error": {"code": -32700, ...}}` to malformed
                           JSON instead of silently swallowing it -- self-test-only fixture that
                           deterministically exercises ACP-STDERR-001's/ACP-INFO-PARSE-001's
-                          non-default branches (see `tests/test_cli.py`)
+                          non-default branches (see `tests/v1/test_cli.py`)
 ```
 
 ## Running the TCK against an agent
 
 ```
-uv run acp-tck -- python tests/fixtures/agents/conforming.py
+uv run acp-tck -- python tests/fixtures/agents/v1/conforming.py
 ```
 
 Options: `--agent-cwd DIR`, `--agent-env KEY=VAL` (repeatable), `--timeout S` (per-response
@@ -263,7 +318,7 @@ never exits on its own, a real agent under test should not normally need this ch
 at all: every `MANDATORY` requirement ends up `FAIL` or `NOT_TESTED`, the run still completes and
 still writes a report, and the terminal summary prints a hint to check `--agent-cwd`/timeouts/
 stderr). `acp-tck` with no command after `--` is a usage error (exit `2`, from `argparse`), not a
-verdict. Mechanism: `tck.plugin`'s `pytest_sessionfinish` overwrites `session.exitstatus`, but
+verdict. Mechanism: `tck.common.plugin`'s `pytest_sessionfinish` overwrites `session.exitstatus`, but
 only when pytest itself completed a normal run (`ExitCode.OK`/`TESTS_FAILED`) -- `--collect-only`,
 usage errors, and interrupted runs keep pytest's own exit code.
 
@@ -290,11 +345,11 @@ agent advertises no `authMethods` at all.
 You can also run the suite directly with plain pytest, e.g. to add pytest's own flags:
 
 ```
-uv run pytest src/tck/conformance -p tck.plugin --tck-agent-cmd 'python tests/fixtures/agents/conforming.py'
+uv run pytest src/tck/v1/conformance -p tck.v1.plugin --tck-agent-cmd 'python tests/fixtures/agents/v1/conforming.py'
 ```
 
-`tck.plugin` is deliberately **not** auto-registered via a `pytest11` entry point (see
-`.agents/plan.md` "Decided deliverable shape") -- it must always be loaded with `-p tck.plugin`,
+`tck.v1.plugin` is deliberately **not** auto-registered via a `pytest11` entry point (see
+`.agents/plan.md` "Decided deliverable shape") -- it must always be loaded with `-p tck.v1.plugin`,
 which both invocations above do.
 
 ## Running the repo's own tests
@@ -306,7 +361,7 @@ uv run pytest
 The whole suite (harness unit tests + registry meta-tests + end-to-end CLI tests against every
 fixture) runs in well under a minute. Harness unit tests use short (≤2s) per-call timeouts and
 `asyncio.run(...)` directly -- there is no `pytest-asyncio` dependency. The conformance suite's
-own async tests are run the same way, via `tck.plugin`'s `pytest_pyfunc_call` hook.
+own async tests are run the same way, via `tck.common.plugin`'s `pytest_pyfunc_call` hook.
 
 ## CI
 
@@ -332,7 +387,8 @@ implemented agents -- the Rust SDK's `testy` fixture and the Python SDK's
 `examples/echo_agent.py` -- to sanity-check the TCK's own plumbing (framing, id correlation,
 schema wiring, timeouts) against implementations this repo did not write. It is **not** part of
 `uv run pytest`: it needs a Rust toolchain and local checkouts of both SDKs, so it is a manual/CI
-step, run on demand.
+step, run on demand. Pinned to ACP v1 for now; it stays that way until v2 reference SDKs exist to
+cross-check against.
 
 **Prerequisites:**
 
@@ -380,11 +436,15 @@ that investigation is recorded.
 
 ## How to add a requirement + test
 
-1. Add a `Requirement(...)` entry to `_DECLARATIONS` in `src/tck/requirements.py`: pick an id
-   (`ACP-<AREA>-<NNN>`), a `Tier`, and cite the exact `research/*.md` line(s) that back it --
-   these reports are the specification, not memory of the protocol.
-2. Write a test under `src/tck/conformance/`, marked `@pytest.mark.requirement("ACP-…")` with a
-   docstring starting with the id(s). Use `connected_agent()` from `_helpers.py` to spawn the
+This describes adding to the v1 suite; a future version's suite follows the same shape under its
+own package (`src/tck/v2/`, ...).
+
+1. Add a `Requirement(...)` entry to `_DECLARATIONS` in `src/tck/v1/requirements.py`: pick an id
+   (`ACP-<AREA>-<NNN>`), a `Tier` (from `tck.common.requirements`), and cite the exact
+   `research/*.md` line(s) that back it -- these reports are the specification, not memory of
+   the protocol.
+2. Write a test under `src/tck/v1/conformance/`, marked `@pytest.mark.requirement("ACP-…")` with
+   a docstring starting with the id(s). Use `connected_agent()` from `_helpers.py` to spawn the
    agent; `async def` tests work without any extra setup.
 3. If the requirement only applies when the agent advertises a capability, add
    `@pytest.mark.capability("agentCapabilities.some.path")` too -- the test is skipped with
@@ -393,25 +453,26 @@ that investigation is recorded.
    value (an empty object still counts -- e.g. `"loadSession": {}`). For a plain boolean gate
    (supported iff the value is exactly `true`, e.g. `"loadSession": false` must NOT count as
    advertised), pass `boolean=True`: `@pytest.mark.capability("agentCapabilities.loadSession",
-   boolean=True)`. See `capability_is_supported()` in `src/tck/plugin.py` and its unit tests in
-   `tests/test_plugin.py` for both encodings.
+   boolean=True)`. See `capability_is_supported()` in `src/tck/common/plugin.py` and its unit
+   tests in `tests/common/test_plugin.py` for both encodings.
 4. If the test needs to send a custom/probe method the agent isn't expected to recognize (e.g.
    an "unknown method" negative control), prefix it with `_` (`_tck/does_not_exist`, `_tck/big`,
    ...) -- Req 42 / the extensibility rule requires custom methods to be `_`-prefixed, and the
    TCK holds itself to the same rule so its own probe traffic can never collide with a real,
    spec-defined method name.
-5. Run `uv run pytest` -- `tests/test_registry.py` fails if the new id isn't referenced by a
+5. Run `uv run pytest` -- `tests/v1/test_registry.py` fails if the new id isn't referenced by a
    test, or if a test references an id that isn't registered.
-6. Consider adding a non-conforming fixture under `tests/fixtures/agents/` that trips only the
-   new requirement, and assert on it in `tests/test_cli.py`.
+6. Consider adding a non-conforming fixture under `tests/fixtures/agents/v1/` that trips only the
+   new requirement, and assert on it in `tests/v1/test_cli.py`.
 
 ## Tiers and statuses
 
-Tiers (`tck.requirements.Tier`): `MANDATORY` (MUST), `CAPABILITY` (only applies when the agent
-advertises the capability), `ADVISORY` (SHOULD; reported, never the sole cause of a failing
-verdict), `INFORMATIONAL` (spec silent / SDKs disagree; reported only, never affects the verdict).
+Tiers (`tck.common.requirements.Tier`, shared across protocol versions): `MANDATORY` (MUST),
+`CAPABILITY` (only applies when the agent advertises the capability), `ADVISORY` (SHOULD;
+reported, never the sole cause of a failing verdict), `INFORMATIONAL` (spec silent / SDKs
+disagree; reported only, never affects the verdict).
 
-Statuses (`tck.report.Status`): `PASS`, `FAIL`, `SKIPPED`, `NOT_TESTED`. A test only ever produces
+Statuses (`tck.common.report.Status`): `PASS`, `FAIL`, `SKIPPED`, `NOT_TESTED`. A test only ever produces
 the first three; `NOT_TESTED` is the aggregated status of a registered id that no test bound to
 during the run (a dead agent that never gets past `initialize` cannot score 100% by starving
 every other requirement of a record). A test that *errors* -- a setup/teardown exception, or a
@@ -420,18 +481,20 @@ status; the exception text becomes the outcome's `message`. Aggregating several 
 the same requirement: any `FAIL` wins; else any `PASS`; else any `SKIPPED`; no records at all ->
 `NOT_TESTED`. The terminal summary prints this aggregated status per id, grouped by tier.
 
-## Reporting (`tck.report`, `--report-json`)
+## Reporting (`tck.common.report`, `--report-json`)
 
 `--report-json PATH` (plugin: `--tck-report-json`) writes the full run as JSON at
 `pytest_sessionfinish`, in addition to the terminal summary. Top-level keys: `tck_version`,
-`protocol_version` (`tck.protocol.PROTOCOL_VERSION`), `schema_revision`
-(`tck.protocol.SCHEMA_REVISION` -- the single source of truth; `tck.requirements.SPEC_REVISION`
-reads from it too), `agent_command` (the launched command, as a list), `agent_info` /
-`agent_capabilities` (from the cached `initialize` result, or `null` if it never succeeded),
-`started_at` / `finished_at` (ISO 8601 UTC), `requirements`, `verdict`.
+`protocol_version` (from the active version's `VersionSpec.protocol_version`, e.g.
+`tck.v1.protocol.PROTOCOL_VERSION`), `schema_revision` (from `VersionSpec.schema_revision`, e.g.
+`tck.v1.protocol.SCHEMA_REVISION` -- the single source of truth; `tck.v1.requirements.
+SPEC_REVISION` reads from it too), `agent_command` (the launched command, as a list),
+`agent_info` / `agent_capabilities` (from the cached `initialize` result, or `null` if it never
+succeeded), `started_at` / `finished_at` (ISO 8601 UTC), `requirements`, `verdict`.
 
-`requirements` has one entry per `tck.requirements.REGISTRY` id -- including ids no test ever
-ran (`status: "NOT_TESTED"`, `tests: []`) -- each carrying its `tier`/`capability`/`text`/
+`requirements` has one entry per id in the active version's registry (e.g.
+`tck.v1.requirements.REGISTRY`) -- including ids no test ever ran (`status: "NOT_TESTED"`,
+`tests: []`) -- each carrying its `tier`/`capability`/`text`/
 `citation` plus every bound test's outcome (`nodeid`, `status`, `message`, `duration_s`,
 `properties` -- `record_property(...)` values such as `acp_tck_cancel_race_ms` -- and, for `FAIL`
 outcomes only, `transcript` (`[{"dir": "sent"|"received", "t": <monotonic ts>, "raw": <line>},
@@ -449,14 +512,15 @@ agent advertised it and it must then work. `ADVISORY`/`INFORMATIONAL` never affe
 `blocked_by_auth` is `true` whenever any test was `SKIPPED` with a message containing the
 literal marker `"AUTH-GATED:"` (a substring match, not a prefix -- the recorded message is
 `str(report.longrepr)`, which for a skip wraps the reason in a `(path, lineno, "Skipped: ...")`
-repr, so a prefix check would never match; see `plugin.py`'s `_AUTH_GATED_MARKER` and
+repr, so a prefix check would never match; see `common/plugin.py`'s `_AUTH_GATED_MARKER` and
 review-slices-5-6.md N18) -- i.e. the agent requires authentication before `session/new` and no
 `--auth-method` was given, so session-dependent requirements were never actually exercised and
 the run cannot be honestly scored conformant regardless of how many other checks passed. See
-`src/tck/report.py` for the full model (`Status`, `TestOutcome`, `RequirementResult`, `Verdict`,
-`Report`) and `tests/test_report.py` for the aggregation rules exercised against synthetic data.
+`src/tck/common/report.py` for the full model (`Status`, `TestOutcome`, `RequirementResult`,
+`Verdict`, `Report`) and `tests/common/test_report.py` for the aggregation rules exercised
+against synthetic data.
 
-## Harness API (`tck.harness`)
+## Harness API (`tck.common.harness`)
 
 Raw, hand-rolled asyncio NDJSON stdio client -- deliberately not built on the ACP Python SDK,
 whose typed layer cannot emit malformed traffic and whose transport silently drops
@@ -543,7 +607,7 @@ fixtures need this: `cancel_returns_error.py`'s JSON-RPC error FAILs regardless 
 `bad_stop_reason.py`/`update_wrong_session.py`/`conforming.py` etc. don't hang on the cancel
 tests' prompt text at all (only the literal `__hang__` text triggers a hang in `conforming.py`
 and `bad_stop_reason.py`), so `session/cancel` always loses the race against their immediate
-reply and ACP-CANCEL-001/002 SKIP for them too -- see `tests/test_cli.py`'s `_CANCEL_IDS` note.
+reply and ACP-CANCEL-001/002 SKIP for them too -- see `tests/v1/test_cli.py`'s `_CANCEL_IDS` note.
 
 ## Mock-client prompt driver (`_helpers.run_prompt`)
 
@@ -603,38 +667,44 @@ non-`cancelled` stop reason arriving outside the race window, FAILs. The cancel 
 `--cancel-prompt` text (see above) instead of the short text other prompt tests use, specifically
 to make situations (1)/(2) less likely against a real agent.
 
-## Vendored schema (`tck/schema/v1/`)
+## Vendored schema (`tck/v1/schema/`)
 
 `schema.json` and `meta.json` are verbatim copies of the ACP v1 JSON Schema from the spec
 repo (`https://github.com/zed-industries/agent-client-protocol`); the commit hash, vendor
-date, and exact copy commands live in `src/tck/schema/v1/VENDORED.md`. Refresh procedure is
+date, and exact copy commands live in `src/tck/v1/schema/VENDORED.md`. Refresh procedure is
 documented there. Do not hand-edit either JSON file.
 
 The vendored schema's top level (`schema.json:4-119`) is `anyOf` of three side-annotated
 envelopes -- `Agent`, `Client`, `ProtocolLevel` -- each split into `Request` / `Response` /
 `Notification` branches. Every method-specific params/response `$def` carries `x-side`
-(which side implements the method) and `x-method` (its wire name); `tck.protocol` and
-`tck.validation` derive their method-name tables from these annotations plus `meta.json`
-rather than hand-copying a table from docs, so a schema refresh mostly self-updates them.
+(which side implements the method) and `x-method` (its wire name); `tck.v1.protocol` and
+`tck.v1.validation` derive their method-name tables from these annotations plus `meta.json`
+rather than hand-copying a table from docs, so a schema refresh mostly self-updates them. A
+future protocol version vendors its own schema under its own package (e.g. `src/tck/v2/schema/`)
+the same way.
 
-## `tck.protocol`
+## `tck.v1.protocol`
 
-`PROTOCOL_VERSION = 1` (v1-only; a future v2 effort starts here). JSON-RPC/ACP error code
-constants (`PARSE_ERROR`, `INVALID_REQUEST`, `METHOD_NOT_FOUND`, `INVALID_PARAMS`,
-`INTERNAL_ERROR`, `REQUEST_CANCELLED`, `AUTHENTICATION_REQUIRED`, `RESOURCE_NOT_FOUND`).
-`StopReason` constants and the `STOP_REASONS` frozenset. Method inventories, all derived from
-`meta.json`/`schema.json` at import time: `AGENT_METHODS` (client -> agent, requests and
-notifications), `CLIENT_METHODS` (agent -> client), `AGENT_NOTIFICATIONS` /
-`CLIENT_NOTIFICATIONS` (the notification-only subsets of each, cross-derived from
-`schema.json`'s `AgentNotification`/`ClientNotification` `$def`s since `meta.json` itself does
-not separate requests from notifications).
+`PROTOCOL_VERSION = 1`. JSON-RPC/ACP error code constants (`PARSE_ERROR`, `INVALID_REQUEST`,
+`METHOD_NOT_FOUND`, `INVALID_PARAMS`, `INTERNAL_ERROR`, `REQUEST_CANCELLED`,
+`AUTHENTICATION_REQUIRED`, `RESOURCE_NOT_FOUND`). `StopReason` constants and the `STOP_REASONS`
+frozenset. Method inventories, all derived from `meta.json`/`schema.json` at import time:
+`AGENT_METHODS` (client -> agent, requests and notifications), `CLIENT_METHODS` (agent ->
+client), `AGENT_NOTIFICATIONS` / `CLIENT_NOTIFICATIONS` (the notification-only subsets of each,
+cross-derived from `schema.json`'s `AgentNotification`/`ClientNotification` `$def`s since
+`meta.json` itself does not separate requests from notifications). A future protocol version
+gets its own `tck.v2.protocol` module built the same way (this module is not shared -- see
+`src/tck/common/version.py`'s `VersionSpec`, which is how `tck.common.plugin` learns the active
+version's protocol number/schema revision without importing a specific version's module).
 
-## `tck.validation`
+## `tck.v1.validation`
 
-Validates JSON-RPC messages the **agent under test** writes to stdout against the vendored
+Validates JSON-RPC messages the **agent under test** writes to stdout against v1's vendored
 schema (never messages the TCK's own mock client writes -- there is no `validate_client_*`
 yet). `ValidationIssue(path, message, schema_path)` -- `path`/`schema_path` are JSON pointers;
-never raises, always returns issues.
+never raises, always returns issues. Duplicated per protocol version rather than shared (see
+`.agents/research/common-v1-v2-split-analysis.md` D6) -- a future `tck.v2.validation` is its own
+module, not a parametrization of this one.
 
 - `validate_agent_message(msg: dict) -> list[ValidationIssue]` -- dispatches on shape: a
   request/notification (`method` present) is checked against that method's params schema; a
@@ -653,7 +723,7 @@ never raises, always returns issues.
   occurrences), so it cannot reject an unknown root field on a spec type even though the
   spec's prose (`extensibility.mdx`) says implementations MUST NOT add one; `validate_agent_message`/
   `validate_agent_response` do not flag this (see
-  `tests/test_validation.py::test_unknown_root_field_is_permitted_by_the_vendored_schema`).
+  `tests/v1/test_validation.py::test_unknown_root_field_is_permitted_by_the_vendored_schema`).
 - `find_unknown_root_keys(def_name, obj) -> list[str]` (slice 7, backs ACP-SCHEMA-002) is the
   hand-written check that fills that gap: `_allowed_root_properties(def_name)` walks
   `allOf`/`anyOf`/`oneOf`/`$ref` to resolve the full property-name union a `$def`'s composition
@@ -666,7 +736,9 @@ never raises, always returns issues.
 
 - Dependency management is `uv` only, with exact pins (`==`), never bare `pip` or hand-edited
   `pyproject.toml` dependency entries.
-- Protocol scope is ACP **v1 only**; v2/draft surfaces are out of scope.
+- Only ACP **v1** is implemented today (`src/tck/v1/`); the codebase is structured
+  (`src/tck/common/` + one package per version) so a future v2 effort can add `src/tck/v2/`
+  without forking the harness, report model, or pytest plugin core -- see "Layout" above.
 - `.agents/` is the orchestrator's workbench. `.agents/research/*.md` are read-only inputs --
   they are the specification this code implements; do not edit them.
 - Licensed under Apache-2.0 (`LICENSE`); `pyproject.toml`'s `license`/`license-files` (PEP 639) are the source of truth -- do not add a `License ::` classifier alongside them.
