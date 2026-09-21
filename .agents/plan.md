@@ -43,7 +43,7 @@ CLI routing between v1 and v2 is **not yet decided** — awaiting `research/acp-
 
 Source: `research/acp-v2-version-negotiation.md` (spec @ 8f76d6c).
 
-- **`--protocol-version {1,2}` (plugin: `--tck-protocol-version`), default `1`.** `1` keeps today's
+- **`--protocol-version {1,2}`, default `1` — CLI-level routing only; there is deliberately NO `--tck-protocol-version` plugin option** (D8: the plugin never chooses a version; the CLI selects `-p tck.vN.plugin` + `tck.vN.conformance`; running plain pytest, pass the version's plugin module explicitly). `1` keeps today's
   behavior byte-identical (v1 is the stable protocol; v2 is a Draft). `2` runs `-p tck.v2.plugin` on
   `src/tck/v2/conformance`. Exactly one suite per invocation (D5). The report's `protocol_version` field
   reflects the selected version. Sub-commands are rejected: same options, same output shape, one flag.
@@ -232,6 +232,12 @@ agent under `--protocol-version 1`) is a later slice.
   with v1's ACP-JSONRPC-005 precedent (no normative ACP text ⟹ not MANDATORY).
 - v2 validator: top level includes array branches — the v2 validator must dispatch on list-vs-dict before
   any `$def` lookup (already implied by D6; the v1 validator's dict-only assumption is not reused).
+
+### Deferred nits (do not lose)
+- review-v2-slices-0-1a #10: `VersionSpec.conformance_package` and `schema_dir` have no consumers — drop
+  them (update D1 wording) or wire `conformance_package` into diagnostics. Pick up in the final review pass.
+- review-v2-slices-0-1a #18: `__init__.py` in `tests/v1/`/`tests/common/` (optional).
+- v1 deferred nits N12/N20 (review-slices-5-6), N9 (review-slices-7).
 
 ### v2 effort — slices (order fixed 2026-09-21; each is one programmer run in its own worktree)
 Every slice: registry entries cite the named research report(s) (`path:line` @ spec 8f76d6c); conforming

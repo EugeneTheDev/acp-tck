@@ -1,7 +1,7 @@
 # State
 
-**Last updated:** 2026-09-21 (v2 effort, session 1 — V2-0…V2-1b merged+pushed; V2-1c review fixes in flight)
-**Last commit pushed:** `cec6aea` on `v2-support` (V2-1b; 170 tests) — plus workbench commits on top
+**Last updated:** 2026-09-21 (v2 effort, session 1 — V2-0…V2-1c merged+pushed; V2-2a prompt driver in flight)
+**Last commit pushed:** `75bc188` on `v2-support` (V2-1c; 186 tests) — plus workbench commits on top
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
@@ -38,11 +38,20 @@ against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude
 `testy-cross-check.md`, `upstream-issues.md` (internal drafts only, do not file).
 
 ## In flight
-- **V2-1c `v2-review-fixes`** (worktree `../acp-tck-2-v2-review-fixes`, off `cec6aea`+): the 8 SHOULD-FIX +
-  cheap NITs from `research/review-v2-slices-0-1a.md`, plus: v2 defect fixtures advertise
-  `capabilities: {"session": {}}` like `conforming.py` (found at V2-1b merge: `v2_only_errors_on_v1.py`
-  skipped SESSION rows for "not advertised"). On report: verify (suite, v1 + v2 smoke runs, README
-  quick-start command actually works), merge, push, cleanup. Then **V2-2** (prompt lifecycle + driver).
+- **V2-2a `v2-prompt-driver`** (worktree `../acp-tck-2-v2-prompt-driver`, off `75bc188`+): v2 `run_prompt`
+  mock-client driver + core prompt-turn rows (PROMPT-20x response `{messageId}`, MSG-201 echo under same id,
+  STATE-201..203 running/idle/stopReason per plan.md "v2 prompt lifecycle — decisions" and "v2 patches /
+  open enums" (stopReason MANDATORY scoped to turn-ending idle; non-`_` unknown values FAIL), PROMPT-002
+  re-cited (update `sessionId`), schema validity of every update), fixtures (conforming prompt behaviour
+  already in `_base.py`; defect fixtures per id), `tests/v2/test_cli.py`. On report: verify, merge, push,
+  cleanup. Then **V2-2b**: PROMPTCAP-001..003 re-gated on `capabilities.session.prompt.*`, PROMPT-003
+  (ADVISORY resource_link), PERM-201, CLIENTCAP-201 (elicitation unadvertised) + CLIENTCAP-202 (no undefined
+  non-`_`/non-`$/` client methods), informational probes. Then V2-3 … V2-7 per plan.md.
+
+**Done (2026-09-21): slice V2-1c** (`75bc188`) — review fixes (README quick-start, docs accuracy, never-raise
+validators, tightened `other`-branch carve-out, `UsageError` guard when `tck.common.plugin` is loaded
+without a shim, `tests/common/test_version.py`, v2 tier-set cross-check, defect fixtures advertise
+`capabilities.session`). 186 passed. Deferred nits recorded in plan.md "Deferred nits".
 
 **Done (2026-09-21): slice V2-1b** (`cec6aea`) — v2 registry now 9 ids (INIT-001/003/201/202/203/204,
 SCHEMA-001, SESSION-001/002 gated on `capabilities.session`); v2 `_base.py` implements the 7-method baseline
