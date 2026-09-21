@@ -8,6 +8,9 @@ reference SDKs' *strict* v2 endpoints take (see `tck.v2.requirements`'s ACP-INIT
 FAILs exactly `ACP-INIT-202`. Every other `protocolVersion` this fixture is ever asked for in the
 suite is `PROTOCOL_VERSION` (2) or `65535`, both of which still hit the normal, correct
 negotiation path in `ConformingAgent._initialize_result`, so no other requirement is affected.
+
+Advertises `capabilities: {"session": {}}`, same as `conforming.py`, so `ACP-SESSION-001/002`
+PASS (session/new is otherwise unmodified and correct) instead of SKIPping "not advertised".
 """
 
 import sys
@@ -28,7 +31,7 @@ class V2OnlyErrorsOnV1Agent(ConformingAgent):
 
 
 def main() -> None:
-    V2OnlyErrorsOnV1Agent().run()
+    V2OnlyErrorsOnV1Agent(capabilities={"session": {}}).run()
 
 
 if __name__ == "__main__":

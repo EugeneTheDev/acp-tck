@@ -7,6 +7,9 @@ FAILs exactly `ACP-INIT-003` and `ACP-INIT-201`: both probe the unsupported-vers
 case and assert the response does not echo it back verbatim. Does NOT fail `ACP-INIT-202` (the
 downgrade probe, `protocolVersion: 1`): echoing `1` back is itself a valid answer to that probe
 (`1` is one of the two accepted values), so that assertion is unaffected by this defect.
+
+Advertises `capabilities: {"session": {}}`, same as `conforming.py`, so `ACP-SESSION-001/002`
+PASS (session/new is otherwise unmodified and correct) instead of SKIPping "not advertised".
 """
 
 import sys
@@ -29,7 +32,7 @@ class EchoesAnyVersionAgent(ConformingAgent):
 
 
 def main() -> None:
-    EchoesAnyVersionAgent().run()
+    EchoesAnyVersionAgent(capabilities={"session": {}}).run()
 
 
 if __name__ == "__main__":

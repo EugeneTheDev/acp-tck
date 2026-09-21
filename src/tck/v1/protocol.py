@@ -14,8 +14,8 @@ from typing import Any
 
 PROTOCOL_VERSION = 1
 """The ACP protocol version `tck.v1` speaks. Wire encoding is a bare JSON integer, not a
-version string (`.agents/research/acp-v1-protocol-surface.md` §2). `tck.v2` (once it exists)
-declares its own `PROTOCOL_VERSION` in `tck/v2/protocol.py` -- see `tck.common.version.VersionSpec`
+version string (`.agents/research/acp-v1-protocol-surface.md` §2). `tck.v2` declares its own
+`PROTOCOL_VERSION` in `tck/v2/protocol.py` -- see `tck.common.version.VersionSpec`
 for how the two coexist in one process without either module reading the other's constant.
 """
 

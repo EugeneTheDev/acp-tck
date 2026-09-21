@@ -114,7 +114,12 @@ src/tck/
                           `pytest_configure` to stash `tck.v1.SPEC` in
                           `config.stash[VERSION_SPEC_KEY]` before delegating to
                           `tck.common.plugin.pytest_configure`. Always load this shim, never
-                          `tck.common.plugin` directly (`-p tck.v1.plugin`).
+                          `tck.common.plugin` directly (`-p tck.v1.plugin`). Footgun: the copied
+                          functions keep `__globals__` pointing at `tck.common.plugin`'s own
+                          namespace, so only a function pytest resolves by name as a hook (like
+                          `pytest_configure`) can actually be overridden here -- redefining a
+                          plain helper such as `_build_report` in this shim would silently have
+                          no effect.
     schema/
       schema.json            vendored ACP v1 JSON Schema (verbatim, do not hand-edit)
       meta.json               vendored method-name tables (verbatim, do not hand-edit)
@@ -213,9 +218,11 @@ src/tck/
                           extensibility rule: a defined constant, or a string beginning with
                           `_`), method inventories derived from `meta.json`/`x-side`/`x-method`
                           like v1's -- plus `PROTOCOL_METHODS` (the bidirectional
-                          `$/cancel_request` notification) and `KNOWN_METHODS` (the union of
-                          all three), since v2's top-level schema has a third, side-agnostic
-                          `ProtocolLevel` branch v1 does not
+                          `$/cancel_request` notification, same as v1's own `PROTOCOL_METHODS`)
+                          and `KNOWN_METHODS` (the union of all three): a new convenience union
+                          v1 never needed, not a consequence of v2 having a branch v1 lacks --
+                          v1's schema has the same three top-level branches
+                          (`Agent`/`Client`/`ProtocolLevel`)
     requirements.py         `SPEC_REVISION`, `_DECLARATIONS`, `REGISTRY`, `get()` -- nine
                           requirements: `ACP-INIT-001` (reused from v1 -- "`initialize` succeeds"
                           is truly the same requirement, only the citation's spec location
@@ -950,9 +957,9 @@ envelopes -- `Agent`, `Client`, `ProtocolLevel` -- each split into `Request` / `
 `Notification` branches. Every method-specific params/response `$def` carries `x-side`
 (which side implements the method) and `x-method` (its wire name); `tck.v1.protocol` and
 `tck.v1.validation` derive their method-name tables from these annotations plus `meta.json`
-rather than hand-copying a table from docs, so a schema refresh mostly self-updates them. A
-future protocol version vendors its own schema under its own package (e.g. `src/tck/v2/schema/`)
-the same way.
+rather than hand-copying a table from docs, so a schema refresh mostly self-updates them.
+`tck.v2` vendors its own schema under its own package (`src/tck/v2/schema/`) the same way; a
+future v3 effort would do likewise.
 
 ## `tck.v1.protocol`
 
@@ -963,8 +970,8 @@ frozenset. Method inventories, all derived from `meta.json`/`schema.json` at imp
 `AGENT_METHODS` (client -> agent, requests and notifications), `CLIENT_METHODS` (agent ->
 client), `AGENT_NOTIFICATIONS` / `CLIENT_NOTIFICATIONS` (the notification-only subsets of each,
 cross-derived from `schema.json`'s `AgentNotification`/`ClientNotification` `$def`s since
-`meta.json` itself does not separate requests from notifications). A future protocol version
-gets its own `tck.v2.protocol` module built the same way (this module is not shared -- see
+`meta.json` itself does not separate requests from notifications). `tck.v2` has its own
+`tck.v2.protocol` module built the same way (this module is not shared -- see
 `src/tck/common/version.py`'s `VersionSpec`, which is how `tck.common.plugin` learns the active
 version's protocol number/schema revision without importing a specific version's module).
 
@@ -974,8 +981,8 @@ Validates JSON-RPC messages the **agent under test** writes to stdout against v1
 schema (never messages the TCK's own mock client writes -- there is no `validate_client_*`
 yet). `ValidationIssue(path, message, schema_path)` -- `path`/`schema_path` are JSON pointers;
 never raises, always returns issues. Duplicated per protocol version rather than shared (see
-`.agents/research/common-v1-v2-split-analysis.md` D6) -- a future `tck.v2.validation` is its own
-module, not a parametrization of this one.
+`.agents/research/common-v1-v2-split-analysis.md` D6) -- `tck.v2.validation` is its own module,
+not a parametrization of this one.
 
 - `validate_agent_message(msg: dict) -> list[ValidationIssue]` -- dispatches on shape: a
   request/notification (`method` present) is checked against that method's params schema; a
@@ -1007,9 +1014,11 @@ module, not a parametrization of this one.
 
 - Dependency management is `uv` only, with exact pins (`==`), never bare `pip` or hand-edited
   `pyproject.toml` dependency entries.
-- Only ACP **v1** is implemented today (`src/tck/v1/`); the codebase is structured
-  (`src/tck/common/` + one package per version) so a future v2 effort can add `src/tck/v2/`
-  without forking the harness, report model, or pytest plugin core -- see "Layout" above.
+- ACP **v1** (`src/tck/v1/`) is the default and complete suite; ACP **v2** (Draft, `src/tck/v2/`)
+  is a skeleton behind `--protocol-version 2`, growing slice by slice. The codebase is structured
+  (`src/tck/common/` + one package per version) so each version's package adds its own protocol/
+  validation/requirements/conformance modules without forking the harness, report model, or
+  pytest plugin core -- see "Layout" above.
 - `.agents/` is the orchestrator's workbench. `.agents/research/*.md` are read-only inputs --
   they are the specification this code implements; do not edit them.
 - Licensed under Apache-2.0 (`LICENSE`); `pyproject.toml`'s `license`/`license-files` (PEP 639) are the source of truth -- do not add a `License ::` classifier alongside them.

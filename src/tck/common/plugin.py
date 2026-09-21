@@ -174,6 +174,12 @@ def _build_launch(config: pytest.Config) -> AgentLaunch | None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
+    if VERSION_SPEC_KEY not in config.stash:
+        raise pytest.UsageError(
+            "tck.common.plugin is not usable alone; load a version's shim instead "
+            "(e.g. -p tck.v1.plugin or -p tck.v2.plugin), which stashes "
+            "config.stash[VERSION_SPEC_KEY] before delegating to this module's hooks."
+        )
     config.addinivalue_line(
         "markers",
         "requirement(*ids): bind this test to one or more ids in the active protocol "
@@ -296,6 +302,9 @@ def _tck_auth_method_context(request: pytest.FixtureRequest) -> Any:
     init_outcome: InitializeOutcome = request.getfixturevalue("agent_initialize_result")
     auth_methods = None
     if init_outcome.result is not None:
+        # "authMethods" is a v1-derived literal, but it is unchanged in v2's
+        # InitializeResponse too (root `authMethods`, schema.json @ 8f76d6c) -- safe to keep
+        # here rather than adding it to VersionSpec.
         candidate = init_outcome.result.get("authMethods")
         if isinstance(candidate, list):
             auth_methods = candidate
@@ -336,6 +345,8 @@ def agent_initialize_result(request: pytest.FixtureRequest) -> InitializeOutcome
     async def _run() -> InitializeOutcome:
         try:
             async with AgentProcess(launch) as agent:
+                # "initialize" is a v1-derived literal too, but the method name is unchanged
+                # in v2 as well (meta.json keeps "initialize") -- safe to keep here.
                 req_id = await agent.send_request("initialize", spec.initialize_params())
                 entry = await agent.wait_for_response(req_id, timeout=launch.startup_timeout)
         except (AgentTimeout, AgentExited, OSError) as exc:

@@ -13,6 +13,12 @@ stash (`pytest_collection_modifyitems`, `agent_initialize_result`, `pytest_sessi
 Always load this module, never `tck.common.plugin` directly (`-p tck.v2.plugin`, as done by the
 `acp-tck` CLI with `--protocol-version 2` and by hand when running `pytest src/tck/v2/conformance
 -p tck.v2.plugin ...`).
+
+Footgun: the copied functions keep `__globals__` pointing at `tck.common.plugin`'s own module
+namespace, so only a function pytest resolves *by name as a hook* (like `pytest_configure`
+above) can actually be overridden here. Redefining a helper such as `_build_report` in this
+module would silently have no effect -- every copied hook would still call
+`tck.common.plugin`'s original helper, not this module's.
 """
 
 from __future__ import annotations

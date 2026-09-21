@@ -23,10 +23,13 @@ checklist"):
    branch for custom/future variants (`StopReason`'s sibling concept, but for whole objects, not
    just enum strings -- see `tck.v2.protocol.is_valid_open_enum_value`). When `find_unknown_root_keys`
    is asked about a `def_name` that is itself such a union, and the given object's discriminator
-   value does not match any of the union's *named* branches (i.e. it is legitimately using the
-   open fallback), the check is skipped entirely (`[]`) rather than flagging the object's extra
-   fields as unknown -- the open branch exists precisely to allow fields the named branches never
-   declared.
+   is present and a `_`-prefixed string not matching any of the union's *named* branches' consts
+   (i.e. it is legitimately using the open fallback, per the same "custom values MUST begin with
+   `_`" rule `is_valid_open_enum_value` enforces), the check is skipped entirely (`[]`) rather
+   than flagging the object's extra fields as unknown. A missing/`null`/non-string/non-`_`-
+   prefixed discriminator does NOT count as the open fallback -- it falls through to the normal
+   allowed-root-properties comparison instead, so a malformed or illegal discriminator cannot
+   dodge the unknown-root-key check.
 """
 
 from __future__ import annotations
@@ -404,8 +407,13 @@ def _discriminator_property(named_branches: list[dict[str, Any]]) -> str | None:
 
 def _matches_open_fallback_branch(def_name: str, obj: dict[str, Any]) -> bool:
     """True iff `#/$defs/{def_name}` is a discriminated union with an `"other"`-titled fallback
-    branch, and `obj`'s discriminator value is not one of the union's named branches' `const`s --
-    i.e. `obj` is legitimately using the open fallback, not malformed."""
+    branch, and `obj` is *legitimately* using it: the discriminator is present and is a
+    `_`-prefixed string, per the same extensibility rule `is_valid_open_enum_value` enforces for
+    plain open enums (`.agents/plan.md` "v2 patches / open enums" -- custom discriminator values
+    MUST begin with `_`). A missing/`null` discriminator, a non-string/unhashable discriminator
+    value, or a non-`_`-prefixed unknown value is NOT the open fallback -- it falls through to
+    the normal allowed-root-properties comparison instead of being silently waved through.
+    """
     branches = load_schema()["$defs"].get(def_name, {}).get("anyOf")
     if not isinstance(branches, list):
         return False
@@ -420,7 +428,8 @@ def _matches_open_fallback_branch(def_name: str, obj: dict[str, Any]) -> bool:
         for branch in named_branches
         if "const" in branch.get("properties", {}).get(discriminator, {})
     }
-    return obj.get(discriminator) not in named_consts
+    value = obj.get(discriminator)
+    return isinstance(value, str) and value.startswith("_") and value not in named_consts
 
 
 def find_unknown_root_keys(def_name: str, obj: Any) -> list[str]:
@@ -471,9 +480,6 @@ def validate_agent_response(method: str, msg: Any) -> list[ValidationIssue]:
         ]
 
     issues = _validate_jsonrpc_field(msg) + validate_response_envelope(msg)
-
-    if "error" in msg and "result" not in msg:
-        return issues
 
     if "result" not in msg:
         return issues
