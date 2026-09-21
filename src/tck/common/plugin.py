@@ -392,6 +392,21 @@ def _tck_capability_gate(request: pytest.FixtureRequest) -> None:
         # failure of the requirement chain, not "not applicable" -- SKIPPED would let a broken
         # agent score falsely well on everything gated behind a capability.
         pytest.fail(f"cannot evaluate capability {path!r}: initialize failed: {outcome.error_message}", pytrace=False)
+    spec = request.config.stash[VERSION_SPEC_KEY]
+    negotiated = outcome.result.get("protocolVersion")
+    if negotiated != spec.protocol_version:
+        # The agent under test never actually negotiated this run's protocol version (e.g. a v1
+        # agent run with `--protocol-version 2`), so a capability path defined by that version's
+        # own `initialize`-result shape (e.g. v2's `capabilities.session`) cannot be meaningfully
+        # evaluated against whatever shape the agent actually returned -- skipping with the
+        # generic "not advertised" message would be misleading (it reads as "this agent doesn't
+        # support the feature", not "this agent doesn't speak this protocol version at all").
+        # `_VERSION_MISMATCH_MARKER` flags the run as `blocked_by_version_mismatch` instead of
+        # letting it score conformant on requirements that were never actually exercised.
+        pytest.skip(
+            f"{_VERSION_MISMATCH_MARKER} negotiated protocolVersion={negotiated!r}, expected "
+            f"{spec.protocol_version!r} -- capability {path!r} cannot be evaluated"
+        )
     if not capability_is_supported(outcome.result, path, boolean=boolean):
         pytest.skip(f"capability {path!r} not advertised by the agent under test")
 
@@ -581,6 +596,7 @@ def _agent_command(config: pytest.Config) -> list[str]:
 
 
 _AUTH_GATED_MARKER = "AUTH-GATED:"
+_VERSION_MISMATCH_MARKER = "VERSION-MISMATCH:"
 
 
 def _build_report(config: pytest.Config) -> Report:
@@ -588,11 +604,14 @@ def _build_report(config: pytest.Config) -> Report:
     states = config.stash.get(TEST_STATES_KEY, {})
     tests_by_req: dict[str, list[TestOutcome]] = {}
     blocked_by_auth = False
+    blocked_by_version_mismatch = False
     for nodeid, state in states.items():
         if state.status is None:
             continue  # no phase produced a verdict for this test (shouldn't normally happen)
         if state.status is Status.SKIPPED and _AUTH_GATED_MARKER in state.message:
             blocked_by_auth = True
+        if state.status is Status.SKIPPED and _VERSION_MISMATCH_MARKER in state.message:
+            blocked_by_version_mismatch = True
         outcome = TestOutcome(
             nodeid=nodeid,
             status=state.status,
@@ -606,7 +625,11 @@ def _build_report(config: pytest.Config) -> Report:
             tests_by_req.setdefault(req_id, []).append(outcome)
 
     results = build_requirement_results(tests_by_req, spec.registry)
-    verdict = compute_verdict(results, blocked_by_auth=blocked_by_auth)
+    verdict = compute_verdict(
+        results,
+        blocked_by_auth=blocked_by_auth,
+        blocked_by_version_mismatch=blocked_by_version_mismatch,
+    )
 
     init_outcome: InitializeOutcome | None = config.stash.get(AGENT_INIT_KEY, None)
     agent_info = None
@@ -723,6 +746,8 @@ def pytest_terminal_summary(
         reason = f"{n_fail} mandatory failures, {n_not_tested} not tested"
         if verdict.blocked_by_auth:
             reason += ", blocked by authentication"
+        if verdict.blocked_by_version_mismatch:
+            reason += ", blocked by version mismatch"
         terminalreporter.write_line(
             f"VERDICT: NOT CONFORMANT ({reason})",
             bold=True,
@@ -759,6 +784,16 @@ def pytest_terminal_summary(
                 "requires authentication before session/new and no --auth-method was given -- "
                 "pass --auth-method <id> (an id from initialize's authMethods) to test this "
                 "agent fully; the run cannot be scored CONFORMANT without it.",
+                bold=True,
+                yellow=True,
+            )
+        if verdict.blocked_by_version_mismatch:
+            terminalreporter.write_line(
+                "hint: one or more version-dependent tests were SKIPPED because this connection "
+                "did not negotiate the protocol version this run targets (initialize negotiated "
+                "down to a different version than --protocol-version requested) -- the agent "
+                "under test may simply not support this version; the run cannot be scored "
+                "CONFORMANT without a successful negotiation.",
                 bold=True,
                 yellow=True,
             )

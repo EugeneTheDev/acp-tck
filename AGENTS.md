@@ -15,9 +15,9 @@ same shape for ACP v2 (Draft): its own protocol constants, vendored schema, requ
 registry, schema validation, plugin shim, and conformance suite, sharing only the
 version-agnostic `common/` core with v1 -- nothing under `v2/` imports from `v1/` or vice versa.
 This split exists so `v2/` could be added without duplicating or forking the harness, report
-model, or plugin machinery. v2 support is currently a skeleton (only the `initialize` handshake
-is covered, gated behind `--protocol-version 2`; default remains v1) and is expected to grow in
-later slices. Everything below is v1-specific unless a section says otherwise.
+model, or plugin machinery. v2 support now covers the `initialize` handshake plus the
+`session/new` baseline (gated behind `--protocol-version 2`; default remains v1) and is expected
+to grow in later slices. Everything below is v1-specific unless a section says otherwise.
 
 Slices so far add an installable CLI (`acp-tck`), a requirement registry, a pytest plugin,
 transport/`initialize` conformance tests, mandatory session/prompt/cancel conformance tests, full
@@ -73,9 +73,16 @@ src/tck/
                           `current_auth_method_id()` accessor (mirrors `_ACTIVE_PROCESSES`),
                           set per-test by the autouse `_tck_auth_method_context` fixture from
                           `--tck-auth-method`; `_build_report()` scans skip messages for the
-                          literal `"AUTH-GATED:"` marker to compute `Verdict.blocked_by_auth`.
+                          literal `"AUTH-GATED:"` marker to compute `Verdict.blocked_by_auth`,
+                          and (V2-1b) for the literal `"VERSION-MISMATCH:"` marker to compute
+                          `Verdict.blocked_by_version_mismatch` -- emitted by
+                          `_tck_capability_gate` itself (not a per-version helper) whenever the
+                          cached `initialize` result's negotiated `protocolVersion` doesn't
+                          match the active `VersionSpec.protocol_version`, before it even checks
+                          whether the marked capability path is advertised.
     report.py              the report model: `Status`, `TestOutcome`, `RequirementResult`,
-                          `Verdict` (including `blocked_by_auth: bool`), `Report` -- pure data +
+                          `Verdict` (including `blocked_by_auth: bool` and, since V2-1b,
+                          `blocked_by_version_mismatch: bool`), `Report` -- pure data +
                           aggregation, no pytest dependency; `build_requirement_results(...)`
                           takes the active version's `registry` as an explicit argument
     harness/
@@ -180,16 +187,17 @@ src/tck/
                             handshake itself fails; the probed behaviour is silent in the spec
                             and real SDKs disagree; "silent" is concluded via a short
                             `quiet_period()`, never the full `--tck-timeout`)
-  v2/                     the ACP v2 (Draft) package -- skeleton slice: protocol constants,
-                          vendored schema, requirement registry, schema validation, the v2
-                          pytest plugin shim, and a two-requirement conformance suite covering
-                          only `initialize`. v2 is Draft (schema version `2.0.0-alpha.5` at the
-                          vendored pin) and expected to churn -- coverage here is intentionally
-                          minimal, a skeleton to build on in follow-up slices, not a v1-parity
-                          suite yet. Mirrors `v1/`'s shape but is its own, undiluted
-                          implementation -- nothing under `v2/` imports from `v1/`
-                          (`.agents/research/common-v1-v2-split-analysis.md` D6: honest
-                          duplication, not shared version-specific machinery).
+  v2/                     the ACP v2 (Draft) package: protocol constants, vendored schema,
+                          requirement registry, schema validation, the v2 pytest plugin shim,
+                          and a conformance suite covering the `initialize` handshake plus the
+                          `session/new` baseline (slice V2-1b). v2 is Draft (schema version
+                          `2.0.0-alpha.5` at the vendored pin) and expected to churn -- coverage
+                          here is still well short of v1 parity and expected to grow in
+                          follow-up slices (session lifecycle beyond `session/new`, the
+                          `session/prompt` turn/update lifecycle, auth, ...). Mirrors `v1/`'s
+                          shape but is its own, undiluted implementation -- nothing under `v2/`
+                          imports from `v1/` (`.agents/research/common-v1-v2-split-analysis.md`
+                          D6: honest duplication, not shared version-specific machinery).
     __init__.py             exports `SPEC` (`protocol_version=2`, this package's
                           `SCHEMA_REVISION`/`SCHEMA_DIR`/`REGISTRY`, an `initialize_params()`
                           returning v2's handshake params -- `{"protocolVersion", "info",
@@ -208,16 +216,41 @@ src/tck/
                           `$/cancel_request` notification) and `KNOWN_METHODS` (the union of
                           all three), since v2's top-level schema has a third, side-agnostic
                           `ProtocolLevel` branch v1 does not
-    requirements.py         `SPEC_REVISION`, `_DECLARATIONS`, `REGISTRY`, `get()` -- exactly two
-                          requirements so far: `ACP-INIT-001` (reused from v1 -- the "initialize
-                          succeeds and validates" check is truly the same requirement, only the
-                          citation's spec/schema locations change) and `ACP-INIT-201` (a new id,
-                          not `ACP-INIT-002`: v1's `ACP-INIT-002` text is a single-branch "v1
+    requirements.py         `SPEC_REVISION`, `_DECLARATIONS`, `REGISTRY`, `get()` -- nine
+                          requirements: `ACP-INIT-001` (reused from v1 -- "`initialize` succeeds"
+                          is truly the same requirement, only the citation's spec location
+                          changes; narrowed to *only* the non-error-result check, since judging
+                          a v1-shaped result against v2 schema rules would mischaracterize an
+                          honestly-negotiated-down agent as broken -- schema/shape validation
+                          moved entirely to `ACP-SCHEMA-001`), `ACP-INIT-201` (a new id, not
+                          `ACP-INIT-002`: v1's `ACP-INIT-002` text is a single-branch "v1
                           requested, v1 returned" equality that only makes sense for a v1-only
                           TCK, whereas v2's negotiation rule is a genuine two-branch "same
-                          version if supported, else the agent's own latest" rule -- see the
-                          module's docstring for the full id-namespacing reasoning, an instance
-                          of `.agents/plan.md` decision D3)
+                          version if supported, else the agent's own latest" rule), `ACP-INIT-003`
+                          (reused from v1 -- the unsupported-version-65535-still-succeeds rule is
+                          the same requirement re-cited to v2's case table row `N > M`),
+                          `ACP-INIT-202` (new id -- the `N < min(S)` downgrade-must-still-succeed
+                          case v1 has no counterpart for, since v1 has only one defined version)
+                          -- `ACP-INIT-001`/`003`/`201`/`202` all judge only the negotiation
+                          *outcome*, never the result's shape, so they are judged normally (PASS
+                          on an honest downgrade) regardless of the negotiated version;
+                          `ACP-INIT-203` (new id -- `info` is REQUIRED and well-formed, unlike
+                          v1's optional `agentInfo`), `ACP-INIT-204` (new id -- `capabilities`,
+                          when present, is an object whose known keys are themselves object
+                          markers, never booleans), `ACP-SCHEMA-001` (reused from v1 -- full
+                          agent-message schema validity, scoped this slice to the `initialize`
+                          exchange only) -- these three judge the result's v2-only *shape*, so
+                          each calls `_helpers.skip_if_version_mismatch(...)` explicitly and
+                          SKIPs with the `VERSION-MISMATCH:` marker whenever the agent negotiated
+                          down to a version other than 2, rather than FAILing an agent that
+                          simply doesn't speak v2 yet (see the module's "Version-mismatch-aware
+                          v2-shape rows" docstring section); `ACP-SESSION-001`/`ACP-SESSION-002`
+                          (reused from v1, but `Tier.CAPABILITY` here and gated on
+                          `capabilities.session` -- v1's session surface is unconditional, v2's
+                          is opt-in; version-mismatch-SKIPped too, via the generic
+                          `_tck_capability_gate` autouse fixture) -- see the module's docstring
+                          for the full id-namespacing reasoning, an instance of `.agents/plan.md`
+                          decision D3
     validation.py           schema validation for agent-authored JSON-RPC messages against v2's
                           vendored schema, mirroring `tck.v1.validation`'s API
                           (`validate_agent_message`/`validate_agent_response`/
@@ -242,16 +275,53 @@ src/tck/
     conformance/            the v2 conformance suite, shipped inside the wheel
       __init__.py
       conftest.py            intentionally empty, same reasoning as v1's
-      _helpers.py             `connected_agent()` only so far (no `new_session`/`run_prompt`
-                            yet -- this skeleton's two tests never touch `session/new` or
-                            `session/prompt`); auto-authenticates via v2's renamed `auth/login`
-                            (not v1's `authenticate`) when `--tck-auth-method` was given
-      test_initialize.py      ACP-INIT-001, ACP-INIT-201 -- the handshake succeeds and
-                            validates, and the two-branch version-negotiation rule holds
-                            (verified via two fresh processes: request `PROTOCOL_VERSION`, and
-                            request an absurd version `65535` no agent implements, to establish
-                            the agent's true own-latest-supported value as a reference point --
-                            same technique v1's `ACP-INIT-003` uses)
+      _helpers.py             `connected_agent()` plus `new_session()` (omits `mcpServers`
+                            entirely, unlike v1's `new_session` which sends an empty list --
+                            v2's `session/new` params require only `cwd`). No `run_prompt`/
+                            `skip_if_auth_gated`/`quiet_period`/`cancel_race_peek`/`PromptTurn`
+                            counterpart yet -- no test drives a full prompt turn this slice;
+                            `connected_agent` auto-authenticates via v2's renamed `auth/login`
+                            (not v1's `authenticate`) when `--tck-auth-method` was given.
+                            `skip_if_version_mismatch(init_result)` -- `pytest.skip`s with the
+                            `VERSION-MISMATCH: ...` marker unless `init_result`'s negotiated
+                            `protocolVersion` equals this suite's own `PROTOCOL_VERSION` (2);
+                            called explicitly (not via an autouse fixture) by every v2-shape
+                            test in `test_initialize.py` that has its own fresh process and
+                            therefore isn't covered by `_tck_capability_gate`'s inline check
+      test_initialize.py      ACP-INIT-001, ACP-INIT-003, ACP-INIT-201..204, ACP-SCHEMA-001 --
+                            `ACP-INIT-001` (`test_initialize_succeeds`) asserts only that
+                            `initialize` returns a non-error result; `ACP-INIT-003`/`ACP-INIT-201`/
+                            `ACP-INIT-202` verify the two-branch version-negotiation rule holds,
+                            the unsupported-version-65535 probe still succeeds, and a downgrade
+                            request (`protocolVersion: 1`) still succeeds (all verified via fresh
+                            processes: request `PROTOCOL_VERSION`, and request an absurd version
+                            `65535` no agent implements, to establish the agent's true
+                            own-latest-supported value as a reference point -- same technique
+                            v1's `ACP-INIT-003` uses) -- these four judge only the negotiation
+                            *outcome*, so they PASS normally even when the agent honestly
+                            negotiates down to a version other than 2; `ACP-INIT-203` (`info` is
+                            required and well-formed), `ACP-INIT-204` (`capabilities`'s known
+                            keys, if present, are objects not booleans), and `ACP-SCHEMA-001`
+                            (the whole `initialize` exchange validates against the v2 schema,
+                            scoped this slice to the `initialize` exchange only -- no
+                            `session/new`/`session/prompt` traffic yet, unlike v1's
+                            `ACP-SCHEMA-001` counterpart which drives a full turn) each judge the
+                            result's v2-only *shape*, so each calls
+                            `_helpers.skip_if_version_mismatch(msg["result"])` and SKIPs with the
+                            `VERSION-MISMATCH:` marker whenever the negotiated `protocolVersion`
+                            isn't 2 -- judging a v1-shaped result against v2 shape rules would
+                            mischaracterize an agent that simply doesn't speak v2 as broken
+      test_session.py         ACP-SESSION-001/002, both gated
+                            `@pytest.mark.capability("capabilities.session")`: `session/new`
+                            returns a non-empty string `sessionId` and its response validates
+                            against the v2 schema; two `session/new` calls on one connection
+                            return distinct ids. Note: the request-side `capabilities` field is
+                            typed `ClientCapabilities` (only `auth`/`elicitation` -- no
+                            `session` key at all), so unlike a naive v1-style
+                            `connected_agent(..., capabilities=...)` call, these tests rely
+                            solely on the marker to gate on the *agent's* advertised
+                            `capabilities.session` in its `initialize` *response*, independent
+                            of anything the client itself requests.
 
 tests/
   conftest.py              agent_launch() helper for spawning fixture agents under
@@ -270,20 +340,27 @@ tests/
                           `tck.v1.conformance` markers
     test_cli.py               end-to-end: run `python -m tck -- <fixture>` as a subprocess,
                             including `--report-json` output and exit codes
-  v2/                     unit tests specific to the v2 (Draft) package -- scaled down to this
-                          skeleton slice's two-requirement registry; a `tests/v2/__init__.py`
+  v2/                     unit tests specific to the v2 (Draft) package; a `tests/v2/__init__.py`
                           (empty) is required alongside this directory so pytest's import-mode
                           module naming (`v2.test_cli`, etc.) doesn't collide with `tests/v1/`'s
                           same-named modules
     test_validation.py      unit tests for `tck.v2.validation`'s three v2-specific behaviors:
                           batch root dispatch, no `null` special case for responses, and the
                           `find_unknown_root_keys` open-fallback carve-out
-    test_registry.py         `tck.v2.requirements.REGISTRY` invariants + two-way check against
-                          `tck.v2.conformance` markers
+    test_registry.py         `tck.v2.requirements.REGISTRY` invariants (all nine V2-1b ids) +
+                          two-way check against `tck.v2.conformance` markers
     test_cli.py               end-to-end: run `python -m tck --protocol-version 2 --
-                            <fixture>` as a subprocess, plus routing checks (`--help`, and that
-                            the default/`--protocol-version 1` path still runs the v1 suite
-                            unchanged)
+                            <fixture>` as a subprocess; routing checks (`--help`, and that the
+                            default/`--protocol-version 1` path still runs the v1 suite
+                            unchanged); the v2 conforming fixture PASSing every id; one test per
+                            defect fixture asserting its exact FAIL set; and the version-mismatch
+                            scenario (the v1 conforming fixture run under `--protocol-version 2`:
+                            the negotiation-outcome ids -- `ACP-INIT-001`/`003`/`201`/`202` -- PASS
+                            normally against the honestly-downgraded-to-`1` response, while every
+                            v2-shape id -- `ACP-INIT-203`/`204`, `ACP-SCHEMA-001`, and
+                            `ACP-SESSION-001`/`002` -- SKIPs with the `VERSION-MISMATCH:` marker;
+                            zero FAILs anywhere, yet `verdict.blocked_by_version_mismatch` is
+                            `true` and exit code is 1)
   fixtures/agents/v1/
     _base.py               shared ConformingAgent core (not a standalone script); optionally
                           takes a `capabilities` dict merged into `agentCapabilities`, and
@@ -401,11 +478,44 @@ tests/
     _base.py               a fresh, standalone `ConformingAgent` for v2 (does not import
                           `fixtures/agents/v1/_base.py` -- honest duplication, same reasoning as
                           `tck.v2.validation` not sharing code with `tck.v1.validation`);
-                          handles only `initialize` (honestly negotiates
-                          `protocolVersion`/`info`/`capabilities`) and `session/new` (unique
-                          `sess-NNNN` session id) -- this skeleton slice's two requirements never
-                          exercise anything past the handshake
-    conforming.py          trivial entry point, mirrors `fixtures/agents/v1/conforming.py`
+                          handles `initialize` (honestly negotiates
+                          `protocolVersion`/`info`/`capabilities`) and the full
+                          `capabilities.session` baseline (`.agents/research/
+                          acp-v2-session-management.md` B1: advertising `session`, even as `{}`,
+                          commits the agent to all of `session/new`, `session/list`,
+                          `session/resume`, `session/close`, `session/prompt`, `session/cancel`,
+                          `session/update`) -- `session/new` (unique `sess-NNNN` ids),
+                          `session/list` (filtered by `cwd`), `session/resume` (no replay, no
+                          history retained), `session/close` (forgets the session),
+                          `session/cancel` (no-op notification), and a minimal but
+                          wire-correct `session/prompt` turn (`{messageId}` receipt, then
+                          `user_message`/`state_update{running}`/`agent_message_chunk`/
+                          `state_update{idle, stopReason:"end_turn"}` updates). Only
+                          `session/new` is exercised by any test this slice
+                          (`ACP-SESSION-001/002`); the rest exists so a follow-up slice's
+                          session-capability/prompt-lifecycle tests have a conforming baseline
+                          to run against from day one.
+    conforming.py          advertises `capabilities: {"session": {}}` so `ACP-SESSION-001/002`
+                          PASS rather than SKIP; otherwise a trivial entry point, mirrors
+                          `fixtures/agents/v1/conforming.py`
+    echoes_any_version.py  echoes the client's requested `protocolVersion` verbatim, including
+                          for the unsupported 65535 request -- the v2 counterpart of v1's
+                          fixture of the same name; FAILs exactly `ACP-INIT-003`/`ACP-INIT-201`
+    v2_only_errors_on_v1.py  errors instead of answering `2` when asked for `protocolVersion: 1`
+                          -- FAILs exactly `ACP-INIT-202` (the `N < min(S)`
+                          downgrade-must-still-succeed rule)
+    missing_info.py        omits the required `info` field from the `initialize` result --
+                          FAILs `ACP-INIT-203` and `ACP-SCHEMA-001` only; `ACP-INIT-001` still
+                          PASSes (it asserts only a non-error result, never the result's shape)
+    boolean_session_capability.py  advertises `capabilities: {"session": true}` (a boolean
+                          instead of an object marker) -- FAILs `ACP-INIT-204` and
+                          `ACP-SCHEMA-001` only; `ACP-INIT-001` still PASSes (same reason);
+                          `ACP-SESSION-001/002` still PASS since the underlying `session/new`
+                          handler works fine and `capability_is_supported` treats `true` as
+                          advertised
+    duplicate_session_id.py  `session/new` always returns the same `sessionId` -- FAILs exactly
+                          the CAPABILITY `ACP-SESSION-002` (mirrors v1's fixture of the same
+                          name)
 ```
 
 ## Running the TCK against an agent
@@ -429,9 +539,25 @@ never exits on its own, a real agent under test should not normally need this ch
 
 `--protocol-version {1,2}` (default `1`) picks which protocol-version package's conformance
 suite and plugin shim to run: `1` -> `src/tck/v1/conformance` with `-p tck.v1.plugin` (unchanged
-default behavior), `2` -> `src/tck/v2/conformance` with `-p tck.v2.plugin`. v2 is Draft and this
-slice's registry is a skeleton (`ACP-INIT-001`, `ACP-INIT-201` -- `initialize` only); see
-`src/tck/v2/`'s entry in "Layout" above.
+default behavior), `2` -> `src/tck/v2/conformance` with `-p tck.v2.plugin`. v2 is Draft and its
+registry is still well short of v1 parity (`initialize` plus `session/new`, nine requirements --
+see `src/tck/v2/`'s entry in "Layout" above); it is expected to grow in follow-up slices.
+
+If the agent under test never actually negotiates the requested `--protocol-version` (e.g. a
+v1-only agent run under `--protocol-version 2`, which honestly negotiates down per the
+two-branch rule instead of erroring), every requirement that judges the *result's shape*
+against v2-only rules -- `ACP-INIT-203`/`ACP-INIT-204`/`ACP-SCHEMA-001`, plus any
+`@pytest.mark.capability(...)`-gated requirement such as `ACP-SESSION-001`/`002` -- SKIPs with a
+message prefixed `"VERSION-MISMATCH:"` instead of either passing or failing, because a v1-shaped
+result cannot be fairly judged against v2 shape rules: FAILing it would mischaracterize an agent
+that simply doesn't speak v2 as broken. The run is still forced NOT CONFORMANT
+(`Verdict.blocked_by_version_mismatch`) even though no MANDATORY/CAPABILITY requirement actually
+failed -- because those requirements were never actually exercised against the version this run
+targets. The requirements that judge only the negotiation *outcome* --  `ACP-INIT-001` (a
+non-error result), `ACP-INIT-003`/`ACP-INIT-201`/`ACP-INIT-202` (the two-branch rule itself,
+including the unsupported-version and downgrade cases) -- are never gated this way: they are
+judged normally against whatever the agent actually returned, and PASS on an honest downgrade,
+since they *are* what determines whether a mismatch occurred in the first place.
 
 ```
 uv run acp-tck --protocol-version 2 -- python tests/fixtures/agents/v2/conforming.py
@@ -628,22 +754,33 @@ the whole list capped at 400 entries -- first/last 200 with a gap marker in betw
 handshake/setup and the failure itself are almost always what matters and a chatty middle is
 safest to elide; review-slices-5-6.md S8) and `stderr` (truncated to the last 20 kB).
 
-`verdict` is `{"conformant": bool, "blocked_by_auth": bool, "tier_counts": {tier: {status:
-count}}}`. `conformant` is computed from `MANDATORY`- and `CAPABILITY`-tier requirements, plus
-`blocked_by_auth`: `true` iff no `MANDATORY` `FAIL`, no `MANDATORY` `NOT_TESTED`, no `CAPABILITY`
-`FAIL`, and not `blocked_by_auth`. A `CAPABILITY` `SKIPPED`/`NOT_TESTED` (not advertised, or
-simply never exercised) does not affect it -- only a *failed* capability check does, since the
-agent advertised it and it must then work. `ADVISORY`/`INFORMATIONAL` never affect it.
+`verdict` is `{"conformant": bool, "blocked_by_auth": bool, "blocked_by_version_mismatch": bool,
+"tier_counts": {tier: {status: count}}}`. `conformant` is computed from `MANDATORY`- and
+`CAPABILITY`-tier requirements, plus `blocked_by_auth`/`blocked_by_version_mismatch`: `true` iff
+no `MANDATORY` `FAIL`, no `MANDATORY` `NOT_TESTED`, no `CAPABILITY` `FAIL`, and neither flag is
+set. A `CAPABILITY` `SKIPPED`/`NOT_TESTED` (not advertised, or simply never exercised) does not
+affect it -- only a *failed* capability check does, since the agent advertised it and it must
+then work. `ADVISORY`/`INFORMATIONAL` never affect it.
 `blocked_by_auth` is `true` whenever any test was `SKIPPED` with a message containing the
 literal marker `"AUTH-GATED:"` (a substring match, not a prefix -- the recorded message is
 `str(report.longrepr)`, which for a skip wraps the reason in a `(path, lineno, "Skipped: ...")`
 repr, so a prefix check would never match; see `common/plugin.py`'s `_AUTH_GATED_MARKER` and
 review-slices-5-6.md N18) -- i.e. the agent requires authentication before `session/new` and no
 `--auth-method` was given, so session-dependent requirements were never actually exercised and
-the run cannot be honestly scored conformant regardless of how many other checks passed. See
-`src/tck/common/report.py` for the full model (`Status`, `TestOutcome`, `RequirementResult`,
-`Verdict`, `Report`) and `tests/common/test_report.py` for the aggregation rules exercised
-against synthetic data.
+the run cannot be honestly scored conformant regardless of how many other checks passed.
+`blocked_by_version_mismatch` (v2 only so far; always `false` for a v1 run) is `true` by the same
+substring-match mechanism against the marker `"VERSION-MISMATCH:"` -- emitted from two places:
+`_tck_capability_gate` (`common/plugin.py`) for capability-gated requirements (e.g.
+`ACP-SESSION-001`/`002`) whenever the cached `initialize` result's `protocolVersion` doesn't
+match this run's target, and `tck.v2.conformance._helpers.skip_if_version_mismatch(...)` for the
+v2-shape requirements in `test_initialize.py` (`ACP-INIT-203`/`204`/`ACP-SCHEMA-001`) that have
+their own fresh `initialize` call and so aren't covered by the capability-gate fixture. Either
+way the meaning is the same: the agent under test never actually negotiated the protocol version
+this run is checking, so any version-dependent requirement it would otherwise skip as "not
+advertised" is instead flagged as never having been meaningfully exercised at all. See
+`src/tck/common/report.py` for the full model (`Status`,
+`TestOutcome`, `RequirementResult`, `Verdict`, `Report`) and `tests/common/test_report.py` for
+the aggregation rules exercised against synthetic data.
 
 ## Harness API (`tck.common.harness`)
 

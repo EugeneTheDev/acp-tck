@@ -2,7 +2,9 @@
 """A conforming ACP v2 (Draft) fixture agent: deterministic, offline, stdlib only.
 
 See `_base.ConformingAgent` for the behavior. Mirrors `tests/fixtures/agents/v1/conforming.py`'s
-role as the harness's known-good baseline, for the v2 conformance suite.
+role as the harness's known-good baseline, for the v2 conformance suite. Advertises
+`capabilities: {"session": {}}` so every `capabilities.session`-gated test (`ACP-SESSION-001/002`
+this slice) actually runs and PASSes, rather than SKIPping.
 """
 
 import sys
@@ -14,7 +16,7 @@ from _base import ConformingAgent  # noqa: E402
 
 
 def main() -> None:
-    ConformingAgent().run()
+    ConformingAgent(capabilities={"session": {}}).run()
 
 
 if __name__ == "__main__":

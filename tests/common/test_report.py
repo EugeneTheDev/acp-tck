@@ -271,3 +271,39 @@ def test_report_verdict_is_not_conformant_when_a_registry_id_is_missing_a_record
     results = build_requirement_results({}, REGISTRY)  # nothing ran at all
     verdict = compute_verdict(results)
     assert verdict.conformant is False
+
+
+# --- blocked_by_version_mismatch ---
+
+
+def test_verdict_conformant_by_default_when_blocked_by_version_mismatch_not_set():
+    results = _fake_results({})
+    verdict = compute_verdict(results)
+    assert verdict.blocked_by_version_mismatch is False
+    assert verdict.conformant is True
+
+
+def test_verdict_not_conformant_when_blocked_by_version_mismatch_even_with_no_mandatory_failures():
+    """An agent that never actually negotiated the run's target protocol version (e.g. a v1-only
+    agent run under `--protocol-version 2`) can have every requirement PASS/SKIP cleanly and
+    still must not be scored CONFORMANT: the version-dependent requirements were never actually
+    exercised against that version."""
+    results = _fake_results({})
+    verdict = compute_verdict(results, blocked_by_version_mismatch=True)
+    assert verdict.conformant is False
+
+
+def test_verdict_to_dict_includes_blocked_by_version_mismatch():
+    results = _fake_results({})
+    verdict = compute_verdict(results, blocked_by_version_mismatch=True)
+    d = verdict.to_dict()
+    assert d["blocked_by_version_mismatch"] is True
+    assert d["conformant"] is False
+
+
+def test_verdict_blocked_by_auth_and_blocked_by_version_mismatch_are_independent():
+    results = _fake_results({})
+    verdict = compute_verdict(results, blocked_by_auth=True, blocked_by_version_mismatch=False)
+    assert verdict.blocked_by_auth is True
+    assert verdict.blocked_by_version_mismatch is False
+    assert verdict.conformant is False
