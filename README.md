@@ -8,15 +8,6 @@ A Test Compatibility Kit for the [Agent Client Protocol](https://agentclientprot
 and reports which requirements pass, fail, don't apply, or were never exercised.
 
 ## Install & run
-
-No install needed, via `uvx`:
-
-```
-uvx acp-tck -- <agent command> [agent args...]
-```
-
-Or from a checkout of this repo:
-
 ```
 uv run acp-tck -- <agent command> [agent args...]
 ```
