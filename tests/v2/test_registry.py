@@ -6,7 +6,8 @@ Slice V2-1b expanded the registry from the two-requirement `initialize`-handshak
 full `initialize`/`session/new` baseline covered so far. Slice V2-2a added the mock-client prompt
 driver's core prompt-turn requirements. Slice V2-2b added prompt content capabilities, the
 permission-request shape, the agent->client method rules, reused `ACP-PROMPT-003`, and two
-INFORMATIONAL prompt-lifecycle probes (see `tck.v2.requirements`'s module docstring for the
+INFORMATIONAL prompt-lifecycle probes. Slice V2-3 added cancellation, stdio transport, the
+JSON-RPC envelope, and batching (see `tck.v2.requirements`'s module docstring for the
 id-namespacing decisions).
 """
 
@@ -35,12 +36,16 @@ def test_ids_are_unique_and_well_formed():
         assert _ID_PATTERN.match(req_id), f"{req_id!r} does not match ACP-<AREA>-<NNN>"
 
 
-def test_registry_has_exactly_the_v2_2b_requirements():
+def test_registry_has_exactly_the_v2_3_requirements():
     """This slice's registry covers the `initialize` handshake, the `session/new` baseline,
-    (V2-2a) the mock-client prompt driver's core prompt-turn requirements, and (V2-2b) prompt
+    (V2-2a) the mock-client prompt driver's core prompt-turn requirements, (V2-2b) prompt
     content capabilities, the permission-request shape, the agent->client method rules, reused
-    `ACP-PROMPT-003`, and the two INFORMATIONAL prompt-lifecycle probes (see
-    `tck.v2.requirements`'s module docstring for the full id-namespacing rationale)."""
+    `ACP-PROMPT-003`, and the two INFORMATIONAL prompt-lifecycle probes, and (V2-3) cancellation
+    (`ACP-CANCEL-201..208`, `ACP-INFO-CANCEL-201/202`), stdio transport (`ACP-TRANSPORT-002`,
+    reused from v1; `ACP-TRANSPORT-201`/`203`, new/widened), the JSON-RPC envelope
+    (`ACP-JSONRPC-001..005`, all reused from v1 -- only the evidence-gathering probe widens to
+    cover batches), and batching (`ACP-BATCH-201..208`, `ACP-INFO-BATCH-201/202`) -- see
+    `tck.v2.requirements`'s module docstring for the full id-namespacing rationale."""
     assert set(REGISTRY) == {
         "ACP-INIT-001",
         "ACP-INIT-003",
@@ -64,8 +69,36 @@ def test_registry_has_exactly_the_v2_2b_requirements():
         "ACP-PERM-201",
         "ACP-CLIENTCAP-201",
         "ACP-CLIENTCAP-202",
-        "ACP-INFO-CONCURRENT-001",
+        "ACP-INFO-CONCURRENT-201",
         "ACP-INFO-UNKNOWNSESSION-001",
+        "ACP-TRANSPORT-201",
+        "ACP-TRANSPORT-002",
+        "ACP-TRANSPORT-203",
+        "ACP-JSONRPC-001",
+        "ACP-JSONRPC-002",
+        "ACP-JSONRPC-003",
+        "ACP-JSONRPC-004",
+        "ACP-JSONRPC-005",
+        "ACP-BATCH-201",
+        "ACP-BATCH-202",
+        "ACP-BATCH-203",
+        "ACP-BATCH-204",
+        "ACP-BATCH-205",
+        "ACP-BATCH-206",
+        "ACP-BATCH-207",
+        "ACP-BATCH-208",
+        "ACP-CANCEL-201",
+        "ACP-CANCEL-202",
+        "ACP-CANCEL-203",
+        "ACP-CANCEL-204",
+        "ACP-CANCEL-205",
+        "ACP-CANCEL-206",
+        "ACP-CANCEL-207",
+        "ACP-CANCEL-208",
+        "ACP-INFO-BATCH-201",
+        "ACP-INFO-BATCH-202",
+        "ACP-INFO-CANCEL-201",
+        "ACP-INFO-CANCEL-202",
     }
 
 
