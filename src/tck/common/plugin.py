@@ -612,8 +612,8 @@ def _build_report(config: pytest.Config) -> Report:
     agent_info = None
     agent_capabilities = None
     if init_outcome is not None and init_outcome.result is not None:
-        agent_info = init_outcome.result.get("agentInfo")
-        agent_capabilities = init_outcome.result.get("agentCapabilities")
+        agent_info = init_outcome.result.get(spec.agent_info_field)
+        agent_capabilities = init_outcome.result.get(spec.agent_capabilities_field)
 
     return Report(
         tck_version=current_tck_version(),

@@ -2,8 +2,9 @@
 
 [![CI](https://github.com/EugeneTheDev/acp-tck/actions/workflows/ci.yml/badge.svg)](https://github.com/EugeneTheDev/acp-tck/actions/workflows/ci.yml)
 
-A Test Compatibility Kit for the [Agent Client Protocol](https://agentclientprotocol.com) (ACP)
-**v1**. It launches an agent implementation as a stdio subprocess, drives it through the protocol
+A Test Compatibility Kit for the [Agent Client Protocol](https://agentclientprotocol.com) (ACP).
+Targets **v1** by default, with an opt-in, still-skeleton **v2** (Draft) suite via
+`--protocol-version 2`. It launches an agent implementation as a stdio subprocess, drives it through the protocol
 -- initialize, session lifecycle, prompt turns, cancellation, error handling, transport hygiene --
 and reports which requirements pass, fail, don't apply, or were never exercised.
 
@@ -23,6 +24,9 @@ process per test, so one crash can't cascade into unrelated failures.
 
 ## Options
 
+- `--protocol-version {1,2}` -- which protocol version's conformance suite to run (default 1).
+  `2` runs the ACP v2 (Draft) suite, which is currently a skeleton covering only `initialize`
+  (`ACP-INIT-001`, `ACP-INIT-201`) -- see `AGENTS.md`'s `src/tck/v2/` layout entry.
 - `--agent-cwd DIR` -- working directory for the agent (default: inherit).
 - `--agent-env KEY=VAL` -- environment variable overlaid on the agent's process; repeatable.
 - `--timeout S` -- per-response deadline in seconds (default 30).
@@ -102,16 +106,21 @@ completes and still writes a report). No agent command after `--` is a usage err
 
 ## Protocol scope
 
-ACP **v1 only** is implemented today (`PROTOCOL_VERSION = 1`, pinned in `tck.v1.protocol`) --
-the codebase is structured as a version-agnostic core plus one package per protocol version
-(`src/tck/common/` + `src/tck/v1/`, see `AGENTS.md`) so a future v2 effort does not require
-forking the harness, report model, or pytest plugin. Batch JSON-RPC arrays, pre-`initialize`
-request gating, and v2 prompt-lifecycle changes are all out of scope for now.
+ACP **v1** (`PROTOCOL_VERSION = 1`, pinned in `tck.v1.protocol`) is the default and by far the
+more complete suite -- the codebase is structured as a version-agnostic core plus one package
+per protocol version (`src/tck/common/` + `src/tck/v1/` + `src/tck/v2/`, see `AGENTS.md`) so
+each version's suite does not require forking the harness, report model, or pytest plugin.
 Capability-conditional coverage now includes `session/load`, `session/resume`, `session/list`,
 `session/delete`, `session/close`, `additionalDirectories`, session `modes`/`configOptions`,
 `promptCapabilities` (`image`/`audio`/`embeddedContext`), and the authentication surface
 (`authMethods`, `authenticate`, `logout`); MCP/terminal/fs capabilities are still to come -- see
 `AGENTS.md` for the current requirement registry and what's implemented so far.
+
+ACP **v2** (Draft, schema version `2.0.0-alpha.5` at the vendored pin) is available via
+`--protocol-version 2`, but is currently only a skeleton: `initialize` and version negotiation
+(`ACP-INIT-001`, `ACP-INIT-201`). Batch JSON-RPC arrays and v2's other prompt-lifecycle changes
+are validated at the schema level (`tck.v2.validation`) but have no dedicated conformance tests
+yet -- see `src/tck/v2/`'s entry in `AGENTS.md`'s "Layout" for exactly what's covered.
 
 Also covered: `MANDATORY` negative tests asserting the agent never calls `fs/*`, `terminal/*`, or
 `elicitation/create` during a prompt turn when the client didn't advertise the matching capability
