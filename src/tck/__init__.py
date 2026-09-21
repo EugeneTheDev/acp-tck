@@ -1,6 +1,7 @@
 """`acp-tck` console-script entry point: parses TCK options and runs the packaged conformance
-suite (`tck.conformance`) via pytest, loading `tck.plugin` explicitly (see `tck/plugin.py`'s
-module docstring for why it is not a `pytest11` auto-registered plugin).
+suite (`tck.v1.conformance`) via pytest, loading `tck.v1.plugin` explicitly (see
+`tck/common/plugin.py`'s module docstring for why it is not a `pytest11` auto-registered
+plugin).
 """
 
 from __future__ import annotations
@@ -105,12 +106,12 @@ def main(argv: list[str] | None = None) -> int:
     if not command:
         parser.error("no agent command given; pass it after `--`, e.g. `acp-tck -- python agent.py`")
 
-    conformance_dir = Path(__file__).parent / "conformance"
+    conformance_dir = Path(__file__).parent / "v1" / "conformance"
 
     pytest_args: list[str] = [
         str(conformance_dir),
         "-p",
-        "tck.plugin",
+        "tck.v1.plugin",
         "-p",
         "no:cacheprovider",
         "--rootdir",

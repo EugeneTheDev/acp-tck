@@ -1,7 +1,7 @@
 [project]
 name = "acp-tck"
 version = "0.1.0"
-description = "Test Compatibility Kit for Agent Client Protocol (ACP) v1 agents"
+description = "Test Compatibility Kit for Agent Client Protocol (ACP) agents"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "Apache-2.0"
@@ -28,6 +28,6 @@ module-name = "tck"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "requirement(*ids): bind a conformance test to one or more tck.requirements.REGISTRY ids.",
-    "capability(path): skip a conformance test unless the cached initialize result advertises this capability.",
+    "requirement(*ids): bind this test to one or more ids in the active protocol version's requirement registry (see the version's plugin shim, e.g. tck.v1.plugin).",
+    "capability(path, boolean=False): skip this test unless the cached initialize result advertises the capability at this dotted JSON path.",
 ]

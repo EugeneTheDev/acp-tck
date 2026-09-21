@@ -98,7 +98,7 @@ version. This is the deliberately **strengthened** assertion from
 strengthening": the previous, weaker test (success + integer type only) was a false negative
 against exactly this defect, which both independent SDKs exhibit. Expected, not a TCK bug —
 this FAIL is the correct outcome and is why the `--cancel-prompt`-driven cross-check is not
-overall CONFORMANT for either fixture; see `tests/fixtures/agents/echoes_any_version.py` for the
+overall CONFORMANT for either fixture; see `tests/fixtures/agents/v1/echoes_any_version.py` for the
 in-repo self-test of the same defect.
 
 Transcript (testy):

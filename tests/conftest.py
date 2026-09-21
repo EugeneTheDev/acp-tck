@@ -10,13 +10,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from tck.harness import AgentLaunch
+from tck.common.harness import AgentLaunch
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures" / "agents"
+FIXTURES_DIR = Path(__file__).parent / "fixtures" / "agents" / "v1"
 
 
 def agent_launch(script_name: str, **overrides: object) -> AgentLaunch:
-    """Build an `AgentLaunch` for `tests/fixtures/agents/<script_name>`, run with the same
+    """Build an `AgentLaunch` for `tests/fixtures/agents/v1/<script_name>`, run with the same
     interpreter pytest is running under."""
     kwargs: dict[str, object] = {
         "command": [sys.executable, str(FIXTURES_DIR / script_name)],
