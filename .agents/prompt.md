@@ -16,17 +16,40 @@ starts.
 
 ## Fixed constraints
 
-- **Protocol scope: ACP v1 only.** Target protocol version 1. v2 is explicitly out of scope and
-  will be addressed as separate work later. Do not design speculative abstractions for v2, and do
-  not let v2-only spec material or RFDs influence v1 test expectations. If a researcher finds that
-  a behavior differs between v1 and v2, the report must say so and the TCK follows v1. Keep the
-  version assumption visible where it matters (negotiation tests, version constants) so a later v2
-  effort can find it, but do not build for it now.
+- **Protocol scope: ACP v1 and v2, side by side.** v1 support already exists and is implemented and
+  verified (see `.agents/state.md`). This effort adds ACP v2 support without regressing v1. For
+  every slice that touches protocol behavior, start from a researcher's report on where v2 actually
+  differs from v1 for that specific slice (negotiation, schema, capabilities, methods, error
+  handling — whatever the slice covers). Never assume v1 behavior carries over unchanged to v2, and
+  never assume it diverges either — both are guesses; the researcher must check the v2 spec
+  material directly. A report that only restates v1 behavior without confirming it against v2
+  sources is incomplete.
+- **Package layout: `common` / `v1` / `v2`.** `src/tck/` has three root-level packages:
+  - `common/` — version-agnostic code: anything whose behavior does not depend on which protocol
+    version is in play (e.g. the transport-level harness, generic plugin/CLI/report machinery, if
+    and to the extent they truly have no version-specific branching).
+  - `v1/` — existing v1-specific code (requirements registry, protocol constants, vendored schema,
+    conformance tests), migrated into this package as needed.
+  - `v2/` — the new v2-specific counterparts.
+
+  Prefer sharing code via `common/` over duplicating it, but do not force a shared abstraction onto
+  behavior that is only superficially similar between v1 and v2 just to save a few lines. A small,
+  honest duplication that keeps each version's logic simple, independent, and easy to read is
+  better than a shared abstraction that has to branch internally on protocol version or grows
+  unclear generic parameters to accommodate both. When it's unclear whether a v1 and a v2 behavior
+  are really "the same requirement expressed twice" or only look alike, get a researcher's or
+  reviewer's read on it before committing to one factoring — this is an architecture judgment call,
+  not a default-to-DRY one.
 - **Language/stack:** Python, managed with `uv`. Target `requires-python = ">=3.14"` as declared in
   `pyproject.toml`. Test runner is `pytest`. Package source lives under `src/tck/`, console entry
-  point is `acp-tck = "tck:main"`.
-- **Repository:** work on `main` in `/Users/eugene/Documents/JetBrains/projects/acp-tck`, remote
-  `origin` = `git@github.com:EugeneTheDev/acp-tck.git`.
+  point is `acp-tck = "tck:main"` — whether/how it needs to route between v1 and v2 (auto-detect,
+  explicit flag, separate sub-commands) is part of the deliverable-shape research for this effort,
+  not an assumption to carry over from the v1-only CLI.
+- **Repository:** remote `origin` = `git@github.com:EugeneTheDev/acp-tck.git`. For the duration of
+  this effort, `v2-support` is the integration branch — treat it as "upstream" the same way `main`
+  normally would be, even though it is not yet merged into `main`. You (the orchestrator) are the
+  only one who touches `v2-support` directly; every programmer subagent works in its own
+  disposable sibling git worktree branched off `v2-support`. See "Git" below for the full workflow.
 - **Workbench:** `.agents/` holds the plan, research outputs, state, and any intermediate notes.
 
 # Your role: orchestrator
@@ -55,7 +78,7 @@ it yourself.
 
 ## Subagents
 
-Two agent definitions live in `.agents/agents/`:
+Two agent definitions live in `.codex/agents/`:
 
 | Agent        | Model               | Use for                                                                                                                           |
 |--------------|---------------------|-----------------------------------------------------------------------------------------------------------------------------------|
@@ -70,10 +93,19 @@ context it needs rather than pointing it at this whole file.
 - Multiple `researcher`s in parallel is encouraged — but give each a **disjoint** question and a
   **distinct** output file under `.agents/research/`. Never let two researchers investigate the
   same topic.
-- Run **one** `programmer` at a time. Two programmers editing the same tree will conflict. If you
-  genuinely have two independent implementation tracks, still serialize them unless the file sets
-  provably do not overlap.
+- Multiple `programmer`s in parallel is allowed, because each works in its own git worktree
+  (see "Git" below), not the shared checkout — but only when the tracks are **truly independent**
+  or **easy to reconcile**: disjoint file sets (e.g. one under `src/tck/v2/session/`, another under
+  `src/tck/v2/auth/`), or overlapping only in low-risk, mechanical ways (e.g. both add an entry to
+  the same registry list, both append to the same catalogue table) that a rebase resolves without
+  judgment calls. If two slices would touch the same logic, the same function, or require a shared
+  design decision, serialize them — spawn the second only after the first has been squash-merged
+  into `v2-support`. When unsure whether two tracks are independent enough, treat them as
+  dependent and serialize; a wasted parallel opportunity costs less than an ugly reconciliation.
 - Never spawn a programmer whose task depends on a research answer that has not landed yet.
+- When you do run programmers in parallel, expect their reports to arrive out of order. Merge them
+  into `v2-support` one at a time, in the order they report ready (see "Git" below) — never merge
+  two in a way that skips the conflict check for either.
 
 # The working loop
 
@@ -87,15 +119,21 @@ Iterate: **research → plan → implement → verify → record → commit**.
 3. **Plan.** Update `.agents/plan.md` with the next concrete, verifiable implementation slice.
    Keep slices small enough that one programmer can finish and verify one in a single run.
 4. **Implement.** Spawn a programmer with: the slice's goal, the relevant research findings
-   (inline or as `.agents/research/*.md` paths), the acceptance criteria, and the exact commands
-   to verify.
-5. **Verify.** The programmer must leave the suite green. Independently confirm by running
-   `uv run pytest` yourself — that plus the programmer's report is the normal verification, and a
-   report of success without a passing suite is a failed task; send it back. Check `git diff --stat`
-   to confirm the change touched the files you expected and nothing else. Read the actual diff only
-   in the genuinely tricky cases described above, not as a habit.
-6. **Record.** Update `.agents/state.md` (see below).
-7. **Commit and push.** See below.
+   (inline or as `.agents/research/*.md` paths), the acceptance criteria, the exact commands to
+   verify, the branch/worktree naming to use, and the current tip of `v2-support` to branch from.
+5. **Verify.** The programmer must leave the suite green in its own worktree and report the
+   worktree path, branch name, and verification output. Independently confirm by running
+   `uv run pytest` yourself from that worktree — that plus the programmer's report is the normal
+   verification, and a report of success without a passing suite is a failed task; send it back.
+   Check `git diff --stat <merge-base>...<branch>` to confirm the change touched the files you
+   expected and nothing else. Read the actual diff only in the genuinely tricky cases described
+   above, not as a habit.
+6. **Reconcile.** Check the branch for conflicts against the current tip of `v2-support` (see
+   "Git" below). If there are conflicts, send the programmer back to rebase and resolve them; if it
+   reports the conflicts are too complex, stop and decide yourself or escalate to research/the
+   user rather than forcing a resolution. Once clean, squash-merge into `v2-support`.
+7. **Record.** Update `.agents/state.md` (see below).
+8. **Commit and push.** See below.
 
 ## Escalation contract
 
@@ -135,19 +173,58 @@ Assume the session can be killed at any moment. If `state.md` is stale, the work
 
 # Git
 
-You are the only one who touches git — subagents never commit, push, or branch.
+You are the only one who touches the shared integration branch (`v2-support`) and the
+only one who merges. Each programmer subagent gets its own disposable git worktree and its own
+feature branch, and pushes only that feature branch — never `v2-support`, never `main`. This is
+what makes controlled parallelism (see "Parallelism rules" above) safe: no two subagents ever
+write to the same checkout.
 
-- Commit after each verified slice: suite green, `.agents/state.md` updated in the same commit.
-- Push to `origin main` after each commit. Do not let more than one verified slice sit unpushed.
-- Commit messages: imperative subject line under ~72 chars describing the change, plus a short body
-  when the *why* is not obvious from the subject. No filler, no subagent chatter.
-- Never force-push, never rewrite pushed history, never `git reset --hard` over uncommitted work
-  without asking the user.
+## Per-slice workflow
+
+1. **Assign.** When you spawn a programmer for an implementation slice, give it: a short kebab-case
+   slug for the branch/worktree (e.g. `feat-auth`), the current tip commit of `v2-support` to branch
+   from, and the sibling-directory convention: `../<repo-dir-name>-<slug>` (e.g.
+   `../acp-tck-2-feat-auth` from a checkout at `acp-tck-2`).
+2. **Programmer branches off.** It runs `git worktree add ../<repo-dir-name>-<slug> -b <slug>
+   v2-support` (or the exact tip commit you gave it, if `v2-support` may have moved since), and does
+   all its work — implementation, tests, verification — inside that worktree. It may commit freely
+   there (multiple WIP commits are fine; they get squashed at merge time).
+3. **Programmer rebases and reports.** Before reporting done, the programmer rebases its branch onto
+   the *current* tip of `v2-support`, re-runs the suite to confirm it's still green post-rebase,
+   pushes its feature branch to `origin` (for backup/visibility — this is the one push a programmer
+   is allowed to make, and only to its own branch, never to `v2-support` or `main`), then reports the
+   branch name, worktree path, and verification output, and waits.
+4. **You check for conflicts.** From your own checkout, fetch and check whether the feature branch
+   still applies cleanly against the current tip of `v2-support` (it may have moved further if other
+   work merged while the programmer worked). If there's a clean fast-forward/no-conflict merge,
+   proceed to step 5. If there are conflicts, send the programmer back to rebase onto the new tip and
+   resolve them, then repeat this step. If the programmer reports the conflicts are too complex to
+   resolve confidently, stop — do not force a resolution yourself as a matter of course; decide
+   whether to resolve it, replan the slice, or escalate to the user.
+5. **You squash-merge.** Once clean, squash-merge the feature branch into `v2-support` as a single
+   commit: imperative subject line under ~72 chars, plus a short body when the *why* isn't obvious
+   from the subject or when a follow-up is worth recording — no filler, no subagent chatter. Run
+   `uv run pytest` yourself on `v2-support` after the merge as a final check before pushing.
+6. **You push.** Push `v2-support` to `origin`. Do not let more than one verified, merged slice sit
+   unpushed.
+7. **You clean up.** Remove the programmer's worktree (`git worktree remove ...`) and delete the
+   now-merged feature branch (local and, if pushed, remote) once its commit is safely in
+   `v2-support` and pushed.
+
+`main` is untouched by any of this until this effort is ready to merge `v2-support` back into it —
+that merge (and its own conflict handling) is a separate, later EXPLICIT USER decision, not part of the per-slice
+loop above.
+
+- Never force-push, never rewrite already-pushed history on `v2-support` or `main`, never
+  `git reset --hard` over uncommitted work without asking the user.
+- If a worktree is left over from a killed/interrupted session, investigate before removing it — it
+  may hold a programmer's unreported, unpushed work.
 
 # Project documentation
 
-`AGENTS.md` (symlinked as `CLAUDE.md`) is currently empty. Keep it current as the project takes
-shape: how to run the TCK, how to run the tests, layout conventions, and anything a future agent
+`AGENTS.md` (symlinked as `CLAUDE.md`) is the contributor guide built up during the v1 effort. Keep
+it current as the project takes shape: how to run the TCK, how to run the tests, layout
+conventions (including the `common`/`v1`/`v2` split once it exists), and anything a future agent
 would otherwise have to rediscover. Update the `check-*` skill definitions in `.agents/skills/` too
 if their guidance drifts from how the project actually works. Delegate those edits to a
 `programmer` like any other file change.
@@ -160,4 +237,5 @@ if their guidance drifts from how the project actually works. Delegate those edi
   capability-conditional ones. Do not fail an agent for not implementing something optional.
 - The TCK's own test suite must cover the TCK: its assertions, its harness, and its handling of
   non-conforming agents.
-- Keep the suite green at all times on `main`.
+- Keep the suite green at all times on `v2-support` (every squash-merge lands with a passing
+  suite) and on `main` (untouched by this effort until `v2-support` is merged back).
