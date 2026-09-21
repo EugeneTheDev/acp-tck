@@ -46,6 +46,10 @@ against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude
   v1 conforming unchanged except the new always-false report field), diff-stat, merge, suite, push, cleanup.
   Then V2-2 (prompt lifecycle + driver) per plan.md.
 
+**Review landed:** `research/review-v2-slices-0-1a.md` — 0 BLOCKER / 8 SHOULD-FIX / 10 NIT; v1 behavior
+preserved, `common/` version-agnostic, vendored v2 schema byte-identical to spec @ 8f76d6c, both v2
+requirements falsifiable. Fix slice **V2-1c** scheduled after V2-1b (plan.md "v2 effort — slices").
+
 **Done (2026-09-21): slice V2-1a** (`1d795cc`) — `src/tck/v2/` skeleton: vendored schema @ 8f76d6c,
 `protocol.py` (incl. `protocolMethods`, `_`-prefix enum helper), batch-aware `validation.py`, registry
 (ACP-INIT-001 reused, ACP-INIT-201 new), `SPEC`, plugin shim, `conformance/{_helpers,test_initialize}.py`,
