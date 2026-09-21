@@ -3,8 +3,10 @@
 [![CI](https://github.com/EugeneTheDev/acp-tck/actions/workflows/ci.yml/badge.svg)](https://github.com/EugeneTheDev/acp-tck/actions/workflows/ci.yml)
 
 A Test Compatibility Kit for the [Agent Client Protocol](https://agentclientprotocol.com) (ACP).
-Targets **v1** by default, with an opt-in, still-skeleton **v2** (Draft) suite via
-`--protocol-version 2`. It launches an agent implementation as a stdio subprocess, drives it through the protocol
+Targets **v1** by default, with an opt-in **v2** (Draft) suite via `--protocol-version 2` that so
+far covers the `initialize` handshake, `session/new`, and the core `session/prompt`
+turn/`state_update` lifecycle -- still well short of v1 parity. It launches an agent
+implementation as a stdio subprocess, drives it through the protocol
 -- initialize, session lifecycle, prompt turns, cancellation, error handling, transport hygiene --
 and reports which requirements pass, fail, don't apply, or were never exercised.
 
@@ -25,8 +27,9 @@ process per test, so one crash can't cascade into unrelated failures.
 ## Options
 
 - `--protocol-version {1,2}` -- which protocol version's conformance suite to run (default 1).
-  `2` runs the ACP v2 (Draft) suite, which so far covers the `initialize` handshake plus the
-  `session/new` baseline -- see `AGENTS.md`'s `src/tck/v2/` layout entry. If the agent under
+  `2` runs the ACP v2 (Draft) suite, which so far covers the `initialize` handshake, the
+  `session/new` baseline, and the core `session/prompt` turn/`state_update` lifecycle -- see
+  `AGENTS.md`'s `src/tck/v2/` layout entry. If the agent under
   test never actually negotiates the requested version, version-dependent tests are `SKIPPED`
   with a `VERSION-MISMATCH` hint and the run is forced `NOT CONFORMANT`.
 - `--agent-cwd DIR` -- working directory for the agent (default: inherit).

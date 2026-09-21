@@ -5,7 +5,10 @@ requirement-summary table. Mirrors `tests/v1/test_cli.py`.
 Slice V2-1b expanded this from the skeleton's two routing checks to the full `initialize`/
 `session/new` baseline: the conforming fixture PASSing everything, one test per defect fixture
 asserting its exact FAIL set, and the version-mismatch scenario (a v1 fixture run under
-`--protocol-version 2`).
+`--protocol-version 2`). Slice V2-2a adds the mock-client prompt driver's own defect fixtures
+(`bad_stop_reason.py`, `vendor_stop_reason.py`, `no_running_update.py`,
+`no_idle_after_running.py`, `idle_before_running.py`, `echo_wrong_message_id.py`,
+`missing_message_id.py`, `update_wrong_session.py`).
 """
 
 from __future__ import annotations
@@ -29,7 +32,16 @@ _MANDATORY_IDS = {
     "ACP-INIT-204",
     "ACP-SCHEMA-001",
 }
-_CAPABILITY_IDS = {"ACP-SESSION-001", "ACP-SESSION-002"}
+_CAPABILITY_IDS = {
+    "ACP-SESSION-001",
+    "ACP-SESSION-002",
+    "ACP-PROMPT-205",
+    "ACP-PROMPT-201",
+    "ACP-PROMPT-203",
+    "ACP-STATE-201",
+    "ACP-STATE-202",
+    "ACP-STATE-203",
+}
 _ALL_IDS = _MANDATORY_IDS | _CAPABILITY_IDS
 
 _TABLE_ROW_RE = re.compile(r"^\s*(ACP-\S+)\s+(PASS|FAIL|SKIPPED|NOT TESTED)\b")
@@ -209,6 +221,122 @@ def test_duplicate_session_id_fails_session_002_only():
     assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
 
 
+# --- V2-2a: the prompt-turn defect fixtures ---
+
+
+def test_bad_stop_reason_fails_state_203_only():
+    result = _run_cli(FIXTURES_DIR_V2, "bad_stop_reason.py", protocol_version=2)
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-STATE-203"}, result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_vendor_stop_reason_passes_everything():
+    """Positive control for the `_`-prefix open-enum extensibility rule."""
+    result = _run_cli(FIXTURES_DIR_V2, "vendor_stop_reason.py", protocol_version=2)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    for req_id, status in statuses.items():
+        assert status == "PASS", f"{req_id} is {status}, expected PASS:\n{result.stdout}"
+    assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
+
+
+def test_no_running_update_fails_state_201_only():
+    result = _run_cli(FIXTURES_DIR_V2, "no_running_update.py", protocol_version=2)
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-STATE-201"}, result.stdout
+    assert statuses.get("ACP-STATE-202") == "SKIPPED", result.stdout
+    assert statuses.get("ACP-STATE-203") == "SKIPPED", result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_no_idle_after_running_fails_every_run_prompt_dependent_id():
+    """`no_idle_after_running.py` never sends a terminating idle: every test that drives a turn
+    through `run_prompt` independently hits `AgentTimeout` and FAILs. Uses a larger
+    `--timeout` than the other CLI self-tests (still small) so the cascade is deterministic and
+    the observed wall-clock time stays well within budget."""
+    result = _run_cli(
+        FIXTURES_DIR_V2, "no_idle_after_running.py", protocol_version=2, timeout="2"
+    )
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {
+        "ACP-PROMPT-205",
+        "ACP-PROMPT-201",
+        "ACP-PROMPT-203",
+        "ACP-SCHEMA-001",
+        "ACP-STATE-201",
+        "ACP-STATE-202",
+        "ACP-STATE-203",
+    }, result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_idle_before_running_passes_everything():
+    """`idle_before_running.py` sends a legal, unsolicited "session-ready" idle before any
+    `session/prompt` is ever issued -- must not be mistaken for a turn terminator."""
+    result = _run_cli(FIXTURES_DIR_V2, "idle_before_running.py", protocol_version=2)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    for req_id, status in statuses.items():
+        assert status == "PASS", f"{req_id} is {status}, expected PASS:\n{result.stdout}"
+    assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
+
+
+def test_echo_wrong_message_id_fails_prompt_203_only():
+    result = _run_cli(FIXTURES_DIR_V2, "echo_wrong_message_id.py", protocol_version=2)
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-PROMPT-203"}, result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_missing_message_id_fails_prompt_201_and_schema_001_and_skips_prompt_203():
+    result = _run_cli(FIXTURES_DIR_V2, "missing_message_id.py", protocol_version=2)
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-PROMPT-201", "ACP-SCHEMA-001"}, result.stdout
+    assert statuses.get("ACP-PROMPT-203") == "SKIPPED", result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_update_wrong_session_fails_every_run_prompt_dependent_id():
+    """`update_wrong_session.py` misattributes every `session/update` to `sessionId: "other"`:
+    the same cascade shape as `no_idle_after_running.py`, since `run_prompt` never recognizes a
+    matching terminating idle either."""
+    result = _run_cli(
+        FIXTURES_DIR_V2, "update_wrong_session.py", protocol_version=2, timeout="2"
+    )
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {
+        "ACP-PROMPT-205",
+        "ACP-PROMPT-201",
+        "ACP-PROMPT-203",
+        "ACP-SCHEMA-001",
+        "ACP-STATE-201",
+        "ACP-STATE-202",
+        "ACP-STATE-203",
+    }, result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
 # --- version mismatch: a v1 agent run under --protocol-version 2 ---
 
 # The negotiation rows (`ACP-INIT-001`/`003`/`201`/`202`) assert only on the negotiation
@@ -219,7 +347,7 @@ def test_duplicate_session_id_fails_session_002_only():
 # marker instead of FAILing (see `tck.v2.requirements`'s "Version-mismatch-aware v2-shape rows"
 # section).
 _NEGOTIATION_IDS = {"ACP-INIT-001", "ACP-INIT-003", "ACP-INIT-201", "ACP-INIT-202"}
-_VERSION_MISMATCH_SKIP_IDS = {"ACP-INIT-203", "ACP-INIT-204", "ACP-SCHEMA-001"} | _CAPABILITY_IDS
+_VERSION_MISMATCH_SKIP_IDS = (_MANDATORY_IDS | _CAPABILITY_IDS) - _NEGOTIATION_IDS
 assert _NEGOTIATION_IDS | _VERSION_MISMATCH_SKIP_IDS == _ALL_IDS
 
 
