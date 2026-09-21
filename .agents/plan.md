@@ -200,6 +200,17 @@ vendored revision must be re-checked before any release.
 - Neither reference exercises v2 patch/upsert surfaces (`testy` v2 emits no tool calls, single-chunk
   messages only) → the repo's own v2 defect fixtures are the only coverage; cross-check will SKIP these.
 
+### Version mismatch handling — decision (orchestrator, 2026-09-21, slice V2-1b)
+When the selected suite is vN and the agent honestly negotiates a different version (e.g. a v1-only agent
+answers `1` under `--protocol-version 2`), its `initialize` result is that other version's shape. Only the
+negotiation rows are judged (INIT-001 "got a result", INIT-003 `65535` probe, INIT-201, INIT-202); every
+result-shape row (INIT-203 `info`, INIT-204 markers, SCHEMA-001) and every session-dependent row SKIPs with
+a message starting `VERSION-MISMATCH: ` (`_helpers.skip_if_version_mismatch` for non-capability tests; the
+common capability gate emits it for capability-marked tests). `Verdict.blocked_by_version_mismatch` then
+forces NOT CONFORMANT (exit 1) with a hint to rerun with the negotiated version. Zero FAILs in that
+scenario — the agent is not broken, it does not speak the requested version. Symmetric v1-side use (v2-only
+agent under `--protocol-version 1`) is a later slice.
+
 ### v2 cancellation and batching — decisions (from `research/acp-v2-cancellation-and-batching.md`, spec 8f76d6c)
 - `session/cancel` is wire-identical to v1 (notification, `{sessionId}` + `_meta`). Confirmation moved to an
   idle `state_update` with `stopReason: "cancelled"` that the agent MUST send after aborting and flushing
