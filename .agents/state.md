@@ -1,7 +1,7 @@
 # State
 
-**Last updated:** 2026-09-21 (v2 effort, session 1 — V2-0…V2-2a merged+pushed; V2-2b in flight)
-**Last commit pushed:** `01d48de` on `v2-support` (V2-2a; 194 tests) — plus workbench commits on top
+**Last updated:** 2026-09-21 (v2 effort, session 1 — V2-0…V2-2b merged+pushed; V2-3 in flight)
+**Last commit pushed:** `0da54fb` on `v2-support` (V2-2b; 200 tests, 24 v2 ids) — plus workbench commits on top
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
@@ -38,14 +38,17 @@ against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude
 `testy-cross-check.md`, `upstream-issues.md` (internal drafts only, do not file).
 
 ## In flight
-- **V2-2b `v2-prompt-caps`** (worktree `../acp-tck-2-v2-prompt-caps`, off `01d48de`+): PROMPTCAP-001..003
-  re-gated on `capabilities.session.prompt.{image,audio,embeddedContext}`, PROMPT-003 (ADVISORY resource_link,
-  session-gated test), PERM-201 (permission request shape + turn continues after `selected`), CLIENTCAP-201
-  (elicitation unadvertised ⟹ never called), CLIENTCAP-202 (no agent→client method outside CLIENT_METHODS ∪
-  PROTOCOL_METHODS ∪ `_`-prefixed), the prompt-lifecycle report's INFORMATIONAL probes; fixtures incl.
-  `asks_permission.py`, `calls_elicitation_unadvertised.py`, `calls_fs_unadvertised.py`,
-  `calls_custom_method.py` (positive control); `conforming_full.py` v2 (all prompt caps). On report: verify,
-  merge, push, cleanup. Then **V2-3** (cancellation + transport/JSON-RPC/batching) per plan.md.
+- **V2-3 `v2-cancel-transport`** (worktree `../acp-tck-2-v2-cancel-transport`, off `0da54fb`+): CANCEL-20x
+  (race SKIP kept; cancel triggered on observed `running`; idle `stopReason: cancelled`; permission answered
+  `cancelled`), TRANSPORT (object OR non-empty array per line; UTF-8), JSONRPC re-cited batch-aware, BATCH-20x
+  (201/202 MANDATORY, per-entry -32600 ADVISORY), fixtures (`hangs_until_cancel`, cancel defects, batch
+  acceptance/positive-control, banner/utf8/garbage twins), rename `ACP-INFO-CONCURRENT-001`→`-201`. On report:
+  verify, merge, push, cleanup. Then **V2-4** (session management) per plan.md.
+
+**Done (2026-09-21): slice V2-2b** (`0da54fb`) — PROMPTCAP-001..003 re-gated, PROMPT-003 ADVISORY, PERM-201,
+CLIENTCAP-201/202, INFO-CONCURRENT-001 (id to be renamed 201 in V2-3), INFO-UNKNOWNSESSION-001; fixtures incl.
+`conforming_full.py` (v2 all-PASS), `asks_permission`, `calls_*`, `rejects_image_when_advertised`. 200 passed,
+suite ≈210 s. Registry: 24 ids.
 
 **Done (2026-09-21): slice V2-2a** (`01d48de`) — v2 `run_prompt`/`PromptTurn` driver (turn-end = idle with
 stopReason or after observed running; bounded waits; trailing-update peek), rows PROMPT-201/203/205,
