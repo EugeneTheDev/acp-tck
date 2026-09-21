@@ -1,7 +1,7 @@
 # State
 
-**Last updated:** 2026-09-21 (v2 effort, session 1 — V2-0…V2-1c merged+pushed; V2-2a prompt driver in flight)
-**Last commit pushed:** `75bc188` on `v2-support` (V2-1c; 186 tests) — plus workbench commits on top
+**Last updated:** 2026-09-21 (v2 effort, session 1 — V2-0…V2-2a merged+pushed; V2-2b in flight)
+**Last commit pushed:** `01d48de` on `v2-support` (V2-2a; 194 tests) — plus workbench commits on top
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
@@ -38,15 +38,19 @@ against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude
 `testy-cross-check.md`, `upstream-issues.md` (internal drafts only, do not file).
 
 ## In flight
-- **V2-2a `v2-prompt-driver`** (worktree `../acp-tck-2-v2-prompt-driver`, off `75bc188`+): v2 `run_prompt`
-  mock-client driver + core prompt-turn rows (PROMPT-20x response `{messageId}`, MSG-201 echo under same id,
-  STATE-201..203 running/idle/stopReason per plan.md "v2 prompt lifecycle — decisions" and "v2 patches /
-  open enums" (stopReason MANDATORY scoped to turn-ending idle; non-`_` unknown values FAIL), PROMPT-002
-  re-cited (update `sessionId`), schema validity of every update), fixtures (conforming prompt behaviour
-  already in `_base.py`; defect fixtures per id), `tests/v2/test_cli.py`. On report: verify, merge, push,
-  cleanup. Then **V2-2b**: PROMPTCAP-001..003 re-gated on `capabilities.session.prompt.*`, PROMPT-003
-  (ADVISORY resource_link), PERM-201, CLIENTCAP-201 (elicitation unadvertised) + CLIENTCAP-202 (no undefined
-  non-`_`/non-`$/` client methods), informational probes. Then V2-3 … V2-7 per plan.md.
+- **V2-2b `v2-prompt-caps`** (worktree `../acp-tck-2-v2-prompt-caps`, off `01d48de`+): PROMPTCAP-001..003
+  re-gated on `capabilities.session.prompt.{image,audio,embeddedContext}`, PROMPT-003 (ADVISORY resource_link,
+  session-gated test), PERM-201 (permission request shape + turn continues after `selected`), CLIENTCAP-201
+  (elicitation unadvertised ⟹ never called), CLIENTCAP-202 (no agent→client method outside CLIENT_METHODS ∪
+  PROTOCOL_METHODS ∪ `_`-prefixed), the prompt-lifecycle report's INFORMATIONAL probes; fixtures incl.
+  `asks_permission.py`, `calls_elicitation_unadvertised.py`, `calls_fs_unadvertised.py`,
+  `calls_custom_method.py` (positive control); `conforming_full.py` v2 (all prompt caps). On report: verify,
+  merge, push, cleanup. Then **V2-3** (cancellation + transport/JSON-RPC/batching) per plan.md.
+
+**Done (2026-09-21): slice V2-2a** (`01d48de`) — v2 `run_prompt`/`PromptTurn` driver (turn-end = idle with
+stopReason or after observed running; bounded waits; trailing-update peek), rows PROMPT-201/203/205,
+STATE-201/202/203 (all CAPABILITY on `capabilities.session` per plan.md tiering rule), 8 fixtures, SCHEMA-001
+validates a full turn. 194 passed. Registry: 15 ids.
 
 **Done (2026-09-21): slice V2-1c** (`75bc188`) — review fixes (README quick-start, docs accuracy, never-raise
 validators, tightened `other`-branch carve-out, `UsageError` guard when `tck.common.plugin` is loaded

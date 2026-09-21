@@ -211,6 +211,16 @@ forces NOT CONFORMANT (exit 1) with a hint to rerun with the negotiated version.
 scenario — the agent is not broken, it does not speak the requested version. Symmetric v1-side use (v2-only
 agent under `--protocol-version 1`) is a later slice.
 
+### v2 tiering rule for session-baseline rows (orchestrator, 2026-09-21, slice V2-2a)
+Every v2 requirement about a method in the `capabilities.session` baseline (`session/new|list|resume|close|
+prompt|cancel`, `session/update` during a turn) is `Tier.CAPABILITY` with `capability="capabilities.session"`
+— never MANDATORY with a test-level gate. Only `initialize`-level rows (INIT-*, SCHEMA-001's handshake part)
+are MANDATORY. A v1 MANDATORY row that becomes CAPABILITY-tier in v2 is a *changed* requirement under D3 and
+gets a 2xx id (e.g. v1 ACP-PROMPT-002 → v2 ACP-PROMPT-202).
+Turn-end predicate (driver): an idle `state_update` ends the turn iff it carries a `stopReason` or a prior
+`running` for the session was observed; an idle *with* `stopReason` but no prior `running` FAILs
+`ACP-STATE-201` (a stop reason means foreground work ended, so `running` was required — `:159`, `:348`).
+
 ### v2 cancellation and batching — decisions (from `research/acp-v2-cancellation-and-batching.md`, spec 8f76d6c)
 - `session/cancel` is wire-identical to v1 (notification, `{sessionId}` + `_meta`). Confirmation moved to an
   idle `state_update` with `stopReason: "cancelled"` that the agent MUST send after aborting and flushing
