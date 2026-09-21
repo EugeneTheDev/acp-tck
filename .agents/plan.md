@@ -240,6 +240,14 @@ Every slice: registry entries cite the named research report(s) (`path:line` @ s
   capabilities object markers), SCHEMA-001 v2, SESSION-001/002 minimal `session/new`; v2 fixture base
   `tests/fixtures/agents/v2/_base.py` + conforming + echo-any-version + v2-only-errors-on-v1 + missing-info;
   CLI `--protocol-version {1,2}` default 1. Inputs: negotiation, initialize/capabilities, SDK-status reports.
+- **V2-1c: review fixes** from `research/review-v2-slices-0-1a.md` (0 BLOCKER, 8 SHOULD-FIX, 10 NIT):
+  stale `README.md:19` quick-start command (fails today); four "v2 doesn't exist yet" statements in
+  `AGENTS.md`/`v1/protocol.py`; wrong rationale in `v2/protocol.py:139-143` + `AGENTS.md:207-210` (v1 schema
+  does have `ProtocolLevel`/`PROTOCOL_METHODS`); `is_valid_open_enum_value`/`find_unknown_root_keys` raise
+  `TypeError` on unhashable values (must never raise); `other`-branch carve-out swallows missing/`null`/
+  non-`_` discriminators; test for the `agent_info_field`/`agent_capabilities_field` mechanism; v2 twin of
+  the tier-set cross-check. Skip whatever V2-1b already delivered (defect fixtures). NITs: apply the cheap
+  ones, list the rest under "Deferred" below. Serialized after V2-1b.
 - **V2-2: prompt lifecycle + mock driver.** `_helpers.run_prompt` v2 (turn-end predicate = idle for the
   session after the `{messageId}` response; bounded waits per report table; answers request_permission /
   elicitation per advertised caps; serializes prompts). Rows: PROMPT-20x, STATE-20x (202 scoped to observed
