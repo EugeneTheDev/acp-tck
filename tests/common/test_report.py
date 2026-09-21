@@ -1,6 +1,6 @@
 """Unit tests for `tck.common.report`: aggregation rules over synthetic `TestOutcome`s, the verdict
 rule, and `Report.to_dict()`'s JSON round-trip -- no pytest-plugin machinery involved (that is
-covered end-to-end by `tests/test_cli.py`).
+covered end-to-end by `tests/v1/test_cli.py`/`tests/v2/test_cli.py`).
 """
 
 from __future__ import annotations

@@ -64,10 +64,14 @@ def is_valid_open_enum_value(value: Any, defined: frozenset[str]) -> bool:
     (reserved for implementation-specific extensions). Any other value -- including a
     non-`_`-prefixed string the schema's own open `"other"` fallback branch would otherwise
     accept -- is reserved for future ACP variants and is not legal for *this* agent to emit.
+
+    Never raises, even for an unhashable agent-supplied `value` (a `list`/`dict`): the
+    `isinstance` check runs before any membership test against `defined`, which would otherwise
+    raise `TypeError` for `value in defined` on an unhashable `value`.
     """
-    if value in defined:
-        return True
-    return isinstance(value, str) and value.startswith("_")
+    if not isinstance(value, str):
+        return False
+    return value in defined or value.startswith("_")
 
 
 @lru_cache(maxsize=1)
@@ -137,7 +141,7 @@ CLIENT_NOTIFICATIONS: frozenset[str] = _notification_methods("AgentNotification"
 `elicitation/complete`)."""
 
 KNOWN_METHODS: frozenset[str] = AGENT_METHODS | CLIENT_METHODS | PROTOCOL_METHODS
-"""The full "known method" union across all three inventories -- v2-only addition (not present
-in `tck.v1.protocol`): v2's top-level schema has a third, bidirectional `ProtocolLevel` branch
-(`$/cancel_request`) that is neither agent- nor client- specific, so a generic "is this a
-recognized wire method" check needs all three sets, not just `AGENT_METHODS | CLIENT_METHODS`."""
+"""The full "known method" union across all three inventories. v1's schema has the same three
+top-level branches (`Agent`/`Client`/`ProtocolLevel`) and `tck.v1.protocol` already defines its
+own `PROTOCOL_METHODS`; `KNOWN_METHODS` itself is simply a new convenience union v1 never
+needed, not a consequence of v2 having a branch v1 lacks."""

@@ -81,6 +81,25 @@ def test_v2_conforming_agent_passes_everything():
     assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
 
 
+def test_v2_report_json_reads_the_v2_shaped_initialize_result(tmp_path):
+    """review-v2-slices-0-1a.md finding 7: `--report-json` for a real v2 run must carry
+    `protocol_version == 2` and read `agent_info`/`agent_capabilities` from the v2-renamed
+    `info`/`capabilities` keys (`tck.common.version.VersionSpec.agent_info_field`/
+    `agent_capabilities_field` -- see `tests/common/test_version.py` for the mechanism itself in
+    isolation)."""
+    report_path = tmp_path / "report.json"
+    result = _run_cli(
+        FIXTURES_DIR_V2, "conforming.py", protocol_version=2, report_json=str(report_path)
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    report = json.loads(report_path.read_text())
+    assert report["protocol_version"] == 2
+    assert report["agent_info"] == {"name": "tck-fixture-conforming-v2", "version": "0.0.0"}
+    assert report["agent_capabilities"] == {"session": {}}
+    assert report["verdict"]["conformant"] is True
+
+
 def test_v2_missing_agent_command_is_an_error():
     result = subprocess.run(
         [sys.executable, "-m", "tck", "--protocol-version", "2"],
@@ -112,25 +131,32 @@ def test_explicit_protocol_version_1_matches_the_default():
 def test_echoes_any_version_fails_init_003_and_201_only():
     """`echoes_any_version.py` echoes the client's requested `protocolVersion` verbatim,
     including the unsupported `65535` probe -- fails the strengthened `ACP-INIT-003` (must not
-    echo `65535`) and `ACP-INIT-201` (the two-branch negotiation rule)."""
+    echo `65535`) and `ACP-INIT-201` (the two-branch negotiation rule). It advertises
+    `capabilities: {"session": {}}` like `conforming.py` (review-v2-slices-0-1a.md finding/item
+    3), so `ACP-SESSION-001/002` PASS -- `session/new` itself is unmodified and correct."""
     result = _run_cli(FIXTURES_DIR_V2, "echoes_any_version.py", protocol_version=2)
     assert result.returncode != 0
 
     statuses = _table_statuses(result.stdout)
     fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
     assert fails == {"ACP-INIT-003", "ACP-INIT-201"}, result.stdout
+    assert statuses.get("ACP-SESSION-001") == "PASS", result.stdout
+    assert statuses.get("ACP-SESSION-002") == "PASS", result.stdout
     assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
 
 
 def test_v2_only_errors_on_v1_fails_init_202_only():
     """`v2_only_errors_on_v1.py` errors instead of answering `2` when asked for `1` -- fails only
-    `ACP-INIT-202` (the `N < min(S)` downgrade-must-still-succeed rule)."""
+    `ACP-INIT-202` (the `N < min(S)` downgrade-must-still-succeed rule). It advertises
+    `capabilities: {"session": {}}` like `conforming.py`, so `ACP-SESSION-001/002` PASS."""
     result = _run_cli(FIXTURES_DIR_V2, "v2_only_errors_on_v1.py", protocol_version=2)
     assert result.returncode != 0
 
     statuses = _table_statuses(result.stdout)
     fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
     assert fails == {"ACP-INIT-202"}, result.stdout
+    assert statuses.get("ACP-SESSION-001") == "PASS", result.stdout
+    assert statuses.get("ACP-SESSION-002") == "PASS", result.stdout
     assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
 
 
@@ -138,7 +164,8 @@ def test_missing_info_fails_init_203_and_schema_001_only():
     """`missing_info.py` omits the required `info` field entirely -- fails `ACP-INIT-203` (`info`
     is REQUIRED in v2) and `ACP-SCHEMA-001` (the same missing-required-property schema
     violation). `ACP-INIT-001` still PASSes: it only asserts `initialize` returned a non-error
-    result (this fixture still does), never the result's shape."""
+    result (this fixture still does), never the result's shape. It advertises
+    `capabilities: {"session": {}}` like `conforming.py`, so `ACP-SESSION-001/002` PASS."""
     result = _run_cli(FIXTURES_DIR_V2, "missing_info.py", protocol_version=2)
     assert result.returncode != 0
 
@@ -146,6 +173,8 @@ def test_missing_info_fails_init_203_and_schema_001_only():
     fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
     assert fails == {"ACP-INIT-203", "ACP-SCHEMA-001"}, result.stdout
     assert statuses.get("ACP-INIT-001") == "PASS", result.stdout
+    assert statuses.get("ACP-SESSION-001") == "PASS", result.stdout
+    assert statuses.get("ACP-SESSION-002") == "PASS", result.stdout
     assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
 
 

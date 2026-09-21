@@ -16,7 +16,7 @@ uv run acp-tck -- <agent command> [agent args...]
 For example, against the bundled self-test fixture:
 
 ```
-uv run acp-tck -- python tests/fixtures/agents/conforming.py
+uv run acp-tck -- python tests/fixtures/agents/v1/conforming.py
 ```
 
 Everything after `--` is the agent's own command line, launched as a stdio subprocess -- a fresh
@@ -123,9 +123,9 @@ Capability-conditional coverage now includes `session/load`, `session/resume`, `
 
 ACP **v2** (Draft, schema version `2.0.0-alpha.5` at the vendored pin) is available via
 `--protocol-version 2`, but is currently only a skeleton: `initialize` and version negotiation
-(`ACP-INIT-001`, `ACP-INIT-201`). Batch JSON-RPC arrays and v2's other prompt-lifecycle changes
-are validated at the schema level (`tck.v2.validation`) but have no dedicated conformance tests
-yet -- see `src/tck/v2/`'s entry in `AGENTS.md`'s "Layout" for exactly what's covered.
+(`ACP-INIT-001`, `ACP-INIT-201`). `tck.v2.validation` already understands batch JSON-RPC arrays
+and v2's other prompt-lifecycle message shapes, but no v2 conformance test exercises them yet --
+see `src/tck/v2/`'s entry in `AGENTS.md`'s "Layout" for exactly what's covered.
 
 Also covered: `MANDATORY` negative tests asserting the agent never calls `fs/*`, `terminal/*`, or
 `elicitation/create` during a prompt turn when the client didn't advertise the matching capability

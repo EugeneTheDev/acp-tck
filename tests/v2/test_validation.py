@@ -92,3 +92,55 @@ def test_unknown_key_on_a_plain_object_def_is_still_flagged():
     assert find_unknown_root_keys("InitializeResponse", {"protocolVersion": 2, "bogus": True}) == [
         "bogus"
     ]
+
+
+# --- review-v2-slices-0-1a.md finding 5: the open-fallback carve-out must not swallow a
+# missing/null/non-`_`-prefixed discriminator -- each of these must fall through to the normal
+# allowed-root-properties comparison instead of being waved through as "legitimately open" ---
+
+
+def test_missing_discriminator_falls_through_to_normal_check():
+    assert find_unknown_root_keys("AuthMethod", {"methodId": "m1", "bogus": True}) == ["bogus"]
+
+
+def test_null_discriminator_falls_through_to_normal_check():
+    assert find_unknown_root_keys("AuthMethod", {"type": None, "bogus": True}) == ["bogus"]
+
+
+def test_non_underscore_unknown_discriminator_falls_through_and_is_flagged():
+    """`.agents/plan.md` "v2 patches / open enums": a non-`_`-prefixed unknown discriminator
+    value is illegal, not a legitimate use of the open fallback -- it must not dodge the
+    unknown-root-key check the way a `_`-prefixed value legitimately does."""
+    assert find_unknown_root_keys("AuthMethod", {"type": "something_else", "bogus": True}) == [
+        "bogus"
+    ]
+
+
+# --- review-v2-slices-0-1a.md finding 4: neither helper may raise on an unhashable agent-
+# supplied value (a list or dict where a string was expected) ---
+
+
+def test_find_unknown_root_keys_never_raises_on_a_list_discriminator_value():
+    assert find_unknown_root_keys("AuthMethod", {"type": ["x"], "bogus": True}) == ["bogus"]
+
+
+def test_find_unknown_root_keys_never_raises_on_a_dict_discriminator_value():
+    assert find_unknown_root_keys("AuthMethod", {"type": {"nested": True}, "bogus": True}) == [
+        "bogus"
+    ]
+
+
+def test_find_unknown_root_keys_never_raises_on_a_none_obj():
+    assert find_unknown_root_keys("AuthMethod", None) == []
+
+
+def test_is_valid_open_enum_value_never_raises_on_a_list_value():
+    assert protocol.is_valid_open_enum_value([], protocol.STOP_REASONS) is False
+
+
+def test_is_valid_open_enum_value_never_raises_on_a_dict_value():
+    assert protocol.is_valid_open_enum_value({}, protocol.STOP_REASONS) is False
+
+
+def test_is_valid_open_enum_value_never_raises_on_a_none_value():
+    assert protocol.is_valid_open_enum_value(None, protocol.STOP_REASONS) is False

@@ -8,6 +8,9 @@ whose `InitializeResponse` lists `info` in `required`. Does NOT cascade into `AC
 that row only asserts `initialize` returned a non-error result (this fixture still does), never
 the result's shape -- schema/shape validation lives in `ACP-SCHEMA-001` alone.
 `ACP-INIT-201/202/003/204` are unaffected: none of them inspect `info`.
+
+Advertises `capabilities: {"session": {}}`, same as `conforming.py`, so `ACP-SESSION-001/002`
+PASS (session/new is otherwise unmodified and correct) instead of SKIPping "not advertised".
 """
 
 import sys
@@ -30,7 +33,7 @@ class MissingInfoAgent(ConformingAgent):
 
 
 def main() -> None:
-    MissingInfoAgent().run()
+    MissingInfoAgent(capabilities={"session": {}}).run()
 
 
 if __name__ == "__main__":

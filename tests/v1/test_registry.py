@@ -104,7 +104,7 @@ def test_every_registry_id_is_referenced_by_at_least_one_test():
 
 
 def test_cli_selftest_tier_sets_match_the_registry():
-    """N10 (review-slices-7.md): `tests/test_cli.py` hand-maintains four id sets
+    """N10 (review-slices-7.md): `tests/v1/test_cli.py` hand-maintains four id sets
     (`_MANDATORY_IDS`/`_ADVISORY_IDS`/`_INFORMATIONAL_IDS`/`_CAPABILITY_IDS`) that must mirror
     `REGISTRY`'s own `Tier` field exactly -- this caught the AUTH-001/AUTH-003 retiering
     silently going stale in `test_cli.py` when `requirements.py`'s tier changed. Deriving the
