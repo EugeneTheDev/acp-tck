@@ -142,13 +142,18 @@ class ConformingAgent:
         # result{messageId} -> user_message -> state_update{running} -> agent_message_chunk ->
         # state_update{idle, stopReason:"end_turn"}. The response is an acceptance receipt only
         # (no `stopReason`) -- P7/§2.
+        #
+        # Slice V2-2a splits this into small overridable steps (`_reply_to_prompt`,
+        # `_send_user_message_update`, `_send_running_update`, `_stop_reason`,
+        # `_send_idle_update`) purely so single-defect fixtures under `tests/fixtures/agents/v2/`
+        # can override exactly one step -- `ConformingAgent`'s own behavior here is unchanged.
         session_id = params.get("sessionId")
         self._message_count += 1
         message_id = f"msg-{self._message_count:04d}"
-        self._reply(msg_id, {"messageId": message_id})
+        self._reply_to_prompt(msg_id, message_id)
         prompt = params.get("prompt") or []
-        self._send_update(session_id, {"sessionUpdate": "user_message", "messageId": message_id, "content": prompt})
-        self._send_update(session_id, {"sessionUpdate": "state_update", "state": "running"})
+        self._send_user_message_update(session_id, message_id, prompt)
+        self._send_running_update(session_id)
         self._message_count += 1
         reply_message_id = f"msg-{self._message_count:04d}"
         self._send_update(
@@ -159,9 +164,28 @@ class ConformingAgent:
                 "content": {"type": "text", "text": "ok"},
             },
         )
+        self._send_idle_update(session_id, self._stop_reason())
+
+    def _reply_to_prompt(self, msg_id: Any, message_id: str) -> None:
+        self._reply(msg_id, {"messageId": message_id})
+
+    def _send_user_message_update(self, session_id: Any, message_id: str, prompt: Any) -> None:
         self._send_update(
-            session_id, {"sessionUpdate": "state_update", "state": "idle", "stopReason": "end_turn"}
+            session_id,
+            {"sessionUpdate": "user_message", "messageId": message_id, "content": prompt},
         )
+
+    def _send_running_update(self, session_id: Any) -> None:
+        self._send_update(session_id, {"sessionUpdate": "state_update", "state": "running"})
+
+    def _stop_reason(self) -> str:
+        return "end_turn"
+
+    def _send_idle_update(self, session_id: Any, stop_reason: str | None) -> None:
+        update: dict[str, Any] = {"sessionUpdate": "state_update", "state": "idle"}
+        if stop_reason is not None:
+            update["stopReason"] = stop_reason
+        self._send_update(session_id, update)
 
     def _send_update(self, session_id: Any, update: dict[str, Any]) -> None:
         self._notify("session/update", {"sessionId": session_id, "update": update})

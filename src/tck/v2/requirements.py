@@ -99,6 +99,87 @@ be called explicitly instead.
   opt-in), whereas v1 registers them `Tier.MANDATORY` -- this is fine because v1 and v2 keep
   fully separate `REGISTRY` dicts (`.agents/plan.md` D1), so the same id string can carry a
   different tier in each without conflict.
+
+## V2-2a additions: the mock-client prompt driver and the core prompt-turn requirements
+
+All six rows below are `Tier.CAPABILITY`, `capability="capabilities.session"` -- **not**
+`Tier.MANDATORY` (corrected after review; see `.agents/plan.md` "v2 initialize / capabilities /
+baseline -- decisions" and `acp-v2-initialize-capabilities-baseline.md`). In v2 only
+`initialize` itself is unconditionally required; `session/prompt` is part of the seven-method
+baseline (`session/new`, `session/list`, `session/resume`, `session/close`, `session/prompt`,
+`session/cancel`, `session/update`) an agent commits to by advertising `capabilities.session` at
+all, exactly like `ACP-SESSION-001`/`002` above -- a MANDATORY row that legitimately SKIPs for
+every non-session agent would misrepresent the tier in the summary table. Each still carries the
+test's own `@pytest.mark.capability("capabilities.session")` marker (the normal, and now
+tier-consistent, way `tck.common.plugin._tck_capability_gate` wires a CAPABILITY row's SKIP
+behavior -- see `ACP-SESSION-001`/`002`).
+
+- `ACP-PROMPT-205` (new id, **not** a reuse of v1's `ACP-PROMPT-002`): "every `session/update`
+  the agent emits validates against the schema and carries the prompted `sessionId`" is the same
+  requirement *text* v1's `ACP-PROMPT-002` names, re-cited to v2's `session/update` envelope
+  (`UpdateSessionNotification`, required `sessionId`+`update`) and the 17-variant `SessionUpdate`
+  union, per `.agents/research/acp-v2-prompt-lifecycle.md` requirement U1 and its own suggested
+  table row -- but the *tier* differs (v1: `Tier.MANDATORY`; v2: `Tier.CAPABILITY`, since v2's
+  session surface is opt-in and v1's is not), and D3's reuse rule is about the whole requirement,
+  tier included, not text alone. A changed tier is a changed requirement, so this needed a fresh
+  2xx id rather than reusing `ACP-PROMPT-002`; picked `205` specifically to avoid colliding with
+  the research report's own already-reserved `ACP-PROMPT-202` (acceptance-before-idle ordering)
+  and `ACP-PROMPT-204` (distinct `messageId`s across turns), both still out of scope below.
+  Vacuous pass if the agent emits no updates during the turn.
+- `ACP-PROMPT-201` (new): the `session/prompt` response is an object with a non-empty string
+  `messageId` -- the acceptance-receipt shape that replaces v1's turn-result response entirely
+  (no `stopReason` here at all; that moved to `ACP-STATE-203`). Research table row
+  `ACP-PROMPT-201`.
+- `ACP-PROMPT-203` (new): the agent echoes the inserted user message -- a `user_message` update
+  (with `content`) or at least one `user_message_chunk` update -- carrying the **same**
+  `messageId` as the `session/prompt` response, for the prompted session. Research table row
+  `ACP-PROMPT-203` (`ACP-PROMPT-202`, the response-before-idle ordering row, and `ACP-PROMPT-204`,
+  the distinct-`messageId`s-across-turns row, are both out of this slice's explicit task list --
+  left for a follow-up).
+- `ACP-STATE-201` (new): if a turn-ending idle `state_update` (one carrying a `stopReason`) is
+  observed for the prompted session, a `state_update {state: "running"}` for that session must
+  have been observed *earlier in the same turn*. Gated on the idle, not on `running` itself:
+  SKIPPED as "no turn-ending idle observed" only when the turn never reached a stop-reason-
+  bearing idle at all (e.g. it timed out first, or ended on a bare idle with no `stopReason`); a
+  turn whose idle *does* carry a `stopReason` but was never preceded by `running` is exactly the
+  defect this row exists to catch, and FAILs -- this SKIP gate is deliberately *not* the same as
+  `ACP-STATE-202`/`ACP-STATE-203` below, whose own gate is `running` not being observed (research
+  table row `ACP-STATE-201`: "Vacuous if no stop-reason-bearing idle was seen (then
+  `ACP-STATE-203` reports it)"; `.agents/plan.md` "v2 prompt lifecycle -- decisions"; inference
+  §4 point 3). This SKIP is layered on top of, not instead of, the `capabilities.session` gate:
+  a non-session agent SKIPs via the capability marker before ever reaching this row's own
+  "no turn-ending idle observed" logic.
+- `ACP-STATE-202` (new): after an accepted prompt for a session that *did* show `running`, an
+  idle `state_update` for that session arrives within the turn's `--timeout` budget. Asserted
+  only when `running` was observed; SKIPPED as "no foreground work observed" otherwise --
+  `.agents/plan.md`: "assert only when `running` was observed; a turn that never shows `running`
+  is recorded (property) and SKIPped ... the spec does not say whether a zero-work prompt must
+  emit idle (open upstream question, do not guess)." Research table row `ACP-STATE-202`.
+- `ACP-STATE-203` (new): the idle `state_update` that terminates an *observed* `running` turn
+  carries a `stopReason`, and that value is one of the five defined constants or begins with `_`
+  (`tck.v2.protocol.is_valid_open_enum_value`). `.agents/plan.md`'s explicit tier-resolution
+  decision for the MUST-prose-vs-optional-schema conflict on presence
+  (`.agents/research/acp-v2-patches-enums-extensibility.md`): "MANDATORY [construed as: normally
+  required once the capability applies -- see the CAPABILITY-tier correction above], scoped to
+  the idle that terminates an observed `running` turn; an unscoped 'every idle has a stopReason'
+  check is forbidden." Folds in the separate value-legality check the prompt-lifecycle report
+  lists as its own `ACP-STATE-204` row -- this slice's task list asked for one combined
+  "turn-ending idle carries a *valid* `stopReason`" row, not two; a future slice may still split
+  presence and value-legality into separate ids if a defect fixture needs the more precise
+  diagnostic. SKIPPED as "no foreground work observed" (same gate as `ACP-STATE-202`) whenever
+  `running` was never observed.
+
+Deliberately **not** added this slice (left for V2-2b or later, per the task's explicit scope):
+`ACP-PROMPT-202` (acceptance-before-idle ordering, ADVISORY/race-skipped), `ACP-PROMPT-204`
+(distinct `messageId`s across turns), `ACP-PROMPT-003` (text+resource_link baseline, ADVISORY),
+`ACP-STATE-204`/`ACP-STATE-205` (as separate ids -- `204`'s content is folded into
+`ACP-STATE-203` above; `205`, `state` value legality, has no fixture/test driving it yet),
+`ACP-STATE-206`/`ACP-STATE-207` (permission-driven state transitions; post-idle update
+recording), `ACP-MSG-201` (already fully covered by `ACP-PROMPT-205`'s schema validation -- the
+research report itself says "keep a separate id only for report legibility", which this slice
+declines), `ACP-PROMPTCAP-001..003`, `ACP-CLIENTCAP-201`, `ACP-PERM-201`, and the
+INFORMATIONAL rows (`ACP-INFO-V2CONCURRENT-001`, `ACP-INFO-UNKNOWNSESSION-001`,
+`ACP-INFO-V2UNKNOWNUPDATE-001`).
 """
 
 from __future__ import annotations
@@ -241,6 +322,113 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         text="Two `session/new` calls on one connection return distinct `sessionId`s.",
         citation=_cite("docs/protocol/v2/session-setup.mdx:69,306; schema/v2/schema.json:597"),
         source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-PROMPT-205",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "Every `session/update` notification the agent emits during a `session/prompt` "
+            "turn validates against the v2 schema and carries the prompted `sessionId`. "
+            "Vacuous pass if the agent emits no updates during the turn. NOT a reuse of v1's "
+            "`ACP-PROMPT-002` under D3: the requirement text is the same schema/sessionId "
+            "check, but the *tier* differs -- v1 registers it `Tier.MANDATORY` (v1's whole "
+            "session surface is unconditional), whereas v2's `session/prompt` only exists once "
+            "the agent has advertised the optional `capabilities.session` at all, exactly like "
+            "`ACP-SESSION-001`/`002` above, so this row is `Tier.CAPABILITY`. A changed tier is "
+            "a changed requirement under D3's reuse rule, so this gets a fresh 2xx id "
+            "(`ACP-PROMPT-205`, not the already-reserved `ACP-PROMPT-202`/`204` -- see the "
+            "research report's own id table) instead of reusing `ACP-PROMPT-002`."
+        ),
+        citation=_cite(
+            "schema/v2/schema.json:4269 (UpdateSessionNotification, required "
+            "[\"sessionId\",\"update\"]), :4300 (SessionUpdate union)"
+        ),
+        source_report="acp-v2-prompt-lifecycle.md",
+    ),
+    Requirement(
+        id="ACP-PROMPT-201",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "The `session/prompt` result is a non-error object carrying a non-empty string "
+            "`messageId` -- the acceptance receipt sent at insertion time, not a turn result "
+            "(there is no `stopReason` here at all in v2)."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/prompt-lifecycle.mdx:124-127; schema/v2/schema.json:4097 "
+            "(PromptResponse, required [\"messageId\"]), :4120 (MessageId = string)"
+        ),
+        source_report="acp-v2-prompt-lifecycle.md",
+    ),
+    Requirement(
+        id="ACP-PROMPT-203",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "The agent reports the inserted user message via a `user_message` update or at "
+            "least one `user_message_chunk` update, carrying the same `messageId` as the "
+            "`session/prompt` response, for the prompted session -- before or after the "
+            "response, no later than the turn-ending idle."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/prompt-lifecycle.mdx:129; docs/protocol/v2/migration.mdx:261; "
+            "schema/v2/schema.json:4767 (UserMessage), :4738 (ContentChunk)"
+        ),
+        source_report="acp-v2-prompt-lifecycle.md",
+    ),
+    Requirement(
+        id="ACP-STATE-201",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "If a turn-ending idle `state_update` (one carrying a `stopReason`) is observed "
+            "for the prompted session, a `state_update {state: \"running\"}` for that session "
+            "was observed earlier in the same turn. SKIPPED as 'no turn-ending idle observed' "
+            "only when the turn never reached a stop-reason-bearing idle at all -- unlike "
+            "`ACP-STATE-202`/`ACP-STATE-203`, this row's SKIP gate is the idle, not `running`; "
+            "a turn-ending idle with no preceding `running` FAILs this row rather than "
+            "SKIPping it."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/prompt-lifecycle.mdx:159,348 (inference); "
+            "docs/protocol/v2/migration.mdx:278"
+        ),
+        source_report="acp-v2-prompt-lifecycle.md",
+    ),
+    Requirement(
+        id="ACP-STATE-202",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "After an accepted prompt for a session that showed `state_update "
+            "{state: \"running\"}`, an idle `state_update` for that session arrives within the "
+            "turn's timeout budget. Asserted only when `running` was observed; SKIPPED as 'no "
+            "foreground work observed' otherwise."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/prompt-lifecycle.mdx:348; docs/protocol/v2/migration.mdx:282"
+        ),
+        source_report="acp-v2-prompt-lifecycle.md",
+    ),
+    Requirement(
+        id="ACP-STATE-203",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "The idle `state_update` that terminates an observed `running` turn carries a "
+            "`stopReason`, and its value is one of the five defined constants (`end_turn`, "
+            "`max_tokens`, `max_turn_requests`, `refusal`, `cancelled`) or begins with `_`. "
+            "CAPABILITY (gated on `capabilities.session`), scoped to the idle that terminates "
+            "an observed `running` turn -- an unscoped 'every idle has a stopReason' check is "
+            "forbidden. SKIPPED as 'no foreground work observed' (same gate as "
+            "`ACP-STATE-202`) when `running` was never observed."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/prompt-lifecycle.mdx:348,464-481; schema/v2/schema.json:4904 "
+            "(IdleStateUpdate), :4869 (StopReason); docs/protocol/v2/extensibility.mdx:113-118"
+        ),
+        source_report="acp-v2-patches-enums-extensibility.md",
     ),
 )
 

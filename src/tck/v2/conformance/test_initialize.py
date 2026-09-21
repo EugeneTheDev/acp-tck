@@ -13,7 +13,7 @@ from tck.v2.validation import validate_agent_message, validate_agent_response
 
 import pytest
 
-from ._helpers import connected_agent, skip_if_version_mismatch
+from ._helpers import connected_agent, new_session, run_prompt, skip_if_version_mismatch
 
 
 @pytest.mark.requirement("ACP-INIT-001")
@@ -254,12 +254,20 @@ async def test_capabilities_markers_are_objects_not_booleans(agent_launch):
 
 
 @pytest.mark.requirement("ACP-SCHEMA-001")
-async def test_initialize_exchange_validates_against_schema(agent_launch):
-    """ACP-SCHEMA-001, scoped this slice to the `initialize` exchange only (no
-    `session/new`/`session/prompt` traffic yet -- v1's counterpart drives a full turn; v2's will
-    be extended the same way once the v2 prompt driver exists). Mirrors
-    `tck.v1.conformance.test_initialize.test_full_exchange_validates_against_schema`'s technique:
-    `method_by_id` is derived by scanning the SENT transcript rather than threaded by hand.
+async def test_initialize_exchange_validates_against_schema(agent_launch, tmp_path):
+    """ACP-SCHEMA-001. Slice V2-2a extends this from the `initialize` exchange alone to also
+    drive a `session/new` + `session/prompt` turn on the same connection, once the v2 mock-
+    client prompt driver exists (mirrors `tck.v1.conformance.test_initialize
+    .test_full_exchange_validates_against_schema`'s "full exchange" scope). `method_by_id` is
+    derived by scanning the SENT transcript rather than threaded by hand, so it picks up
+    `session/new`/`session/prompt` alongside `initialize` for free.
+
+    The session/prompt-turn portion only runs when the negotiated result actually advertises
+    `capabilities.session` (an object marker, checked manually here rather than via
+    `@pytest.mark.capability(...)` -- this test manages its own connection instead of sharing
+    the marker-gated `agent_initialize_result` fixture) -- an agent that never advertises
+    `session` support has no `session/new`/`session/prompt` traffic to validate at all, and this
+    row still validates whatever the bare `initialize` exchange produced.
 
     Validating against the *v2* schema is itself a v2-only shape requirement -- a v1-shaped
     result (`agentInfo` instead of `info`, etc.) from an agent that honestly negotiated down to
@@ -278,6 +286,16 @@ async def test_initialize_exchange_validates_against_schema(agent_launch):
             f"initialize did not return a result object: {entry.text!r}"
         )
         skip_if_version_mismatch(msg["result"])
+
+        capabilities = msg["result"].get("capabilities")
+        if isinstance(capabilities, dict) and capabilities.get("session") is not None:
+            session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
+            await run_prompt(
+                agent,
+                session_id,
+                [{"type": "text", "text": "hi"}],
+                timeout=agent_launch.default_timeout,
+            )
 
     method_by_id: dict[Any, str] = {}
     for entry in agent.transcript:

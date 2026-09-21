@@ -3,8 +3,9 @@ every `@pytest.mark.requirement(...)` used under `src/tck/v2/conformance/` (impo
 and inspect `pytestmark` directly -- no grep). Mirrors `tests/v1/test_registry.py`.
 
 Slice V2-1b expanded the registry from the two-requirement `initialize`-handshake skeleton to the
-full `initialize`/`session/new` baseline covered so far (see `tck.v2.requirements`'s module
-docstring for the id-namespacing decisions).
+full `initialize`/`session/new` baseline covered so far. Slice V2-2a added the mock-client prompt
+driver's core prompt-turn requirements (see `tck.v2.requirements`'s module docstring for the
+id-namespacing decisions).
 """
 
 from __future__ import annotations
@@ -32,9 +33,10 @@ def test_ids_are_unique_and_well_formed():
         assert _ID_PATTERN.match(req_id), f"{req_id!r} does not match ACP-<AREA>-<NNN>"
 
 
-def test_registry_has_exactly_the_v2_1b_requirements():
-    """This slice's registry covers the `initialize` handshake plus the `session/new` baseline
-    (see `tck.v2.requirements`'s module docstring for the full id-namespacing rationale)."""
+def test_registry_has_exactly_the_v2_2a_requirements():
+    """This slice's registry covers the `initialize` handshake, the `session/new` baseline, and
+    (V2-2a) the mock-client prompt driver's core prompt-turn requirements (see
+    `tck.v2.requirements`'s module docstring for the full id-namespacing rationale)."""
     assert set(REGISTRY) == {
         "ACP-INIT-001",
         "ACP-INIT-003",
@@ -45,6 +47,12 @@ def test_registry_has_exactly_the_v2_1b_requirements():
         "ACP-SCHEMA-001",
         "ACP-SESSION-001",
         "ACP-SESSION-002",
+        "ACP-PROMPT-205",
+        "ACP-PROMPT-201",
+        "ACP-PROMPT-203",
+        "ACP-STATE-201",
+        "ACP-STATE-202",
+        "ACP-STATE-203",
     }
 
 
