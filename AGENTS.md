@@ -10,10 +10,14 @@ The codebase is split into a version-agnostic core and one package per protocol 
 `src/tck/common/` (harness, report model, requirement-tier vocabulary, the pytest plugin's
 version-agnostic core, and the `VersionSpec` glue between them) and `src/tck/v1/` (ACP v1's
 protocol constants, vendored schema, requirement registry, schema validation, the v1 pytest
-plugin shim, and the v1 conformance suite itself -- see "Layout" below). Today only v1 exists;
-this split exists so a future `src/tck/v2/` can be added without duplicating or forking the
-harness, report model, or plugin machinery. Everything below is v1-specific unless a section
-says otherwise.
+plugin shim, and the v1 conformance suite itself -- see "Layout" below). `src/tck/v2/` is the
+same shape for ACP v2 (Draft): its own protocol constants, vendored schema, requirement
+registry, schema validation, plugin shim, and conformance suite, sharing only the
+version-agnostic `common/` core with v1 -- nothing under `v2/` imports from `v1/` or vice versa.
+This split exists so `v2/` could be added without duplicating or forking the harness, report
+model, or plugin machinery. v2 support is currently a skeleton (only the `initialize` handshake
+is covered, gated behind `--protocol-version 2`; default remains v1) and is expected to grow in
+later slices. Everything below is v1-specific unless a section says otherwise.
 
 Slices so far add an installable CLI (`acp-tck`), a requirement registry, a pytest plugin,
 transport/`initialize` conformance tests, mandatory session/prompt/cancel conformance tests, full
@@ -176,6 +180,78 @@ src/tck/
                             handshake itself fails; the probed behaviour is silent in the spec
                             and real SDKs disagree; "silent" is concluded via a short
                             `quiet_period()`, never the full `--tck-timeout`)
+  v2/                     the ACP v2 (Draft) package -- skeleton slice: protocol constants,
+                          vendored schema, requirement registry, schema validation, the v2
+                          pytest plugin shim, and a two-requirement conformance suite covering
+                          only `initialize`. v2 is Draft (schema version `2.0.0-alpha.5` at the
+                          vendored pin) and expected to churn -- coverage here is intentionally
+                          minimal, a skeleton to build on in follow-up slices, not a v1-parity
+                          suite yet. Mirrors `v1/`'s shape but is its own, undiluted
+                          implementation -- nothing under `v2/` imports from `v1/`
+                          (`.agents/research/common-v1-v2-split-analysis.md` D6: honest
+                          duplication, not shared version-specific machinery).
+    __init__.py             exports `SPEC` (`protocol_version=2`, this package's
+                          `SCHEMA_REVISION`/`SCHEMA_DIR`/`REGISTRY`, an `initialize_params()`
+                          returning v2's handshake params -- `{"protocolVersion", "info",
+                          "capabilities"}`, renamed from v1's `{"protocolVersion",
+                          "clientCapabilities"}` -- `conformance_package="tck.v2.conformance"`)
+                          that `tck.v2.plugin` stashes for `tck.common.plugin` to read. Passes
+                          `agent_info_field="info"`/`agent_capabilities_field="capabilities"`
+                          to `VersionSpec` (see its docstring below) since v2 renamed both
+                          `initialize`-result keys from v1's `agentInfo`/`agentCapabilities`.
+    protocol.py             PROTOCOL_VERSION (`2`), SCHEMA_REVISION, SCHEMA_DIR, error codes
+                          (unchanged from v1), `StopReason` values plus
+                          `is_valid_open_enum_value(value, defined)` (v2's open-enum
+                          extensibility rule: a defined constant, or a string beginning with
+                          `_`), method inventories derived from `meta.json`/`x-side`/`x-method`
+                          like v1's -- plus `PROTOCOL_METHODS` (the bidirectional
+                          `$/cancel_request` notification) and `KNOWN_METHODS` (the union of
+                          all three), since v2's top-level schema has a third, side-agnostic
+                          `ProtocolLevel` branch v1 does not
+    requirements.py         `SPEC_REVISION`, `_DECLARATIONS`, `REGISTRY`, `get()` -- exactly two
+                          requirements so far: `ACP-INIT-001` (reused from v1 -- the "initialize
+                          succeeds and validates" check is truly the same requirement, only the
+                          citation's spec/schema locations change) and `ACP-INIT-201` (a new id,
+                          not `ACP-INIT-002`: v1's `ACP-INIT-002` text is a single-branch "v1
+                          requested, v1 returned" equality that only makes sense for a v1-only
+                          TCK, whereas v2's negotiation rule is a genuine two-branch "same
+                          version if supported, else the agent's own latest" rule -- see the
+                          module's docstring for the full id-namespacing reasoning, an instance
+                          of `.agents/plan.md` decision D3)
+    validation.py           schema validation for agent-authored JSON-RPC messages against v2's
+                          vendored schema, mirroring `tck.v1.validation`'s API
+                          (`validate_agent_message`/`validate_agent_response`/
+                          `find_unknown_root_keys`) but with three v2-specific differences (see
+                          the module's docstring): (1) batch dispatch -- a top-level JSON array
+                          is a valid message (each element validated, index-prefixed), an empty
+                          array is itself an issue; (2) no `null`-result special case (unlike
+                          v1's `session/load` docs/schema mismatch -- no v2 response `$def` is
+                          nullable); (3) `find_unknown_root_keys` skips the unknown-key check
+                          entirely for an object that matches a discriminated union's open
+                          `"other"` fallback branch (e.g. a custom/future `AuthMethod` whose
+                          `type` doesn't match any named branch) instead of flagging that
+                          branch's intentionally-unenumerated extra fields
+    plugin.py               `tck.v2.plugin`: the same thin-shim pattern as `tck.v1.plugin`,
+                          stashing `tck.v2.SPEC` instead. Always load this shim (`-p
+                          tck.v2.plugin`), never `tck.common.plugin` directly.
+    schema/
+      schema.json            vendored ACP v2 (Draft) JSON Schema (verbatim, do not hand-edit)
+      meta.json               vendored method-name tables (verbatim, do not hand-edit)
+      VENDORED.md             source repo, commit hash (`8f76d6c8cf...`), date, refresh
+                            procedure -- notes v2 is Draft and expected to be re-vendored often
+    conformance/            the v2 conformance suite, shipped inside the wheel
+      __init__.py
+      conftest.py            intentionally empty, same reasoning as v1's
+      _helpers.py             `connected_agent()` only so far (no `new_session`/`run_prompt`
+                            yet -- this skeleton's two tests never touch `session/new` or
+                            `session/prompt`); auto-authenticates via v2's renamed `auth/login`
+                            (not v1's `authenticate`) when `--tck-auth-method` was given
+      test_initialize.py      ACP-INIT-001, ACP-INIT-201 -- the handshake succeeds and
+                            validates, and the two-branch version-negotiation rule holds
+                            (verified via two fresh processes: request `PROTOCOL_VERSION`, and
+                            request an absurd version `65535` no agent implements, to establish
+                            the agent's true own-latest-supported value as a reference point --
+                            same technique v1's `ACP-INIT-003` uses)
 
 tests/
   conftest.py              agent_launch() helper for spawning fixture agents under
@@ -194,6 +270,20 @@ tests/
                           `tck.v1.conformance` markers
     test_cli.py               end-to-end: run `python -m tck -- <fixture>` as a subprocess,
                             including `--report-json` output and exit codes
+  v2/                     unit tests specific to the v2 (Draft) package -- scaled down to this
+                          skeleton slice's two-requirement registry; a `tests/v2/__init__.py`
+                          (empty) is required alongside this directory so pytest's import-mode
+                          module naming (`v2.test_cli`, etc.) doesn't collide with `tests/v1/`'s
+                          same-named modules
+    test_validation.py      unit tests for `tck.v2.validation`'s three v2-specific behaviors:
+                          batch root dispatch, no `null` special case for responses, and the
+                          `find_unknown_root_keys` open-fallback carve-out
+    test_registry.py         `tck.v2.requirements.REGISTRY` invariants + two-way check against
+                          `tck.v2.conformance` markers
+    test_cli.py               end-to-end: run `python -m tck --protocol-version 2 --
+                            <fixture>` as a subprocess, plus routing checks (`--help`, and that
+                            the default/`--protocol-version 1` path still runs the v1 suite
+                            unchanged)
   fixtures/agents/v1/
     _base.py               shared ConformingAgent core (not a standalone script); optionally
                           takes a `capabilities` dict merged into `agentCapabilities`, and
@@ -307,6 +397,15 @@ tests/
                           JSON instead of silently swallowing it -- self-test-only fixture that
                           deterministically exercises ACP-STDERR-001's/ACP-INFO-PARSE-001's
                           non-default branches (see `tests/v1/test_cli.py`)
+  fixtures/agents/v2/
+    _base.py               a fresh, standalone `ConformingAgent` for v2 (does not import
+                          `fixtures/agents/v1/_base.py` -- honest duplication, same reasoning as
+                          `tck.v2.validation` not sharing code with `tck.v1.validation`);
+                          handles only `initialize` (honestly negotiates
+                          `protocolVersion`/`info`/`capabilities`) and `session/new` (unique
+                          `sess-NNNN` session id) -- this skeleton slice's two requirements never
+                          exercise anything past the handshake
+    conforming.py          trivial entry point, mirrors `fixtures/agents/v1/conforming.py`
 ```
 
 ## Running the TCK against an agent
@@ -327,6 +426,16 @@ budgeted at each stage of the agent-process shutdown ladder on teardown: stdin-c
 post-SIGTERM wait, post-SIGKILL wait; lower it only to speed up a fixture/test that deliberately
 never exits on its own, a real agent under test should not normally need this changed), `-k EXPR`,
 `-v`, `--version`, `--help`. Everything after `--` is the agent's own command line.
+
+`--protocol-version {1,2}` (default `1`) picks which protocol-version package's conformance
+suite and plugin shim to run: `1` -> `src/tck/v1/conformance` with `-p tck.v1.plugin` (unchanged
+default behavior), `2` -> `src/tck/v2/conformance` with `-p tck.v2.plugin`. v2 is Draft and this
+slice's registry is a skeleton (`ACP-INIT-001`, `ACP-INIT-201` -- `initialize` only); see
+`src/tck/v2/`'s entry in "Layout" above.
+
+```
+uv run acp-tck --protocol-version 2 -- python tests/fixtures/agents/v2/conforming.py
+```
 
 **Exit code** is the four-status verdict, not pytest's own per-test exit code: `0` iff
 `verdict.conformant` (no `MANDATORY` `FAIL`/`NOT_TESTED`, no `CAPABILITY` `FAIL` -- see

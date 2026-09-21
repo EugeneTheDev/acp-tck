@@ -1,7 +1,8 @@
 """`acp-tck` console-script entry point: parses TCK options and runs the packaged conformance
-suite (`tck.v1.conformance`) via pytest, loading `tck.v1.plugin` explicitly (see
-`tck/common/plugin.py`'s module docstring for why it is not a `pytest11` auto-registered
-plugin).
+suite for the selected protocol version (`tck.v1.conformance` by default, or
+`tck.v2.conformance` with `--protocol-version 2`) via pytest, loading that version's plugin
+module explicitly (see `tck/common/plugin.py`'s module docstring for why it is not a `pytest11`
+auto-registered plugin).
 """
 
 from __future__ import annotations
@@ -19,6 +20,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="acp-tck",
         description="Run the ACP Test Compatibility Kit against an agent launched as a stdio subprocess.",
+    )
+    parser.add_argument(
+        "--protocol-version",
+        type=int,
+        choices=(1, 2),
+        default=1,
+        metavar="{1,2}",
+        help="ACP protocol version to run the conformance suite for (default: 1). 2 is Draft "
+        "and covers only a skeleton subset of requirements so far -- see AGENTS.md.",
     )
     parser.add_argument("--agent-cwd", default=None, metavar="DIR", help="Working directory for the agent.")
     parser.add_argument(
@@ -106,12 +116,14 @@ def main(argv: list[str] | None = None) -> int:
     if not command:
         parser.error("no agent command given; pass it after `--`, e.g. `acp-tck -- python agent.py`")
 
-    conformance_dir = Path(__file__).parent / "v1" / "conformance"
+    version_dir = "v2" if args.protocol_version == 2 else "v1"
+    plugin_module = f"tck.{version_dir}.plugin"
+    conformance_dir = Path(__file__).parent / version_dir / "conformance"
 
     pytest_args: list[str] = [
         str(conformance_dir),
         "-p",
-        "tck.v1.plugin",
+        plugin_module,
         "-p",
         "no:cacheprovider",
         "--rootdir",

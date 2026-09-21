@@ -34,3 +34,12 @@ class VersionSpec:
     conformance_package: str
     """Dotted module path of this version's conformance suite package (e.g.
     `"tck.v1.conformance"`), for self-tests and diagnostics that need to name it."""
+    agent_info_field: str = "agentInfo"
+    """The `initialize` result key holding the agent's own `Implementation`-shaped info, read by
+    `tck.common.plugin._build_report` for the JSON report's `agent_info` field. v1's key is
+    `"agentInfo"` (the default, so `tck.v1.SPEC`'s existing construction call -- which does not
+    pass this kwarg -- keeps behaving exactly as before); v2 renamed the field to `"info"` and
+    passes that explicitly."""
+    agent_capabilities_field: str = "agentCapabilities"
+    """Like `agent_info_field`, but for the agent's advertised capabilities object. v1's key is
+    `"agentCapabilities"` (the default); v2 renamed it to `"capabilities"`."""
