@@ -1,7 +1,7 @@
 # State
 
-**Last updated:** 2026-09-21 (v2 effort, session 1 — research rounds 1–3 done; slice V2-0 merged as `ad536fe`, pending suite+push)
-**Last commit pushed:** see `git log origin/v2-support -1` (V2-0 merge `ad536fe` pushed once the post-merge suite is green; research reports + this file committed on top)
+**Last updated:** 2026-09-21 (v2 effort, session 1 — V2-0 merged+pushed; V2-0b and V2-1a programmers in flight)
+**Last commit pushed:** see `git log origin/v2-support -1` — V2-0b merged as `42d5587` (v1 INIT-003 probe carries `info`; 136 tests)
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
@@ -38,9 +38,19 @@ against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude
 `testy-cross-check.md`, `upstream-issues.md` (internal drafts only, do not file).
 
 ## In flight
-Nothing running. Slice V2-0 merged (`ad536fe`); worktree `../acp-tck-2-migrate-common-v1` and branch
-`migrate-common-v1` to be removed after push. Research rounds 1–3 complete (10 v2 reports). Next: spawn
-V2-0b and V2-1 in parallel off the V2-0 tip (see plan.md "v2 effort — slices").
+- ~~V2-0b~~ **merged** as `42d5587` (136 passed). Note: the v1 handshake never sent `clientInfo`; only the
+  v2-required `info` was added to the 65535 probe. Pre-existing gap: `supports_v1_and_v2.py` has no CLI test.
+- **V2-1a `v2-skeleton`** (worktree `../acp-tck-2-v2-skeleton`): vendored `src/tck/v2/schema/` @ 8f76d6c,
+  `v2/protocol.py` (incl. `protocolMethods`, `_`-prefix enum helper), `v2/validation.py` (batch-aware root
+  dispatch, no `null`), `v2/requirements.py` (INIT-001/002 only), `v2/__init__.py::SPEC`, `v2/plugin.py`,
+  `v2/conformance/{_helpers,test_initialize}.py`, CLI `--protocol-version {1,2}`, fixtures
+  `tests/fixtures/agents/v2/{_base,conforming}.py`, `tests/v2/{test_registry,test_validation,test_cli}.py`,
+  docs. Touches `src/tck/v2/**`, `src/tck/__init__.py`, maybe minimal `src/tck/common/**`.
+Merge whichever reports first (verify: suite from its worktree, smoke runs, diff-stat, clean merge), then
+rebase-check the other. Next after both: **V2-1b** (full v2 initialize/capabilities/session-new tests +
+defect fixtures + a `VERSION-MISMATCH:` skip marker / `Verdict` flag for agents that negotiate a version
+the selected suite doesn't speak — design note: mirror `AUTH-GATED:`/`blocked_by_auth`; the field is always
+false for v1 runs; v1-side symmetric use is a later slice), then V2-2 … V2-7 per plan.md.
 
 **Done (2026-09-21): slice V2-0** — `src/tck/common/` (harness, requirements base, report, plugin core,
 `version.py::VersionSpec`) + `src/tck/v1/` (protocol, schema, requirements, validation, conformance,
