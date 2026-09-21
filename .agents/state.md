@@ -1,6 +1,6 @@
 # State
 
-**Last updated:** 2026-09-21 (v2 effort, session 1 — V2-0…V2-2b merged+pushed; V2-3 in flight)
+**Last updated:** 2026-09-22 (v2 effort — V2-0…V2-2b merged+pushed; V2-3 branch ready, being verified/merged)
 **Last commit pushed:** `0da54fb` on `v2-support` (V2-2b; 200 tests, 24 v2 ids) — plus workbench commits on top
 
 ## How to resume (fresh orchestrator)
@@ -38,12 +38,20 @@ against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude
 `testy-cross-check.md`, `upstream-issues.md` (internal drafts only, do not file).
 
 ## In flight
-- **V2-3 `v2-cancel-transport`** (worktree `../acp-tck-2-v2-cancel-transport`, off `0da54fb`+): CANCEL-20x
-  (race SKIP kept; cancel triggered on observed `running`; idle `stopReason: cancelled`; permission answered
-  `cancelled`), TRANSPORT (object OR non-empty array per line; UTF-8), JSONRPC re-cited batch-aware, BATCH-20x
-  (201/202 MANDATORY, per-entry -32600 ADVISORY), fixtures (`hangs_until_cancel`, cancel defects, batch
-  acceptance/positive-control, banner/utf8/garbage twins), rename `ACP-INFO-CONCURRENT-001`→`-201`. On report:
-  verify, merge, push, cleanup. Then **V2-4** (session management) per plan.md.
+- **V2-3 `v2-cancel-transport`** — programmer DONE, revised branch `v2-cancel-transport` @ `ba5ff34` pushed
+  (worktree `../acp-tck-2-v2-cancel-transport`, base `e139266`). Programmer-reported: 213 passed in 423 s;
+  52 v2 ids (+CANCEL-201..208, TRANSPORT-201/203 + re-cited TRANSPORT-002, JSONRPC-001..005 re-cited,
+  BATCH-201..208, INFO-BATCH/CANCEL-20x); 13 new fixtures incl. `emits_batch_updates.py` positive control
+  which exposed and fixed two TCK bugs (SCHEMA-001 scan assumed dict lines; CANCEL-205 `transcript.index`
+  on synthetic batch entries). **Orchestrator verification in progress**: suite from worktree, smoke runs
+  (`conforming_full.py --cancel-prompt __hang__`, `crashes_on_batch.py`, `wrong_id_echo.py -k jsonrpc`),
+  then squash-merge, suite on `v2-support`, push, remove worktree/branch. If this session died mid-way:
+  check `git log v2-support -1` — if V2-3 is not merged, redo the verification and merge.
+- Wall time follow-up: suite ≈423 s (target was ≤300 s). Schedule a perf slice later (e.g. `-k` scoping,
+  `pytest-xdist`), not blocking.
+- Next after V2-3 merge: **V2-4** session management (plan.md "v2 effort — slices"; inputs
+  `research/acp-v2-session-management.md`, plan.md "v2 session management — decisions" + tiering rule),
+  then V2-5 auth, V2-6 patches/enums/hygiene, V2-7 cross-check/CI/docs, then a full review pass.
 
 **Done (2026-09-21): slice V2-2b** (`0da54fb`) — PROMPTCAP-001..003 re-gated, PROMPT-003 ADVISORY, PERM-201,
 CLIENTCAP-201/202, INFO-CONCURRENT-001 (id to be renamed 201 in V2-3), INFO-UNKNOWNSESSION-001; fixtures incl.
