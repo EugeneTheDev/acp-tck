@@ -19,11 +19,12 @@ Model (`.agents/plan.md` "Decided deliverable shape", four-status verdict model)
   the exception text as the outcome's `message`. There is no separate "ERROR" status; it folds
   into `FAIL` (pytest itself already reports these as `failed` results at the `setup`/`call`/
   `teardown` phase, which is where `tck.common.plugin` reads them from).
-- `Verdict.conformant` is computed from `MANDATORY`- and `CAPABILITY`-tier requirements only:
-  `True` iff there is no `MANDATORY` `FAIL`, no `MANDATORY` `NOT_TESTED`, and no `CAPABILITY`
-  `FAIL`. `CAPABILITY` `SKIPPED`/`NOT_TESTED` (capability not advertised, or simply never
-  exercised) do not affect it -- only a *failed* capability check does, since the agent
-  advertised the capability and it must then work. `ADVISORY`/`INFORMATIONAL` never affect it.
+- `Verdict.conformant` is computed from `MANDATORY`- and `CAPABILITY`-tier requirements, plus
+  `blocked_by_auth`/`blocked_by_version_mismatch`: `True` iff there is no `MANDATORY` `FAIL`, no
+  `MANDATORY` `NOT_TESTED`, no `CAPABILITY` `FAIL`, and neither flag is set. `CAPABILITY`
+  `SKIPPED`/`NOT_TESTED` (capability not advertised, or simply never exercised) do not affect it
+  -- only a *failed* capability check does, since the agent advertised the capability and it
+  must then work. `ADVISORY`/`INFORMATIONAL` never affect it.
 """
 
 from __future__ import annotations
@@ -160,16 +161,31 @@ class Verdict:
     mandatory/capability requirements that depend on a session were never actually exercised,
     even though they show up as an ordinary SKIPPED rather than FAIL/NOT_TESTED -- so
     `conformant` is forced `False` whenever this is set, regardless of the tier counts."""
+    blocked_by_version_mismatch: bool = False
+    """`True` if at least one test was SKIPPED because the connection did not negotiate the
+    protocol version this run targets (e.g. `--protocol-version 2` against an agent that only
+    speaks v1, so `initialize` negotiated down to `1`) -- mirrors `blocked_by_auth` above, but
+    driven by a `"VERSION-MISMATCH:"`-prefixed skip message instead of `"AUTH-GATED:"`.
+    Version-dependent requirements were never actually exercised in that case, even though they
+    show up as an ordinary SKIPPED rather than FAIL/NOT_TESTED, so `conformant` is forced
+    `False` whenever this is set, regardless of the tier counts. Always `False` for a v1 run --
+    no v1 test ever emits this marker."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "conformant": self.conformant,
             "tier_counts": {tier: dict(counts) for tier, counts in self.tier_counts.items()},
             "blocked_by_auth": self.blocked_by_auth,
+            "blocked_by_version_mismatch": self.blocked_by_version_mismatch,
         }
 
 
-def compute_verdict(results: list[RequirementResult], *, blocked_by_auth: bool = False) -> Verdict:
+def compute_verdict(
+    results: list[RequirementResult],
+    *,
+    blocked_by_auth: bool = False,
+    blocked_by_version_mismatch: bool = False,
+) -> Verdict:
     tier_counts: dict[str, dict[str, int]] = {
         tier.value: {status.value: 0 for status in Status} for tier in Tier
     }
@@ -183,8 +199,14 @@ def compute_verdict(results: list[RequirementResult], *, blocked_by_auth: bool =
         and mandatory[Status.NOT_TESTED.value] == 0
         and capability[Status.FAIL.value] == 0
         and not blocked_by_auth
+        and not blocked_by_version_mismatch
     )
-    return Verdict(conformant=conformant, tier_counts=tier_counts, blocked_by_auth=blocked_by_auth)
+    return Verdict(
+        conformant=conformant,
+        tier_counts=tier_counts,
+        blocked_by_auth=blocked_by_auth,
+        blocked_by_version_mismatch=blocked_by_version_mismatch,
+    )
 
 
 def current_tck_version() -> str:

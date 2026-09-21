@@ -1,7 +1,10 @@
 """Meta-tests over `tck.v2.requirements.REGISTRY`: shape invariants, plus a two-way check against
 every `@pytest.mark.requirement(...)` used under `src/tck/v2/conformance/` (import the modules
-and inspect `pytestmark` directly -- no grep). Mirrors `tests/v1/test_registry.py`, scaled down
-to this skeleton slice's two-requirement registry.
+and inspect `pytestmark` directly -- no grep). Mirrors `tests/v1/test_registry.py`.
+
+Slice V2-1b expanded the registry from the two-requirement `initialize`-handshake skeleton to the
+full `initialize`/`session/new` baseline covered so far (see `tck.v2.requirements`'s module
+docstring for the id-namespacing decisions).
 """
 
 from __future__ import annotations
@@ -29,10 +32,20 @@ def test_ids_are_unique_and_well_formed():
         assert _ID_PATTERN.match(req_id), f"{req_id!r} does not match ACP-<AREA>-<NNN>"
 
 
-def test_registry_has_exactly_the_two_skeleton_requirements():
-    """This slice's registry is deliberately minimal (see `tck.v2.requirements`'s module
-    docstring): only the `initialize` handshake is covered so far."""
-    assert set(REGISTRY) == {"ACP-INIT-001", "ACP-INIT-201"}
+def test_registry_has_exactly_the_v2_1b_requirements():
+    """This slice's registry covers the `initialize` handshake plus the `session/new` baseline
+    (see `tck.v2.requirements`'s module docstring for the full id-namespacing rationale)."""
+    assert set(REGISTRY) == {
+        "ACP-INIT-001",
+        "ACP-INIT-003",
+        "ACP-INIT-201",
+        "ACP-INIT-202",
+        "ACP-INIT-203",
+        "ACP-INIT-204",
+        "ACP-SCHEMA-001",
+        "ACP-SESSION-001",
+        "ACP-SESSION-002",
+    }
 
 
 def test_capability_field_set_iff_capability_tier():

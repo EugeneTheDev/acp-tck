@@ -25,8 +25,10 @@ process per test, so one crash can't cascade into unrelated failures.
 ## Options
 
 - `--protocol-version {1,2}` -- which protocol version's conformance suite to run (default 1).
-  `2` runs the ACP v2 (Draft) suite, which is currently a skeleton covering only `initialize`
-  (`ACP-INIT-001`, `ACP-INIT-201`) -- see `AGENTS.md`'s `src/tck/v2/` layout entry.
+  `2` runs the ACP v2 (Draft) suite, which so far covers the `initialize` handshake plus the
+  `session/new` baseline -- see `AGENTS.md`'s `src/tck/v2/` layout entry. If the agent under
+  test never actually negotiates the requested version, version-dependent tests are `SKIPPED`
+  with a `VERSION-MISMATCH` hint and the run is forced `NOT CONFORMANT`.
 - `--agent-cwd DIR` -- working directory for the agent (default: inherit).
 - `--agent-env KEY=VAL` -- environment variable overlaid on the agent's process; repeatable.
 - `--timeout S` -- per-response deadline in seconds (default 30).
@@ -66,7 +68,8 @@ by per-tier counts and a `VERDICT: CONFORMANT` / `VERDICT: NOT CONFORMANT (...)`
   test's outcome (`nodeid`, `status`, `message`, `duration_s`, `properties`). A `FAIL` outcome
   additionally carries `transcript` (the full wire traffic for that test) and `stderr`
   (truncated to the last 20 kB), so a failure is diagnosable from the JSON alone.
-- `verdict`: `{"conformant": bool, "blocked_by_auth": bool, "tier_counts": {...}}`.
+- `verdict`: `{"conformant": bool, "blocked_by_auth": bool, "blocked_by_version_mismatch": bool,
+  "tier_counts": {...}}`.
 
 ## The tier / status / verdict model
 
@@ -96,9 +99,11 @@ so a dead agent that never gets past `initialize` can't score 100% by starving e
 of a record.
 
 **Verdict:** `conformant` is `true` iff there is no `MANDATORY` `FAIL`, no `MANDATORY`
-`NOT_TESTED`, no `CAPABILITY` `FAIL`, and the run was not `blocked_by_auth` (i.e. no
+`NOT_TESTED`, no `CAPABILITY` `FAIL`, the run was not `blocked_by_auth` (i.e. no
 session-dependent test was skipped because the agent requires authentication and no
-`--auth-method` was given -- see "Options" above).
+`--auth-method` was given -- see "Options" above), and (v2 only) not
+`blocked_by_version_mismatch` (i.e. no version-dependent test was skipped because the agent
+under test never actually negotiated the `--protocol-version` this run targets).
 
 **Exit code:** `0` iff `conformant`, `1` otherwise (including "the agent never responded to
 anything" -- every `MANDATORY` requirement ends up `FAIL`/`NOT_TESTED`, but the run still
