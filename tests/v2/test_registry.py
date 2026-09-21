@@ -4,7 +4,9 @@ and inspect `pytestmark` directly -- no grep). Mirrors `tests/v1/test_registry.p
 
 Slice V2-1b expanded the registry from the two-requirement `initialize`-handshake skeleton to the
 full `initialize`/`session/new` baseline covered so far. Slice V2-2a added the mock-client prompt
-driver's core prompt-turn requirements (see `tck.v2.requirements`'s module docstring for the
+driver's core prompt-turn requirements. Slice V2-2b added prompt content capabilities, the
+permission-request shape, the agent->client method rules, reused `ACP-PROMPT-003`, and two
+INFORMATIONAL prompt-lifecycle probes (see `tck.v2.requirements`'s module docstring for the
 id-namespacing decisions).
 """
 
@@ -33,9 +35,11 @@ def test_ids_are_unique_and_well_formed():
         assert _ID_PATTERN.match(req_id), f"{req_id!r} does not match ACP-<AREA>-<NNN>"
 
 
-def test_registry_has_exactly_the_v2_2a_requirements():
-    """This slice's registry covers the `initialize` handshake, the `session/new` baseline, and
-    (V2-2a) the mock-client prompt driver's core prompt-turn requirements (see
+def test_registry_has_exactly_the_v2_2b_requirements():
+    """This slice's registry covers the `initialize` handshake, the `session/new` baseline,
+    (V2-2a) the mock-client prompt driver's core prompt-turn requirements, and (V2-2b) prompt
+    content capabilities, the permission-request shape, the agent->client method rules, reused
+    `ACP-PROMPT-003`, and the two INFORMATIONAL prompt-lifecycle probes (see
     `tck.v2.requirements`'s module docstring for the full id-namespacing rationale)."""
     assert set(REGISTRY) == {
         "ACP-INIT-001",
@@ -53,6 +57,15 @@ def test_registry_has_exactly_the_v2_2a_requirements():
         "ACP-STATE-201",
         "ACP-STATE-202",
         "ACP-STATE-203",
+        "ACP-PROMPTCAP-001",
+        "ACP-PROMPTCAP-002",
+        "ACP-PROMPTCAP-003",
+        "ACP-PROMPT-003",
+        "ACP-PERM-201",
+        "ACP-CLIENTCAP-201",
+        "ACP-CLIENTCAP-202",
+        "ACP-INFO-CONCURRENT-001",
+        "ACP-INFO-UNKNOWNSESSION-001",
     }
 
 

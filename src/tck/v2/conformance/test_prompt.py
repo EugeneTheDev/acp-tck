@@ -1,12 +1,14 @@
 """Prompt-turn conformance: ACP-PROMPT-201, ACP-PROMPT-203, ACP-STATE-201..203, ACP-PROMPT-205
 (NOT a reuse of v1's ACP-PROMPT-002 -- the tier changed, see `tck.v2.requirements`'s module
-docstring for the id-namespacing decisions).
+docstring for the id-namespacing decisions), and ACP-PROMPT-003 (reused from v1, unchanged
+ADVISORY tier -- the text+resource_link doc conflict survives verbatim into v2).
 
-All six are `Tier.CAPABILITY`, `capability="capabilities.session"` -- `session/prompt` is part
-of the seven-method baseline an agent commits to by advertising `capabilities.session` at all,
-exactly like `ACP-SESSION-001/002`. Each test still carries its own
-`@pytest.mark.capability("capabilities.session")` marker, the normal way
-`tck.common.plugin._tck_capability_gate` wires a CAPABILITY row's SKIP behavior.
+The first six are `Tier.CAPABILITY`, `capability="capabilities.session"` -- `session/prompt` is
+part of the seven-method baseline an agent commits to by advertising `capabilities.session` at
+all, exactly like `ACP-SESSION-001/002`. `ACP-PROMPT-003` is `Tier.ADVISORY` on the
+`Requirement` itself (`capability=None`, per `Requirement.__post_init__`'s invariant), but its
+test still carries the same `@pytest.mark.capability("capabilities.session")` marker for the
+SKIP gate -- `_tck_capability_gate` reads only the marker, independent of the registered tier.
 """
 
 from __future__ import annotations
@@ -209,3 +211,31 @@ async def test_updates_validate_and_carry_the_right_session_id(agent_launch, tmp
             assert carried_session_id == session_id, (
                 f"session/update carried sessionId {carried_session_id!r}, expected {session_id!r}"
             )
+
+
+@pytest.mark.requirement("ACP-PROMPT-003")
+@pytest.mark.capability("capabilities.session")
+async def test_resource_link_content_block_is_accepted(agent_launch, tmp_path):
+    """ACP-PROMPT-003 (ADVISORY -- reused from v1, re-cited to v2 sources:
+    `initialization.mdx:203` lists `resource_link` as baseline MUST-accept alongside `text`, but
+    `content.mdx:33` says only `text` is MUST -- the same doc conflict v1 already carries,
+    unresolved verbatim in v2, so this stays ADVISORY rather than becoming a hard FAIL target."""
+    async with connected_agent(agent_launch) as agent:
+        session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
+        turn = await run_prompt(
+            agent,
+            session_id,
+            [
+                {"type": "text", "text": "have a look at this"},
+                {
+                    "type": "resource_link",
+                    "uri": "file:///tmp/tck-example.txt",
+                    "name": "example.txt",
+                },
+            ],
+            timeout=agent_launch.default_timeout,
+        )
+        msg = turn.response_entry.parsed
+        assert isinstance(msg, dict) and isinstance(msg.get("result"), dict), (
+            f"a prompt with a resource_link block must still succeed: {turn.response_entry.text!r}"
+        )

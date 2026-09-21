@@ -8,7 +8,11 @@ asserting its exact FAIL set, and the version-mismatch scenario (a v1 fixture ru
 `--protocol-version 2`). Slice V2-2a adds the mock-client prompt driver's own defect fixtures
 (`bad_stop_reason.py`, `vendor_stop_reason.py`, `no_running_update.py`,
 `no_idle_after_running.py`, `idle_before_running.py`, `echo_wrong_message_id.py`,
-`missing_message_id.py`, `update_wrong_session.py`).
+`missing_message_id.py`, `update_wrong_session.py`). Slice V2-2b adds prompt content
+capabilities, the permission flow, and the agent->client method rules:
+`conforming_full.py` (every id PASSes), `asks_permission.py` (isolates `ACP-PERM-201`), and the
+defect/positive-control fixtures `rejects_image_when_advertised.py`,
+`calls_elicitation_unadvertised.py`, `calls_fs_unadvertised.py`, `calls_custom_method.py`.
 """
 
 from __future__ import annotations
@@ -41,8 +45,33 @@ _CAPABILITY_IDS = {
     "ACP-STATE-201",
     "ACP-STATE-202",
     "ACP-STATE-203",
+    "ACP-PROMPTCAP-001",
+    "ACP-PROMPTCAP-002",
+    "ACP-PROMPTCAP-003",
+    "ACP-PERM-201",
+    "ACP-CLIENTCAP-201",
+    "ACP-CLIENTCAP-202",
 }
-_ALL_IDS = _MANDATORY_IDS | _CAPABILITY_IDS
+_ADVISORY_IDS = {
+    "ACP-PROMPT-003",
+}
+_INFORMATIONAL_IDS = {
+    "ACP-INFO-CONCURRENT-001",
+    "ACP-INFO-UNKNOWNSESSION-001",
+}
+_ALL_IDS = _MANDATORY_IDS | _CAPABILITY_IDS | _ADVISORY_IDS | _INFORMATIONAL_IDS
+
+# `ACP-PROMPTCAP-001/002/003` SKIP whenever the agent doesn't advertise the corresponding
+# `capabilities.session.prompt.*` marker, and `ACP-PERM-201` SKIPs whenever a turn never
+# actually triggers a `session/request_permission` -- both legitimate, expected SKIPs (not
+# FAILs) for any V2-2a-era fixture that predates the V2-2b content-capability/permission
+# machinery and therefore neither advertises nor exercises it.
+_NOT_ADVERTISED_OR_EXERCISED_SKIP_IDS = {
+    "ACP-PROMPTCAP-001",
+    "ACP-PROMPTCAP-002",
+    "ACP-PROMPTCAP-003",
+    "ACP-PERM-201",
+}
 
 _TABLE_ROW_RE = re.compile(r"^\s*(ACP-\S+)\s+(PASS|FAIL|SKIPPED|NOT TESTED)\b")
 
@@ -83,13 +112,125 @@ def test_help_mentions_protocol_version_option():
 
 
 def test_v2_conforming_agent_passes_everything():
+    """`conforming.py` advertises only the plain `session: {}` baseline -- no prompt-content
+    capabilities, and it never asks for permission -- so the V2-2b capability rows that need
+    more than that SKIP rather than PASS: `ACP-PROMPTCAP-001/002/003` ("not advertised") and
+    `ACP-PERM-201` ("no permission request observed"). Every other id PASSes. See
+    `conforming_full.py`'s own self-test below for the "every id PASSes" fixture."""
     result = _run_cli(FIXTURES_DIR_V2, "conforming.py", protocol_version=2)
     assert result.returncode == 0, result.stdout + result.stderr
 
     statuses = _table_statuses(result.stdout)
     assert set(statuses) == _ALL_IDS, f"requirement table missing/extra ids: {result.stdout}"
+    expected_skips = {
+        "ACP-PROMPTCAP-001",
+        "ACP-PROMPTCAP-002",
+        "ACP-PROMPTCAP-003",
+        "ACP-PERM-201",
+    }
     for req_id, status in statuses.items():
-        assert status == "PASS", f"{req_id} is {status}, expected PASS for the v2 conforming fixture:\n{result.stdout}"
+        if req_id in expected_skips:
+            assert status == "SKIPPED", (
+                f"{req_id} is {status}, expected SKIPPED (not advertised / no permission "
+                f"request observed):\n{result.stdout}"
+            )
+        else:
+            assert status == "PASS", f"{req_id} is {status}, expected PASS for the v2 conforming fixture:\n{result.stdout}"
+    assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
+
+
+def test_v2_conforming_full_agent_passes_everything():
+    """`conforming_full.py` advertises `capabilities.session.prompt.{image,audio,
+    embeddedContext}` and asks for permission on every turn (`AsksPermissionAgent`) -- every
+    V2-2b id, including both INFORMATIONAL probes, PASSes (an INFORMATIONAL test PASSes as long
+    as it never hits an assertion failure or a setup/teardown error -- it never asserts on the
+    behaviour it probes, only records it)."""
+    result = _run_cli(FIXTURES_DIR_V2, "conforming_full.py", protocol_version=2)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    assert set(statuses) == _ALL_IDS, f"requirement table missing/extra ids: {result.stdout}"
+    for req_id, status in statuses.items():
+        assert status == "PASS", f"{req_id} is {status}, expected PASS for conforming_full.py:\n{result.stdout}"
+    assert statuses["ACP-INFO-CONCURRENT-001"] == "PASS", result.stdout
+    assert statuses["ACP-INFO-UNKNOWNSESSION-001"] == "PASS", result.stdout
+    assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
+
+
+def test_asks_permission_fixture_passes_perm_201_but_skips_promptcap():
+    """`asks_permission.py` isolates `ACP-PERM-201` from `conforming_full.py`'s broader
+    capability set: it asks for permission on every turn but advertises no prompt-content
+    capabilities at all, so `ACP-PERM-201` PASSes while `ACP-PROMPTCAP-001/002/003` still SKIP
+    ("not advertised")."""
+    result = _run_cli(FIXTURES_DIR_V2, "asks_permission.py", protocol_version=2)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == set(), result.stdout
+    assert statuses.get("ACP-PERM-201") == "PASS", result.stdout
+    for req_id in ("ACP-PROMPTCAP-001", "ACP-PROMPTCAP-002", "ACP-PROMPTCAP-003"):
+        assert statuses.get(req_id) == "SKIPPED", result.stdout
+    assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
+
+
+# --- V2-2b: prompt content capabilities, the permission flow, and the agent->client method
+# rules -- defect fixtures ---
+
+
+def test_rejects_image_when_advertised_fails_promptcap_001_only():
+    result = _run_cli(FIXTURES_DIR_V2, "rejects_image_when_advertised.py", protocol_version=2)
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-PROMPTCAP-001"}, result.stdout
+    assert statuses.get("ACP-PROMPTCAP-002") == "PASS", result.stdout
+    assert statuses.get("ACP-PROMPTCAP-003") == "PASS", result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_calls_elicitation_unadvertised_fails_clientcap_201_only():
+    result = _run_cli(FIXTURES_DIR_V2, "calls_elicitation_unadvertised.py", protocol_version=2)
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-CLIENTCAP-201"}, result.stdout
+    assert statuses.get("ACP-CLIENTCAP-202") == "PASS", result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_calls_fs_unadvertised_fails_clientcap_202_only():
+    """`fs/read_text_file` is not a known v2 agent->client method at all (`fs/*`/`terminal/*`
+    were removed from v2), so it also cascades into `ACP-SCHEMA-001`'s general "every agent
+    message validates against the schema" check -- the same documented
+    defect-cascades-into-schema-validation pattern as `ACP-INIT-204` (see
+    `tck.v2.requirements`'s module docstring), not a separate bug."""
+    result = _run_cli(FIXTURES_DIR_V2, "calls_fs_unadvertised.py", protocol_version=2)
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-CLIENTCAP-202", "ACP-SCHEMA-001"}, result.stdout
+    assert statuses.get("ACP-CLIENTCAP-201") == "PASS", result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_calls_custom_method_passes_everything_it_can():
+    """Positive control for the `_`-prefix open-enum rule on agent -> client methods, paired
+    with `calls_fs_unadvertised.py`'s negative control. Advertises only the plain `session: {}}`
+    baseline, so `ACP-PROMPTCAP-001/002/003`/`ACP-PERM-201` still SKIP -- this fixture is a
+    control for `ACP-CLIENTCAP-201/202` specifically, not a full `conforming_full.py`-style
+    all-PASS fixture."""
+    result = _run_cli(FIXTURES_DIR_V2, "calls_custom_method.py", protocol_version=2)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == set(), result.stdout
+    assert statuses.get("ACP-CLIENTCAP-201") == "PASS", result.stdout
+    assert statuses.get("ACP-CLIENTCAP-202") == "PASS", result.stdout
     assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
 
 
@@ -235,13 +376,19 @@ def test_bad_stop_reason_fails_state_203_only():
 
 
 def test_vendor_stop_reason_passes_everything():
-    """Positive control for the `_`-prefix open-enum extensibility rule."""
+    """Positive control for the `_`-prefix open-enum extensibility rule. Predates V2-2b's
+    content-capability/permission machinery, so `ACP-PROMPTCAP-001/002/003`/`ACP-PERM-201`
+    legitimately SKIP (not advertised / not exercised) rather than PASS -- see
+    `_NOT_ADVERTISED_OR_EXERCISED_SKIP_IDS`."""
     result = _run_cli(FIXTURES_DIR_V2, "vendor_stop_reason.py", protocol_version=2)
     assert result.returncode == 0, result.stdout + result.stderr
 
     statuses = _table_statuses(result.stdout)
     for req_id, status in statuses.items():
-        assert status == "PASS", f"{req_id} is {status}, expected PASS:\n{result.stdout}"
+        if req_id in _NOT_ADVERTISED_OR_EXERCISED_SKIP_IDS:
+            assert status == "SKIPPED", f"{req_id} is {status}, expected SKIPPED:\n{result.stdout}"
+        else:
+            assert status == "PASS", f"{req_id} is {status}, expected PASS:\n{result.stdout}"
     assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
 
 
@@ -259,9 +406,14 @@ def test_no_running_update_fails_state_201_only():
 
 def test_no_idle_after_running_fails_every_run_prompt_dependent_id():
     """`no_idle_after_running.py` never sends a terminating idle: every test that drives a turn
-    through `run_prompt` independently hits `AgentTimeout` and FAILs. Uses a larger
-    `--timeout` than the other CLI self-tests (still small) so the cascade is deterministic and
-    the observed wall-clock time stays well within budget."""
+    through `run_prompt` independently hits `AgentTimeout` and FAILs -- as of V2-2b this
+    includes `ACP-CLIENTCAP-201/202` (both observe a turn via `run_prompt`), `ACP-PERM-201`
+    (never gets the chance to legitimately SKIP "no permission observed" -- it times out
+    instead), and the ADVISORY `ACP-PROMPT-003` (also drives its own `run_prompt` turn).
+    `ACP-PROMPTCAP-001/002/003` are unaffected -- they SKIP on the capability-marker check
+    before ever calling `run_prompt`, since this fixture advertises `capabilities: {"session":
+    {}}}` only. Uses a larger `--timeout` than the other CLI self-tests (still small) so the
+    cascade is deterministic and the observed wall-clock time stays well within budget."""
     result = _run_cli(
         FIXTURES_DIR_V2, "no_idle_after_running.py", protocol_version=2, timeout="2"
     )
@@ -273,23 +425,33 @@ def test_no_idle_after_running_fails_every_run_prompt_dependent_id():
         "ACP-PROMPT-205",
         "ACP-PROMPT-201",
         "ACP-PROMPT-203",
+        "ACP-PROMPT-003",
         "ACP-SCHEMA-001",
         "ACP-STATE-201",
         "ACP-STATE-202",
         "ACP-STATE-203",
+        "ACP-CLIENTCAP-201",
+        "ACP-CLIENTCAP-202",
+        "ACP-PERM-201",
     }, result.stdout
     assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
 
 
 def test_idle_before_running_passes_everything():
     """`idle_before_running.py` sends a legal, unsolicited "session-ready" idle before any
-    `session/prompt` is ever issued -- must not be mistaken for a turn terminator."""
+    `session/prompt` is ever issued -- must not be mistaken for a turn terminator. Predates
+    V2-2b's content-capability/permission machinery, so `ACP-PROMPTCAP-001/002/003`/
+    `ACP-PERM-201` legitimately SKIP rather than PASS -- see
+    `_NOT_ADVERTISED_OR_EXERCISED_SKIP_IDS`."""
     result = _run_cli(FIXTURES_DIR_V2, "idle_before_running.py", protocol_version=2)
     assert result.returncode == 0, result.stdout + result.stderr
 
     statuses = _table_statuses(result.stdout)
     for req_id, status in statuses.items():
-        assert status == "PASS", f"{req_id} is {status}, expected PASS:\n{result.stdout}"
+        if req_id in _NOT_ADVERTISED_OR_EXERCISED_SKIP_IDS:
+            assert status == "SKIPPED", f"{req_id} is {status}, expected SKIPPED:\n{result.stdout}"
+        else:
+            assert status == "PASS", f"{req_id} is {status}, expected PASS:\n{result.stdout}"
     assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
 
 
@@ -316,8 +478,9 @@ def test_missing_message_id_fails_prompt_201_and_schema_001_and_skips_prompt_203
 
 def test_update_wrong_session_fails_every_run_prompt_dependent_id():
     """`update_wrong_session.py` misattributes every `session/update` to `sessionId: "other"`:
-    the same cascade shape as `no_idle_after_running.py`, since `run_prompt` never recognizes a
-    matching terminating idle either."""
+    the same cascade shape as `no_idle_after_running.py` (see that test's docstring for why
+    `ACP-CLIENTCAP-201/202`/`ACP-PERM-201`/`ACP-PROMPT-003` are included here too), since
+    `run_prompt` never recognizes a matching terminating idle either."""
     result = _run_cli(
         FIXTURES_DIR_V2, "update_wrong_session.py", protocol_version=2, timeout="2"
     )
@@ -329,10 +492,14 @@ def test_update_wrong_session_fails_every_run_prompt_dependent_id():
         "ACP-PROMPT-205",
         "ACP-PROMPT-201",
         "ACP-PROMPT-203",
+        "ACP-PROMPT-003",
         "ACP-SCHEMA-001",
         "ACP-STATE-201",
         "ACP-STATE-202",
         "ACP-STATE-203",
+        "ACP-CLIENTCAP-201",
+        "ACP-CLIENTCAP-202",
+        "ACP-PERM-201",
     }, result.stdout
     assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
 
@@ -346,8 +513,15 @@ def test_update_wrong_session_fails_every_run_prompt_dependent_id():
 # a result the agent never claimed was v2-shaped, so they SKIP with the `VERSION-MISMATCH:`
 # marker instead of FAILing (see `tck.v2.requirements`'s "Version-mismatch-aware v2-shape rows"
 # section).
+# `ACP-PROMPT-003` (ADVISORY) and the two INFORMATIONAL probes carry the same
+# `@pytest.mark.capability("capabilities.session")` marker as every other row below, so the
+# autouse version-mismatch gate (`tck.common.plugin`'s `_tck_capability_gate`) skips them with
+# the same `VERSION-MISMATCH:` marker too -- include them here alongside the MANDATORY/
+# CAPABILITY rows rather than carving out a separate, unchecked set.
 _NEGOTIATION_IDS = {"ACP-INIT-001", "ACP-INIT-003", "ACP-INIT-201", "ACP-INIT-202"}
-_VERSION_MISMATCH_SKIP_IDS = (_MANDATORY_IDS | _CAPABILITY_IDS) - _NEGOTIATION_IDS
+_VERSION_MISMATCH_SKIP_IDS = (
+    _MANDATORY_IDS | _CAPABILITY_IDS | _ADVISORY_IDS | _INFORMATIONAL_IDS
+) - _NEGOTIATION_IDS
 assert _NEGOTIATION_IDS | _VERSION_MISMATCH_SKIP_IDS == _ALL_IDS
 
 
