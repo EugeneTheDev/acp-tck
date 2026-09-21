@@ -1,101 +1,103 @@
 # State
 
-**Last updated:** 2026-09-18 (session 2, after slice 8b — all planned slices done)
-**Last commit pushed:** see `git log -1` (each slice commits this file)
+**Last updated:** 2026-09-21 (v2 effort, session 1 — research rounds 1–3 done; slice V2-0 merged as `ad536fe`, pending suite+push)
+**Last commit pushed:** see `git log origin/v2-support -1` (V2-0 merge `ad536fe` pushed once the post-merge suite is green; research reports + this file committed on top)
 
 ## How to resume (fresh orchestrator)
-1. Read `prompt.md`, this file, `plan.md`. Research reports in `research/` are the only protocol truth
-   the code may encode. Reviews are in `research/review-*.md`.
-2. Verify the tree: `uv run pytest -q` (≈100 s; expect 135 passed) and
-   `uv run acp-tck --cancel-prompt __hang__ --auth-method tck -- python tests/fixtures/agents/conforming_full.py`
-   (expect exit 0, VERDICT: CONFORMANT, only ACP-AUTH-005 SKIPPED).
-3. Continue with **Slice 8** (see "Next actions").
+1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
+   per-slice git worktree workflow), this file, `plan.md`. Research reports in `research/` are the only
+   protocol truth the code may encode.
+2. `.agents/skills/*/.repo` are gitignored pointers to the upstream checkouts; if missing in this worktree,
+   copy them from `/Users/eugene/Documents/JetBrains/projects/acp-tck/.agents/skills/*/.repo` (spec →
+   `../agent-client-protocol`, rust → `../acp-rust-sdk`, python → `../acp-python-sdk`, a2a → `../a2a-tck`).
+3. Verify the tree: `uv run pytest -q` (≈100 s; expect 135 passed) and
+   `uv run acp-tck --cancel-prompt __hang__ --auth-method tck -- python tests/fixtures/agents/v1/conforming_full.py`
+   (exit 0, CONFORMANT, only ACP-AUTH-005 SKIPPED). Layout is now `src/tck/common/` + `src/tck/v1/`,
+   tests in `tests/common/`, `tests/v1/`, fixtures in `tests/fixtures/agents/v1/` (see `AGENTS.md`).
+4. Check whether the four research reports listed under "In flight" exist; if they do, judge them and
+   proceed to "Next actions". If not, re-spawn the missing researcher(s) with the same question.
 
-## Deliverable shape (decided)
-See `plan.md` § "Decided deliverable shape". Summary: installable `acp-tck` package with the
-conformance suite shipped inside `src/tck/conformance/`; CLI `acp-tck [opts] -- <agent cmd>` runs
-pytest programmatically with `-p tck.plugin`; agent under test is a stdio subprocess, one fresh
-process per test; hand-rolled asyncio NDJSON raw harness (no Python-SDK runtime dependency);
-vendored spec JSON schema v1 validated via `jsonschema`; requirement registry with tiers
-mandatory / capability:<path> / advisory / informational; four-status verdict PASS/FAIL/SKIPPED/NOT
-TESTED; console + JSON report; verdict-based exit code; self-tests in repo-only `tests/` against
-pure-Python fixture agents. Protocol scope v1 only (`PROTOCOL_VERSION = 1`).
+## Mission (this effort)
+Add ACP **v2** support to the TCK side by side with v1, without regressing v1. Integration branch is
+`v2-support` (treat as upstream; `main` untouched until the user explicitly decides to merge back).
+Target layout: `src/tck/common/` (version-agnostic), `src/tck/v1/` (existing code migrated),
+`src/tck/v2/` (new). CLI routing between v1 and v2 (auto-detect vs flag vs sub-commands) is NOT decided —
+it is an output of the first research round. Every protocol-touching slice starts from a researcher's
+report on the v2 delta for that slice; never assume v1 carries over or diverges.
 
-## Research completed (all in `.agents/research/`)
-- `acp-v1-protocol-surface.md` — 46 requirements with tiers; baseline MUST set; version negotiation;
-  docs bugs (`currentModeId`; `error.mdx` stub).
-- `acp-v1-transport-and-jsonrpc.md` — framing MUSTs, error codes, batch = v2 only, SDK divergence on
-  malformed input (informational), no shutdown method.
-- `a2a-tck-structure.md` — design inspiration (registry, four-status verdict, ship tests in wheel).
-- `reference-sdks-as-harness.md` — why raw harness; `testy`/`echo_agent.py` as fixtures.
-- `acp-v1-authentication.md` — v1 never requires `-32000` gating; auth is surface checks + `--auth-method`.
-- `acp-v1-session-capabilities.md` — per-method shapes/orderings for load/resume/list/delete/close/
-  additionalDirectories/modes/configOptions/prompt caps; capability encodings (boolean `=== true` vs
-  object marker non-null); 20 must-NOT-assert items.
-- `testy-cross-check.md` — how to build/run Rust `testy` (17 s build, no CLI, scenarios by prompt text,
-  `--cancel-prompt wait_for_cancel`); measured CONFORMANT; found INIT-003 false negative (fixed 6a/7b).
-- `spec-drift-check.md` — upstream HEAD d3c1dd7: `schema/v1/` byte-identical to vendored 6d08f41 → no
-  re-vendor; citations stay pinned at 6d08f412; three citation text fixes pending (slice 8).
-- `review-slices-1-4.md`, `review-slices-5-6.md` — code reviews; all blockers/should-fix addressed in
-  slices 5b and 7b (deferred nits N12, N20 listed below).
-
-## Implemented and verified (all on `main`, suite green: 135 passed ≈100 s)
-Registry: **56 requirements** in `src/tck/requirements.py` (see `AGENTS.md` for the catalogue).
-- Harness `src/tck/harness/` — `AgentLaunch` (command, cwd, env overrides, timeouts, `max_line_bytes`
-  64 MiB, `close_grace`), `AgentProcess` (process-group spawn, raw/JSON send with drain deadline,
-  lossless oversize reads, deadline reads, two-way transcript incl. malformed lines, stderr capture,
-  `close()` drains stdout then close-stdin→SIGTERM→SIGKILL).
-- `src/tck/protocol.py` (`PROTOCOL_VERSION`, `SCHEMA_REVISION`, error codes, `STOP_REASONS`, method sets
-  from meta.json), `src/tck/validation.py` (schema validation; `find_unknown_root_keys`),
-  `src/tck/schema/v1/` vendored @ 6d08f412.
-- `src/tck/plugin.py` — options `--tck-agent-cmd/-cwd/-env/-timeout/-startup-timeout/-test-timeout/
-  -cancel-prompt/-auth-method/-close-grace/-report-json`; markers `requirement`, `capability(path,
-  boolean=)`; async tests via `pytest_pyfunc_call` + watchdog; autouse session-scoped
-  `agent_initialize_result`; per-test outcome collector; tier-grouped table with INFORMATIONAL notes;
-  JSON report; verdict → `session.exitstatus` (not for `--collect-only`); xfail forbidden.
-- `src/tck/report.py` — `Status`, `TestOutcome`, `RequirementResult`, `Verdict` (`conformant`,
-  `blocked_by_auth`, tier counts), `Report.to_dict()`; transcript cap 400 entries / 4 kB per line.
-- `src/tck/conformance/` — `_helpers.py` (`connected_agent` with auto-authenticate, `new_session`,
-  `run_prompt` mock client with `on_action` hook, `skip_if_auth_gated`), tests: transport, jsonrpc,
-  initialize, session, prompt, cancel, session_capabilities, session_config, prompt_capabilities,
-  authentication, client_capabilities, extensibility, diagnostics, informational.
-- CLI `src/tck/__init__.py` (`acp-tck [options] -- <cmd>`, `--version`, `--help`), `src/tck/__main__.py`.
-- Fixtures `tests/fixtures/agents/` (~35 scripts; `_base.py` conforming core; `conforming.py`,
-  `conforming_full.py`, `gated_by_auth.py`, plus single-defect agents). Self-tests `tests/`
-  (`test_harness`, `test_validation`, `test_registry`, `test_plugin`, `test_report`, `test_cli`).
-- Docs: `AGENTS.md` (contributor guide, catalogue), `README.md` (user guide).
+## v1 baseline (complete, on `main` and `v2-support`)
+Installable `acp-tck` package; conformance suite in `src/tck/conformance/`; CLI `acp-tck [opts] -- <agent
+cmd>` runs pytest with `-p tck.plugin`; one fresh stdio subprocess per test; hand-rolled asyncio NDJSON
+harness (`src/tck/harness/`); vendored v1 schema (`src/tck/schema/v1/` @ 6d08f412) validated via
+`jsonschema`; registry of **56 requirements** (`src/tck/requirements.py`) tiered MANDATORY / CAPABILITY /
+ADVISORY / INFORMATIONAL; four-status verdict; console + JSON report; verdict exit code; self-tests in
+`tests/` with ~35 pure-Python fixture agents; `scripts/cross-check.sh` against Rust `testy` and Python
+`echo_agent.py`; CI in `.github/workflows/ci.yml`. Full catalogue in `AGENTS.md`. Real-agent reports
+against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude-wrapper.md`,
+`codex-wrapper.md`). v1 research: `research/acp-v1-*.md`, `review-slices-*.md`, `spec-drift-check.md`,
+`testy-cross-check.md`, `upstream-issues.md` (internal drafts only, do not file).
 
 ## In flight
-Nothing. All planned work is done and pushed; awaiting user direction.
+Nothing running. Slice V2-0 merged (`ad536fe`); worktree `../acp-tck-2-migrate-common-v1` and branch
+`migrate-common-v1` to be removed after push. Research rounds 1–3 complete (10 v2 reports). Next: spawn
+V2-0b and V2-1 in parallel off the V2-0 tip (see plan.md "v2 effort — slices").
 
-Slice 8 done and committed: `scripts/cross-check.sh` (builds testy `--no-default-features`, runs TCK with
-`--cancel-prompt wait_for_cancel`; runs echo_agent via `uv run --no-project --with agent-client-protocol==1.0.0rc1`),
-`scripts/cross-check-summary.py` (`--expect-only-mandatory-fail`), `docs/cross-check.md` (table + explanations).
-CI: `.github/workflows/ci.yml` — `test` job (uv, Python 3.14) + informational `cross-check` job (clones upstream at
-pinned SHAs, cargo cache). pyproject has description + urls; license deliberately not set (user decision). Result: both upstream agents
-NOT CONFORMANT only because of INIT-003 (they echo 65535) and advisory INIT-004; echo_agent also fails advisory
-JSONRPC-004 (SDK returns `result: null` for unknown `_` methods). No TCK bug found.
-Slice 8b (review-slices-7 fixes) done: harness translates write-side OSError into AgentExited; informational
-probes bounded by quiet_period; close() stops at the first stage where the process is gone; deselection hint
-independent of pass counts; tiers: AUTH-001 ADVISORY, AUTH-003 CAPABILITY(inferred:authMethods), EXT-001
-MANDATORY "some response"; `tests/test_registry.py` cross-checks CLI self-test tier sets against REGISTRY.
-`research/upstream-issues.md` drafts 12 upstream issues (4 spec, 3 rust-sdk, 5 python-sdk). Spot checks that completed before the
-pause: full suite 125 passed; `conforming_full.py` and `conforming.py` full runs CONFORMANT. Orchestrator also
-re-ran: `gated_by_auth.py --auth-method wrong` → exit 1 blocked by authentication; `supports_v1_and_v2.py`
-INIT-003 PASS. Programmer-reported only: `echoes_any_version.py` INIT-003 FAIL; `rejects_second_initialize.py`
-CONFORMANT; `--collect-only` exit 0.
+**Done (2026-09-21): slice V2-0** — `src/tck/common/` (harness, requirements base, report, plugin core,
+`version.py::VersionSpec`) + `src/tck/v1/` (protocol, schema, requirements, validation, conformance,
+plugin shim, `SPEC`); tests reorganised; docs synced. 135 passed; v1 report identical except module paths in
+prose/skip message. Programmer tip: clear `__pycache__` after `git mv` of directories (stale `co_filename`).
 
-## Open questions / deferred
-- Deferred nits from review-slices-5-6: N12 (pytester-based plugin test), N20 (O(n²) `transcript.index`).
-- Citation text fixes from `spec-drift-check.md` (MODES-002 wording, LOAD-003 cite `ac82df6`,
-  INFO-UNKNOWNSESSION-001 path) → slice 8.
-- Req 10 (stdio MCP MUST) deliberately untested (not client-observable).
-- v0.1 release/tag: decide after slice 8 and a final review pass.
+**Landed research (2026-09-21):**
+- `research/acp-v2-patches-enums-extensibility.md` — keyed upserts, 30 open enums with emitter `_` MUST
+  (invalid values stay MANDATORY FAILs), extensibility byte-identical to v1, `$/` reserved prefix, v2
+  validator checklist; decisions in plan.md "v2 patches / open enums / extensibility — decisions" (incl.
+  stopReason-on-idle resolved MANDATORY scoped to turn-ending idle).
+- `research/acp-v2-session-management.md` — 7-method baseline; resume `replayFrom` MUSTs; no guaranteed
+  resumable id (try-three-routes-then-SKIP); close observable via idle cancelled; list/delete/mcp/config
+  rows; 14 v1 ids to retire; decisions in plan.md "v2 session management — decisions".
+- `research/acp-v2-authentication.md` — `auth/login`/`auth/logout`, `methodId`, derived gate (non-empty
+  authMethods ⇒ both MUST), `-32000` still MAY, terminal gate stays; decisions in plan.md "v2 authentication
+  — decisions" incl. opt-in `--allow-logout`.
+- `research/acp-v2-prompt-lifecycle.md` — prompt response = `{messageId}` receipt; turn via `state_update`
+  running→idle; updates after idle legal; 22 candidate rows; driver design; decisions in plan.md
+  "v2 prompt lifecycle — decisions".
+- `research/acp-v2-cancellation-and-batching.md` — cancel wire-identical; confirmation = idle
+  `state_update{stopReason: cancelled}`; v1 race persists in v2 (supersedes SDK report item 9); batching per
+  JSON-RPC §6; 22 candidate rows; decisions in plan.md "v2 cancellation and batching — decisions".
+- `research/acp-v2-initialize-capabilities-baseline.md` — v2 `initialize` field tables (`info` REQUIRED both
+  sides), all capabilities object markers, `capabilities.session` ⟹ 7-method baseline, minimal
+  `session/new`, validator facts (7 anyOf branches, no `null` responses), candidate requirement rows with
+  2xx ids; decisions recorded in plan.md "v2 initialize / capabilities / baseline — decisions".
+- `research/reference-sdks-v2-status.md` — both SDKs implement draft v2; `testy` dual build
+  (`--features unstable_protocol_v2`) is the v2 cross-check target; Python needs a repo-authored v2 fixture
+  on rc2; wire constraints (no pipelining behind initialize, deterministic v2 cancel, idle-before-running,
+  `info` required) recorded in plan.md "Reference SDKs and v2".
+- `research/acp-v2-version-negotiation.md` — negotiation algorithm verbatim v1; `info` REQUIRED both sides;
+  second `initialize` rejected by both SDKs; dual v1/v2 support non-normative; routing decision recorded
+  as plan.md part 2 (`--protocol-version {1,2}`, default 1; `auto` deferred); v1 INIT-003 probe needs
+  `info` (slice V2-0b); v2-only-agent-asked-for-1 MUST answer 2 → MANDATORY (SDKs violate by design).
+- `research/common-v1-v2-split-analysis.md` — module classification, coupling points P1–P10, decisions
+  D1–D8, migration steps §5.1 (implemented by slice V2-0), A2A TCK has no multi-version support.
+- `research/acp-v2-status-and-delta-inventory.md` — v2 is a **Draft** (2.0.0-alpha.5, 2026-09-18);
+  vendorable `schema/v2/{schema,meta}.json` @ spec 8f76d6c with `x-side`/`x-method`; large delta (see
+  plan.md "v2 upstream status"); 8 follow-up research slices named; flags: migration.mdx stale on client
+  capabilities, `session/set_config_option` availability unstated, StopReason open enum, batch arrays are
+  valid stdout lines (v2 ACP-TRANSPORT-001 must relax).
+
+## Open questions / known blockers
+- Upstream checkouts: `git pull --ff-only` now fails with "Cannot fast-forward to multiple branches"
+  (local tracking config in all three checkouts). Workaround researchers used: `git fetch origin` then
+  verify `git rev-list --left-right --count HEAD...origin/main` is `0 0`. Consider having a programmer
+  update the `check-*` SKILL.md refresh step; do not "repair" the checkouts without the user.
+- Deliverable shape parts 1 (layout, D1–D8, one suite per run) and 2 (CLI routing) are decided in `plan.md`.
+- v2 upstream is a Draft (alpha); pin every citation and the vendored schema to a commit; expect churn.
+- Deferred v1 nits (not scheduled): N12/N20 from `review-slices-5-6.md`, N9 from `review-slices-7.md`.
 
 ## Next actions
-1. User decided (2026-09-18): license **Apache-2.0** (LICENSE + PEP 639 fields committed);
-   **no v0.1.0 tag yet**; upstream issue drafts in `research/upstream-issues.md` stay **internal notes only**
-   (do not file).
-2. Nothing scheduled. Await user direction (tagging v0.1.0, publishing, new scope such as v2).
-3. Possible follow-ups (not planned): deferred nits N12/N20 from review-slices-5-6 and N9 from review-slices-7;
-   optional `testy` scenario tests behind an env flag; v2 support is explicitly separate work.
+1. Merge slice V2-0 when the programmer reports (see "In flight" for the checklist).
+2. After V2-0 merges: spawn slice V2-0b (v1 INIT-003 probe carries `info` + router fixture; plan.md part 2).
+3. Spawn slice V2-1 (v2 skeleton + initialize, plan.md "v2 effort — slices") in parallel with V2-0b, both
+   off the post-V2-0 tip; merge in the order they report. Then V2-2 … V2-7 serially (each touches
+   `v2/requirements.py`, `_helpers.py`, `_base.py`), per the fixed order in plan.md.
+4. Tell the user: v2 upstream is Draft/alpha; requirements will churn with upstream; confirm they want to
+   proceed against a moving target (proceeding meanwhile, per the mission brief).
