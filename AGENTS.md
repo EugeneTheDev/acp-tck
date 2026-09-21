@@ -23,8 +23,14 @@ capabilities (`image`/`audio`/`embeddedContext`, all object-marker-gated under
 `capabilities.session.prompt.*`), the permission-request flow (`session/request_permission`),
 and the agent -> client method rules (`elicitation/create` MUST NOT be called unadvertised;
 every agent -> client method during a turn MUST be a defined v2 client/protocol method or
-`_`-prefixed) -- gated behind `--protocol-version 2`; default remains v1 -- and is expected to
-grow in later slices. Everything below is v1-specific unless a section says otherwise.
+`_`-prefixed), and (V2-3) cancellation (`session/cancel`'s wire shape is unchanged from v1, but
+confirmation moves to a separate terminating idle `state_update{stopReason:"cancelled"}`
+notification rather than the prompt response itself), stdio transport hygiene widened for
+batching (every stdout line is a JSON-RPC 2.0 object *or* a non-empty array of them), the
+JSON-RPC envelope, and JSON-RPC 2.0 batching (v2 §6: empty-array/notification-only/mixed-entry
+batch handling, response-array matching by id, and three record-only MAY probes) -- gated behind
+`--protocol-version 2`; default remains v1 -- and is expected to grow in later slices. Everything
+below is v1-specific unless a section says otherwise.
 
 Slices so far add an installable CLI (`acp-tck`), a requirement registry, a pytest plugin,
 transport/`initialize` conformance tests, mandatory session/prompt/cancel conformance tests, full
@@ -203,15 +209,17 @@ src/tck/
                           requirement registry, schema validation, the v2 pytest plugin shim,
                           and a conformance suite covering the `initialize` handshake, the
                           `session/new` baseline (slice V2-1b), the core prompt-turn lifecycle
-                          (V2-2a), and (V2-2b) prompt content capabilities, the permission-
-                          request flow, and the agent -> client method rules. v2 is Draft (schema version
+                          (V2-2a), (V2-2b) prompt content capabilities, the permission-
+                          request flow, and the agent -> client method rules, and (V2-3)
+                          cancellation, stdio transport hygiene (batch-aware), the JSON-RPC
+                          envelope, and JSON-RPC 2.0 batching. v2 is Draft (schema version
                           `2.0.0-alpha.5` at the vendored pin) and expected to churn -- coverage
                           here is still well short of v1 parity and expected to grow in
-                          follow-up slices (session lifecycle beyond `session/new`, the
-                          `session/prompt` turn/update lifecycle, auth, ...). Mirrors `v1/`'s
-                          shape but is its own, undiluted implementation -- nothing under `v2/`
-                          imports from `v1/` (`.agents/research/common-v1-v2-split-analysis.md`
-                          D6: honest duplication, not shared version-specific machinery).
+                          follow-up slices (session lifecycle beyond `session/new`, auth, ...).
+                          Mirrors `v1/`'s shape but is its own, undiluted implementation --
+                          nothing under `v2/` imports from `v1/`
+                          (`.agents/research/common-v1-v2-split-analysis.md` D6: honest
+                          duplication, not shared version-specific machinery).
     __init__.py             exports `SPEC` (`protocol_version=2`, this package's
                           `SCHEMA_REVISION`/`SCHEMA_DIR`/`REGISTRY`, an `initialize_params()`
                           returning v2's handshake params -- `{"protocolVersion", "info",
@@ -232,9 +240,27 @@ src/tck/
                           v1 never needed, not a consequence of v2 having a branch v1 lacks --
                           v1's schema has the same three top-level branches
                           (`Agent`/`Client`/`ProtocolLevel`)
-    requirements.py         `SPEC_REVISION`, `_DECLARATIONS`, `REGISTRY`, `get()` -- 24
-                          requirements (nine from V2-1b, six V2-2a prompt-turn ids, and nine
-                          V2-2b additions: `ACP-PROMPTCAP-001/002/003` (reused v1 ids, re-cited
+    requirements.py         `SPEC_REVISION`, `_DECLARATIONS`, `REGISTRY`, `get()` -- 52
+                          requirements (nine from V2-1b, six V2-2a prompt-turn ids, nine
+                          V2-2b additions, and 24 V2-3 additions covering cancellation
+                          (`ACP-CANCEL-201..208`, `Tier.CAPABILITY` on `capabilities.session`
+                          except `ACP-CANCEL-204` which is ADVISORY/record-only-unobservable, and
+                          `ACP-INFO-CANCEL-201/202` INFORMATIONAL), stdio transport
+                          (`ACP-TRANSPORT-002` MANDATORY, reused bare from v1 since UTF-8
+                          validity is unaffected by batching; `ACP-TRANSPORT-201`/`203`
+                          MANDATORY, fresh ids under D3 since 201's "object or non-empty batch
+                          array" framing rule genuinely changed meaning and 203 -- no embedded
+                          newlines -- has no v1 analogue at all), the JSON-RPC envelope
+                          (`ACP-JSONRPC-001..005`, all reused bare from v1 under D3 -- the wire
+                          assertion itself is unchanged, only the evidence-gathering probe widens
+                          to cover batches -- `001..003` MANDATORY, `004`/`005` ADVISORY), and
+                          JSON-RPC 2.0 batching
+                          (`ACP-BATCH-201/202` MANDATORY, `203..205` ADVISORY, `206..208`
+                          ADVISORY record-only MAY probes never actually judged, and
+                          `ACP-INFO-BATCH-201/202` INFORMATIONAL) -- see the module's "Slice
+                          V2-3" docstring for the full per-id tiering rationale and D3
+                          reuse-vs-fresh-id decisions. V2-2b's nine additions:
+                          `ACP-PROMPTCAP-001/002/003` (reused v1 ids, re-cited
                           to v2's `capabilities.session.prompt.{image,audio,embeddedContext}`
                           object markers), `ACP-PROMPT-003` (ADVISORY, reused from v1 --
                           `resource_link` MUST-accept vs. `content.mdx`'s text-only MUST, the
@@ -245,7 +271,7 @@ src/tck/
                           when unadvertised), `ACP-CLIENTCAP-202` (new -- every agent -> client
                           method observed during a turn MUST be a defined v2 client/protocol
                           method or `_`-prefixed), and two new INFORMATIONAL prompt-lifecycle
-                          probes, `ACP-INFO-CONCURRENT-001`/`ACP-INFO-UNKNOWNSESSION-001`, mirroring
+                          probes, `ACP-INFO-CONCURRENT-201`/`ACP-INFO-UNKNOWNSESSION-001`, mirroring
                           v1's informational tier but re-probed against the v2 prompt-turn shape
                           -- see the module's docstring for the full id-namespacing rationale).
                           `ACP-INIT-001` (reused from v1 -- "`initialize` succeeds"
@@ -422,10 +448,103 @@ src/tck/
                             rule) -- v2 has no `fs/*`/`terminal/*` client surface at all, so a
                             v1-shaped probe using those method names is exactly what
                             `ACP-CLIENTCAP-202` exists to catch.
-      test_informational.py   (V2-2b) ACP-INFO-CONCURRENT-001/ACP-INFO-UNKNOWNSESSION-001 --
+      test_informational.py   (V2-2b) ACP-INFO-CONCURRENT-201/ACP-INFO-UNKNOWNSESSION-001 --
                             report-only probes (`record_property`, never asserted on) for
                             concurrent-prompt and unknown-`sessionId` behaviour the v2 spec is
                             silent on; still FAILs if the prerequisite handshake itself fails.
+      test_cancel.py           (V2-3) ACP-CANCEL-201..208, ACP-INFO-CANCEL-201/202. v2 moves
+                            cancel confirmation off the prompt response entirely: `session/
+                            cancel`'s own wire shape is unchanged from v1, but the turn now
+                            resolves via a separate terminating idle `state_update{stopReason:
+                            "cancelled"}` notification (`ACP-CANCEL-201`, `Tier.CAPABILITY` on
+                            `capabilities.session`, mirroring V2-2a's prompt-turn tiering
+                            rationale). `ACP-CANCEL-202`: no further `state_update` for that
+                            session after the cancelled idle -- SKIPs with "prerequisite not
+                            met" whenever `ACP-CANCEL-201` itself didn't observe a `cancelled`
+                            idle to check "after" (own race-window/prerequisite handling, same
+                            shape as v1's `test_cancel.py`). `ACP-CANCEL-203`: cancellation must
+                            not surface as a generic JSON-RPC error either on the prompt response
+                            or the cancel notification's own (nonexistent) response.
+                            `ACP-CANCEL-204` (ADVISORY, always SKIPped): "as soon as possible"
+                            promptness has no wire-level signal a client-only TCK can check.
+                            `ACP-CANCEL-205`: `session/cancel` itself, being a notification,
+                            receives no direct JSON-RPC response. `ACP-CANCEL-206`: a
+                            `session/cancel` carrying `_meta` is still accepted and honoured.
+                            `ACP-CANCEL-207`: `session/close` on a session with in-flight work
+                            also resolves that work via a `cancelled` idle. `ACP-CANCEL-208`:
+                            behaviour when there is no foreground work to cancel (e.g. cancelling
+                            an idle session) is at least well-formed, never a generic error.
+                            Every CAPABILITY-tier test here shares v1's own "cancel race" honesty
+                            discipline (`cancel_race_peek`/`quiet_period`, ported from
+                            `tck.v1.conformance._helpers`, not imported from it -- D6): SKIPs
+                            rather than judges whenever the turn resolves before `session/cancel`
+                            could be sent, or resolves with a valid non-cancelled `stopReason`
+                            inside the race window. `ACP-INFO-CANCEL-201/202` (INFORMATIONAL,
+                            `record_property`-only): cancelling a session with no foreground work,
+                            and cancelling mid-permission-request, respectively.
+      test_transport.py       (V2-3) ACP-TRANSPORT-002, ACP-TRANSPORT-201, ACP-TRANSPORT-203 --
+                            batch-aware counterpart of v1's `test_transport.py` (D6).
+                            `ACP-TRANSPORT-201`: every stdout line is exactly one JSON-RPC 2.0
+                            object *or* a non-empty array of them (widened from v1's
+                            single-object-only rule, hence a fresh id rather than a reused
+                            `ACP-TRANSPORT-001` under D3 -- the meaning genuinely changed).
+                            `ACP-TRANSPORT-002`: UTF-8 decoding, unaffected by batching, so this
+                            reuses v1's own id bare -- the meaning did not change.
+                            `ACP-TRANSPORT-203`: no embedded literal newlines (a batch array is
+                            itself one line too) -- new to v2, no v1 analogue to reuse.
+                            `_drive_full_exchange` does its own manual `initialize` and calls
+                            `skip_if_version_mismatch` before ever touching `session/new`/
+                            `run_prompt`, on the same connection -- not because framing/UTF-8/
+                            newline rules are themselves v2-only, but so a version-mismatched
+                            agent (which will never emit the `running`/`idle` pair `run_prompt`
+                            waits on) SKIPs cleanly instead of hanging until `--tck-timeout` and
+                            FAILing every row here (see the module's docstring for the exact
+                            `AgentTimeout` this fixed). Consequence for
+                            `tests/v2/test_cli.py`: unlike `ACP-JSONRPC-001..005`, these three
+                            ids are *not* in `_VERSION_TOLERANT_IDS` -- they SKIP, not PASS,
+                            against an honestly-downgrading v1 agent forced under
+                            `--protocol-version 2`.
+      test_jsonrpc.py          (V2-3) ACP-JSONRPC-001..005 (MANDATORY 001..003, ADVISORY
+                            004/005) -- v2's JSON-RPC envelope rules (id echo, result-xor-error,
+                            notification handling, `-32601` on unknown methods, connection
+                            survives an error) are each byte-identical in *meaning* to their v1
+                            counterparts of the same number, so every one of them reuses its v1
+                            id bare under D3 -- only the evidence-gathering probe widens to also
+                            cover a batch-delivered response/notification/erroneous-batch. None
+                            of these tests drives a v2-shaped `session/prompt` turn or calls
+                            `skip_if_version_mismatch`, so they judge an agent's ordinary
+                            handshake/notification traffic the same way regardless of negotiated
+                            version -- the reason they PASS (not SKIP) against a v1 agent forced
+                            under `--protocol-version 2`.
+      test_batch.py            (V2-3) ACP-BATCH-201..208, ACP-INFO-BATCH-201/202 -- JSON-RPC 2.0
+                            batching (v2 §6). New to v2 -- v1 has no batching at all, so none of
+                            these ids reuse a v1 number (D3 does not apply). `ACP-BATCH-201`
+                            (MANDATORY): an empty batch array `[]` gets exactly one top-level
+                            `-32600`/`id: null` Invalid Request object, never silence and never a
+                            per-entry response. `ACP-BATCH-202` (MANDATORY): a notification-only
+                            batch produces no output at all. `ACP-BATCH-203` (ADVISORY): a batch
+                            mixing one structurally invalid entry with one well-formed sibling
+                            gets a per-entry `-32600`/`id: null` for the invalid one without
+                            blocking the valid sibling's own reply. `ACP-BATCH-204`/`205`
+                            (ADVISORY, shared test -- identical wire evidence, neither the sole
+                            cause of a failing verdict): a batch containing at least one request
+                            gets back one array of the corresponding response objects, matched by
+                            `id` rather than array position (`205`'s "any order" MAY is exactly
+                            why the test matches by id). `ACP-BATCH-206..208` (ADVISORY,
+                            record-only, always SKIPped): concurrent-processing order is
+                            unobservable from a client-side TCK, an agent can't be forced to
+                            spontaneously emit its own batch, and lifecycle-batching restraint is
+                            a sender property a receiver-only TCK can't probe. `ACP-INFO-
+                            BATCH-201/202` (INFORMATIONAL): a malformed top-level JSON-array-shaped
+                            line, and a batch mixing a call-shaped and a response-shaped entry,
+                            respectively -- both silent on the spec, `record_property`-only.
+                            Every test here calls `skip_if_version_mismatch` on its own manual
+                            `initialize` (own local `_v2_only_agent` helper, not promoted to
+                            `_helpers.py`), same reasoning as `test_transport.py` above; each
+                            probe also uses its own fresh connection, since a batch line is
+                            exactly the kind of traffic that could crash a less battle-tested
+                            agent implementation, and isolating each probe means one crash can't
+                            cascade into or pollute a sibling assertion.
 
 tests/
   conftest.py              agent_launch() helper for spawning fixture agents under
@@ -451,21 +570,28 @@ tests/
     test_validation.py      unit tests for `tck.v2.validation`'s three v2-specific behaviors:
                           batch root dispatch, no `null` special case for responses, and the
                           `find_unknown_root_keys` open-fallback carve-out
-    test_registry.py         `tck.v2.requirements.REGISTRY` invariants (all 24 ids: the nine
-                          from V2-1b, V2-2a's six prompt-turn ids, and V2-2b's nine
+    test_registry.py         `tck.v2.requirements.REGISTRY` invariants (all 52 ids: the nine
+                          from V2-1b, V2-2a's six prompt-turn ids, V2-2b's nine
                           `ACP-PROMPTCAP-001/002/003`/`ACP-PROMPT-003`/`ACP-PERM-201`/
-                          `ACP-CLIENTCAP-201/202`/`ACP-INFO-CONCURRENT-001`/
-                          `ACP-INFO-UNKNOWNSESSION-001`) + two-way check against
-                          `tck.v2.conformance` markers
+                          `ACP-CLIENTCAP-201/202`/`ACP-INFO-CONCURRENT-201`/
+                          `ACP-INFO-UNKNOWNSESSION-001`, and V2-3's 24 cancellation/transport/
+                          JSON-RPC/batching ids) + two-way check against `tck.v2.conformance`
+                          markers
     test_cli.py               end-to-end: run `python -m tck --protocol-version 2 --
                             <fixture>` as a subprocess; routing checks (`--help`, and that the
                             default/`--protocol-version 1` path still runs the v1 suite
                             unchanged); the v2 conforming fixture PASSing every id it exercises
                             (V2-2b's `ACP-PROMPTCAP-001/002/003`/`ACP-PERM-201` SKIP against the
                             plain `conforming.py` fixture, since it neither advertises prompt
-                            content capabilities nor ever asks permission); `conforming_full.py`
-                            (V2-2b) PASSing literally every one of the 24 ids; one test per
-                            defect fixture asserting its exact FAIL set (V2-2a adds eight: the
+                            content capabilities nor ever asks permission; V2-3's
+                            `_CANCEL_RACE_SKIP_IDS` also legitimately SKIP without a
+                            `--cancel-prompt` override, since `conforming.py`'s short turns
+                            resolve before the TCK can act on `session/cancel`); `conforming_
+                            full.py` (V2-2b) PASSing literally every one of the 52 ids when run
+                            with `--cancel-prompt __hang__` (V2-3's cancellation tests need a
+                            turn that is still in flight when `session/cancel` lands, exactly
+                            like v1's own `--cancel-prompt` convention); one test per defect
+                            fixture asserting its exact FAIL set (V2-2a adds eight: the
                             single-defect `bad_stop_reason.py`/`vendor_stop_reason.py`/
                             `no_running_update.py`/`no_idle_after_running.py`/
                             `idle_before_running.py`/`echo_wrong_message_id.py`/
@@ -477,21 +603,47 @@ tests/
                             (whose defect also cascades into `ACP-SCHEMA-001`, since
                             `fs/read_text_file` isn't a known v2 method at all -- the same
                             documented defect-cascades-into-schema pattern `ACP-INIT-204` already
-                            uses), and the positive control `calls_custom_method.py`; V2-2a's
-                            `no_idle_after_running.py`/`update_wrong_session.py` self-tests were
-                            also updated to include V2-2b's new run-prompt-dependent ids
-                            (`ACP-CLIENTCAP-201/202`, `ACP-PERM-201`, `ACP-PROMPT-003`) in their
-                            expected FAIL sets, since those fixtures break `run_prompt`'s
-                            turn-completion detection for every test that depends on it, not
-                            just the six V2-2a ids); and the version-mismatch scenario (the v1
-                            conforming fixture run under `--protocol-version 2`: the
-                            negotiation-outcome ids -- `ACP-INIT-001`/`003`/`201`/`202` -- PASS
-                            normally against the honestly-downgraded-to-`1` response, while every
-                            other MANDATORY/
-                            CAPABILITY id -- computed as `(_MANDATORY_IDS | _CAPABILITY_IDS) -
-                            _NEGOTIATION_IDS`, which now also covers V2-2a's six prompt-turn ids
-                            -- SKIPs with the `VERSION-MISMATCH:` marker; zero FAILs anywhere, yet
-                            `verdict.blocked_by_version_mismatch` is `true` and exit code is 1)
+                            uses), and the positive control `calls_custom_method.py`; V2-3 adds
+                            five more: `cancel_no_idle.py`, `cancel_returns_error.py`,
+                            `cancel_wrong_stop_reason.py`, `rejects_batch.py`, and `crashes_on_
+                            batch.py`); every single-defect fixture whose defect applies to
+                            *every* prompt (not just one targeted scenario) was found, by running
+                            each self-test in isolation and reading its printed per-id table
+                            rather than by reasoning from the fixture's own docstring alone, to
+                            cascade into every other test that also drives a `run_prompt` turn on
+                            the same connection -- `bad_stop_reason.py`/`vendor_stop_reason.py`/
+                            `no_idle_after_running.py`/`idle_before_running.py`/`update_wrong_
+                            session.py`'s self-tests were all widened accordingly once V2-3 added
+                            new call sites (cancellation/transport tests) onto the same shared
+                            `run_prompt` codepath V2-2a/V2-2b's tests already used; two
+                            unanticipated cross-family cascades worth calling out specifically:
+                            `vendor_stop_reason.py` additionally SKIPs (not PASSes) `ACP-CANCEL-
+                            202`, since that id's own test requires the `ACP-CANCEL-201`
+                            prerequisite (`stopReason: "cancelled"`) to have actually happened
+                            before it can check "no further update after it" -- which never
+                            occurs when every turn ends with the vendor-prefixed `"_tck/
+                            throttled"` instead; `idle_before_running.py` additionally FAILs
+                            (ADVISORY, so the verdict stays CONFORMANT) `ACP-BATCH-204`/`205`,
+                            because its `_handle_new_session` override fires its unsolicited
+                            ready-idle notification as an immediate side effect of handling
+                            `session/new` even when `session/new` arrives inside a batch, so that
+                            notification line lands on stdout ahead of the batch's own combined
+                            response array; and the version-mismatch scenario (the v1 conforming
+                            fixture run under `--protocol-version 2`: the negotiation-outcome ids
+                            -- `ACP-INIT-001`/`003`/`201`/`202` -- plus V2-3's five `ACP-JSONRPC-
+                            001..005` ids (together, `_VERSION_TOLERANT_IDS`) PASS normally
+                            against the honestly-downgraded-to-`1` response, since none of their
+                            own tests ever drives a v2-shaped `session/prompt` turn or calls
+                            `skip_if_version_mismatch` itself; every other id, including V2-3's
+                            `ACP-TRANSPORT-201`/`002`/`203` -- which *do* call `skip_if_version_mismatch`
+                            themselves, specifically to avoid hanging on `run_prompt` against a
+                            mismatched agent, so they SKIP rather than PASS here despite also
+                            being connection-level rows -- SKIPs with the `VERSION-MISMATCH:`
+                            marker; `ACP-CANCEL-204`/`ACP-BATCH-206..208` SKIP too but for their
+                            own unconditional record-only reason, not the version mismatch, so
+                            they carry no `VERSION-MISMATCH:` marker in their own message; zero
+                            FAILs anywhere, yet `verdict.blocked_by_version_mismatch` is `true`
+                            and exit code is 1)
   fixtures/agents/v1/
     _base.py               shared ConformingAgent core (not a standalone script); optionally
                           takes a `capabilities` dict merged into `agentCapabilities`, and
@@ -649,7 +801,17 @@ tests/
                           `SendsClientRequestAgent` (overrides `_mid_turn_action` to fire a
                           configurable agent -> client request -- `_client_request_method()`/
                           `_client_request_params(session_id)` -- and forget it, never deferring
-                          turn completion).
+                          turn completion). V2-3 adds top-level batch dispatch (a top-level JSON
+                          array read off stdin is split into its entries, each entry-dispatched
+                          normally, non-empty-request-bearing results collected into one
+                          combined response array written back as a single line -- overridable
+                          via `_handle_batch(items)` for the batch-defect fixtures below) and a
+                          `_stop_reason() == "__hang__"`-triggered hang: a prompt whose text is
+                          exactly `__hang__` withholds its turn-ending idle until `session/
+                          cancel` arrives for that session, then resolves with a `cancelled`
+                          idle -- the v2 analogue of v1's `conforming.py` hang sentinel, needed
+                          so `--cancel-prompt __hang__` can make V2-3's cancellation tests
+                          deterministic against `conforming_full.py`.
     conforming.py          advertises `capabilities: {"session": {}}` so `ACP-SESSION-001/002`
                           PASS rather than SKIP; otherwise a trivial entry point, mirrors
                           `fixtures/agents/v1/conforming.py`
@@ -751,6 +913,141 @@ tests/
                           control paired with `calls_fs_unadvertised.py`: PASSes every id it can
                           (advertises only the plain `capabilities.session` baseline, so
                           `ACP-PROMPTCAP-001/002/003`/`ACP-PERM-201` still SKIP)
+    cancel_no_idle.py      (V2-3) `conforming_full.py`, but hangs on *every* prompt (not just
+                          the dedicated cancel-test one) and silently ignores `session/cancel`
+                          entirely -- no terminating idle, no error, ever. `session/close` is
+                          unaffected (still inherits `ConformingAgent`'s own default handler,
+                          which resolves a hanging session via `_finish_turn(..., "cancelled")`),
+                          isolating `session/cancel`'s own defect from `ACP-CANCEL-208`'s
+                          close-triggered path. FAILs every id whose own test drives a turn
+                          through `run_prompt` at all -- an uncaught `AgentTimeout` -- the same
+                          broad cascade shape as `no_idle_after_running.py`/`update_wrong_
+                          session.py` above: `ACP-SCHEMA-001`, `ACP-TRANSPORT-201/002/203`,
+                          `ACP-CANCEL-201/202/203/205/206/207`, `ACP-CLIENTCAP-201/202`,
+                          `ACP-PERM-201`, `ACP-PROMPT-201/203/205`, `ACP-STATE-201/202/203`, the
+                          ADVISORY `ACP-CANCEL-204`/`ACP-PROMPT-003`, and INFORMATIONAL
+                          `ACP-INFO-CANCEL-202`. `ACP-CANCEL-208` is the one exception: `session/
+                          close` still rescues the hanging turn via the inherited default
+                          handler, so it PASSes
+    cancel_returns_error.py  (V2-3) `conforming_full.py`, but withholds `session/prompt`'s own
+                          acceptance receipt entirely for *every* turn (no `user_message`/
+                          `running` update either), not just the dedicated cancel-test one,
+                          until `session/cancel` arrives -- then answers the *original*
+                          `session/prompt` request with a JSON-RPC error instead of ever sending
+                          a terminating idle. Every id whose own test drives an ordinary
+                          (non-cancelling) `run_prompt` turn never gets that far and FAILs with a
+                          timeout: `ACP-SCHEMA-001`, `ACP-TRANSPORT-201/002/203`,
+                          `ACP-CLIENTCAP-201/202`, `ACP-PERM-201`, `ACP-PROMPT-201/203/205`,
+                          `ACP-STATE-201/202/203`, and the ADVISORY `ACP-PROMPT-003`. On top of
+                          that cascade, cancelling itself FAILs `ACP-CANCEL-203` (surfaced as a
+                          generic JSON-RPC error) and `ACP-CANCEL-208` (a `session/close` sent
+                          instead has nothing registered to rescue either -- `_handle_prompt`
+                          never adds the session to `_hanging_sessions`, so the original
+                          `session/prompt` is simply never answered and `run_prompt` itself times
+                          out). `ACP-CANCEL-201/202/206/207` SKIP, deferring to `ACP-CANCEL-203`
+                          -- the turn never reaches a terminating idle at all
+    cancel_wrong_stop_reason.py  (V2-3) `conforming_full.py`, but hangs on *every* prompt (not
+                          just the dedicated cancel-test one); on cancel it finishes the turn
+                          with `stopReason: "end_turn"` instead of `"cancelled"` -- after a
+                          deliberate 1.2s delay (needs `--timeout 2` for the self-test) to clear
+                          the TCK's own "was this actually exercised" race window, since
+                          `"end_turn"` is itself a valid `StopReason` and an instant reply would
+                          make the cancel-specific ids SKIP instead of FAIL, hiding the defect.
+                          Every id whose own test drives an ordinary `run_prompt` turn FAILs with
+                          a timeout, the same cascade shape as `cancel_no_idle.py` above:
+                          `ACP-SCHEMA-001`, `ACP-TRANSPORT-201/002/203`, `ACP-CLIENTCAP-201/202`,
+                          `ACP-PERM-201`, `ACP-PROMPT-201/203/205`, `ACP-STATE-201/202/203`, the
+                          ADVISORY `ACP-PROMPT-003`. For the cancel scenario itself, resolving
+                          with `"end_turn"` FAILs `ACP-CANCEL-201`/`203`/`207` and `ACP-CANCEL-206`
+                          (the `_meta`-carrying cancel scenario hits the same overridden handler).
+                          `ACP-CANCEL-202`/`208` SKIP/PASS respectively, deferring to the rows
+                          above -- `208`'s own test drives cancellation via `session/close`, not
+                          `session/cancel`, which hits the base `ConformingAgent`'s unmodified
+                          close handling (this fixture only overrides `_handle_cancel`), so it
+                          still resolves correctly and PASSes despite the defect
+    rejects_batch.py       (V2-3) `conforming_full.py`, but every non-empty batch array is
+                          handled as if it were the empty-batch case: a single `-32600`
+                          `Invalid Request` object is written back instead of per-entry
+                          dispatch. Coincidentally still satisfies `ACP-BATCH-201` (the true
+                          empty-batch case is answered correctly), but FAILs `ACP-BATCH-202`
+                          (entries are never dispatched), `ACP-BATCH-203` (a notification-only
+                          batch must produce no output, but this always emits the `-32600`), and
+                          the shared `ACP-BATCH-204`/`205` test (the batched `session/new` never
+                          gets its own result). None of `test_transport.py`/`test_jsonrpc.py`/
+                          `test_cancel.py` is affected -- none of those tests ever sends a batch
+    crashes_on_batch.py    (V2-3) `conforming_full.py`, but exits the moment it sees any
+                          batch-shaped (top-level JSON array) line on stdin -- otherwise fully
+                          conforming, including for every non-batch single-message exchange.
+                          FAILs every requirement whose own test actually sends a batch line:
+                          `ACP-BATCH-201/202/203`, the shared `ACP-BATCH-204`/`205` test, and
+                          `ACP-INFO-BATCH-201/202` (INFORMATIONAL, but the handshake inside
+                          `test_batch.py`'s own `_v2_only_agent` still succeeds -- only the batch
+                          probe itself kills the process, so these become `AgentExited` FAILs
+                          rather than a recorded behaviour). `ACP-BATCH-206/207/208` are
+                          unaffected -- unconditional record-only SKIPs that never send anything.
+                          Every other id in this slice (`ACP-TRANSPORT-*`, `ACP-JSONRPC-*`, and
+                          everything cancellation-related) is unaffected, since none of those
+                          tests ever sends a batch-shaped line -- the acceptance-criteria example
+                          of a fixture that fails *only* batch rows
+    banner_on_stdout.py    (V2-3) conforming, but prints a human banner line to stdout before
+                          the agent's own `run()` loop ever touches stdout (v2's
+                          `ConformingAgent` has no `on_start` hook, unlike v1's, so the banner is
+                          printed directly in `main()`). Violates `ACP-TRANSPORT-201`; the banner
+                          also shows up in the full-exchange schema scan, so `ACP-SCHEMA-001`
+                          fails the same way. Plain ASCII, so `ACP-TRANSPORT-002` still PASSes --
+                          the complementary fixture to `invalid_utf8.py` below
+    invalid_utf8.py        (V2-3) writes one line of invalid UTF-8 bytes to stdout before
+                          behaving like a conforming agent -- the dedicated negative control for
+                          `ACP-TRANSPORT-002`. A line that isn't decodable text isn't valid JSON
+                          either, so it also fails `ACP-TRANSPORT-201` and `ACP-SCHEMA-001`
+    garbage_after_response.py  (V2-3) conforming for the whole exchange, then -- after stdin
+                          closes -- writes one line of plain-text (ASCII) garbage to stdout
+                          before exiting. Only catchable via `AgentProcess.close()`'s post-close
+                          stdout drain. Fails `ACP-TRANSPORT-201` (not valid JSON) and
+                          `ACP-SCHEMA-001` (the drained garbage line is still on
+                          `agent.transcript` when the schema scan runs, after
+                          `connected_agent`'s `__aexit__`); `ACP-TRANSPORT-002` still PASSes
+    wrong_id_echo.py       (V2-3) mangles every response id (adds 1 to integer ids, appends a
+                          suffix to string ids) instead of echoing the request id verbatim.
+                          Violates `ACP-JSONRPC-001`; breaking id correlation for every
+                          request/response pair cascades into nearly every other requirement, so
+                          its self-test scopes the run to `-k jsonrpc` (mirroring v1's own
+                          precedent) rather than paying an unscoped run's cost -- scoped, it
+                          fails `ACP-JSONRPC-001/002/003`, `ACP-TRANSPORT-201` (incidentally
+                          selected: `test_stdout_is_clean_ndjson_jsonrpc_or_batch` matches the
+                          `-k jsonrpc` substring), and the ADVISORY `ACP-JSONRPC-004/005`
+    answers_notifications.py  (V2-3) unconditionally replies to the `session/cancel`
+                          notification with a bogus response (`{"id": null, "result": null}`)
+                          instead of never responding to it -- v2's `_base.py` has no generic
+                          notification hook like v1's; `session/cancel` is the only notification
+                          method `ConformingAgent._handle` recognizes at all, so this overrides
+                          `_handle_cancel` directly (never calling `super()`, so no `__hang__`
+                          prompt is ever legitimately cancelled either). Violates
+                          `ACP-JSONRPC-003` only
+    result_and_error.py    (V2-3) the `initialize` response illegally carries both `result` and
+                          `error`. Violates `ACP-JSONRPC-002` and, via the same envelope check,
+                          `ACP-SCHEMA-001`. `ACP-INIT-001` still PASSes: it only asserts
+                          `"result" in msg`, true regardless of `error`'s illegal presence
+    unknown_method_no_error.py  (V2-3) replies to unknown methods with an empty success result
+                          instead of `-32601` -- fails only the ADVISORY `ACP-JSONRPC-004` plus
+                          the two batched-unknown-method ADVISORY checks (`ACP-BATCH-204`/`205`,
+                          which also expect `-32601` for the unknown call inside a mixed batch);
+                          verdict stays CONFORMANT
+    emits_batch_updates.py  (V2-3) positive control: `conforming_full.py`'s capabilities/
+                          permission behavior, but every pair of `session/update` notifications
+                          a turn naturally sends back-to-back is delivered as one JSON-RPC batch
+                          array line instead of two separate lines (`ACP-BATCH-207`, ADVISORY,
+                          explicitly permits this). Must PASS every requirement
+                          `conforming_full.py` itself PASSes (run with `--cancel-prompt
+                          __hang__`) -- proving spontaneous batching of an agent's own
+                          notifications is conformant and does not break anything the TCK
+                          checks. Exercising this fixture found and fixed two genuine TCK bugs:
+                          `test_initialize.py`'s `ACP-SCHEMA-001` scan and `test_cancel.py`'s
+                          `ACP-CANCEL-205` scan both previously assumed every received line was a
+                          single object and either hard-failed (`assert isinstance(msg, dict)`)
+                          or raised `ValueError` (`list.index` on a synthetic per-batch-item
+                          entry that is never literally `in` `agent.transcript`) when a line was
+                          a spontaneous batch array instead
 ```
 
 ## Running the TCK against an agent
@@ -776,9 +1073,10 @@ never exits on its own, a real agent under test should not normally need this ch
 suite and plugin shim to run: `1` -> `src/tck/v1/conformance` with `-p tck.v1.plugin` (unchanged
 default behavior), `2` -> `src/tck/v2/conformance` with `-p tck.v2.plugin`. v2 is Draft and its
 registry is still well short of v1 parity (`initialize`, `session/new`, (V2-2a) the core
-`session/prompt` turn/`state_update` lifecycle, and (V2-2b) prompt content capabilities, the
-permission flow, and the agent -> client method rules -- 24 requirements in all -- see
-`src/tck/v2/`'s entry in "Layout" above); it is expected to grow in follow-up slices.
+`session/prompt` turn/`state_update` lifecycle, (V2-2b) prompt content capabilities, the
+permission flow, and the agent -> client method rules, and (V2-3) cancellation, stdio
+transport, the JSON-RPC envelope, and batching -- 52 requirements in all -- see `src/tck/v2/`'s
+entry in "Layout" above); it is expected to grow in follow-up slices.
 
 If the agent under test never actually negotiates the requested `--protocol-version` (e.g. a
 v1-only agent run under `--protocol-version 2`, which honestly negotiates down per the

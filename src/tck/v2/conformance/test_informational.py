@@ -1,4 +1,4 @@
-"""INFORMATIONAL-tier prompt-lifecycle probes: ACP-INFO-CONCURRENT-001 (new) and
+"""INFORMATIONAL-tier prompt-lifecycle probes: ACP-INFO-CONCURRENT-201 (new) and
 ACP-INFO-UNKNOWNSESSION-001 (reused from v1).
 
 Both are explicitly out of scope of the v2 design (concurrency: `docs/rfds/v2/prompt.mdx:86`;
@@ -30,10 +30,10 @@ from ._helpers import connected_agent, new_session, quiet_period
 _PROMPT_TEXT = "hi"
 
 
-@pytest.mark.requirement("ACP-INFO-CONCURRENT-001")
+@pytest.mark.requirement("ACP-INFO-CONCURRENT-201")
 @pytest.mark.capability("capabilities.session")
 async def test_concurrent_prompt_behaviour(agent_launch, tmp_path, record_property):
-    """ACP-INFO-CONCURRENT-001 (INFORMATIONAL). Sends a second `session/prompt` for the same
+    """ACP-INFO-CONCURRENT-201 (INFORMATIONAL). Sends a second `session/prompt` for the same
     session before the first has reached its terminating idle, and records how the agent
     reacts: a JSON-RPC error, a normal acceptance receipt, or silence. Never asserts."""
     async with connected_agent(agent_launch) as agent:

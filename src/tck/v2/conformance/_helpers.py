@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 import pytest
@@ -139,7 +139,7 @@ def quiet_period(timeout: float) -> float:
     """V2-2b twin of v1's `quiet_period` (identical formula, deliberately re-implemented rather
     than imported -- `.agents/plan.md` D6, "honest duplication, not shared machinery"): the
     heuristic "nothing more is coming" wait used by INFORMATIONAL probes that conclude absence
-    (e.g. `ACP-INFO-CONCURRENT-001`'s "did a second, concurrent `session/prompt` get a
+    (e.g. `ACP-INFO-CONCURRENT-201`'s "did a second, concurrent `session/prompt` get a
     response at all") -- derived from `--tck-timeout` rather than a hard-coded sub-second
     constant, clamped to a sane range."""
     return max(0.5, min(2.0, timeout / 10))
@@ -206,6 +206,7 @@ async def run_prompt(
     on_cancel: bool = False,
     on_action: Callable[[], Awaitable[Any]] | None = None,
     cancel_wait: float = 0.5,
+    cancel_meta: dict[str, Any] | None = None,
     extra_params: dict[str, Any] | None = None,
     timeout: float,
 ) -> PromptTurn:
@@ -256,9 +257,21 @@ async def run_prompt(
     - any other agent -> client request gets `-32601` (the mock client advertises
       `capabilities: {}`), and is recorded on `PromptTurn.client_requests_seen`.
 
-    `on_cancel`/`on_action`/`cancel_wait`/`extra_params` mirror v1's `run_prompt` exactly (see
-    its docstring) -- built for a later slice (cancellation / `session/close` mid-turn); no test
-    in V2-2a exercises them.
+    `cancel_meta`, if given, is merged into the `session/cancel` notification's params as `_meta`
+    (Slice V2-3, `ACP-CANCEL-206`'s "accepts a cancel that additionally carries `_meta`" check) --
+    `None` (the default) sends the bare `{"sessionId": session_id}` params every other caller
+    relies on.
+
+    `on_cancel`/`on_action`/`cancel_wait`/`extra_params` mirror v1's `run_prompt` in shape and
+    fallback timing, but **not** in trigger condition (Slice V2-3,
+    `.agents/research/acp-v2-cancellation-and-batching.md` "Testability notes" > "The v2 cancel
+    driver"): v1 fires its trigger on the *first* `session/update` of any kind; v2 fires it
+    specifically on the transition to `state_update {state: "running"}` for `session_id` -- the
+    MUST-guaranteed turn-start marker (`prompt-lifecycle.mdx:159`) -- because v2's `user_message`
+    echo update (which may arrive before `running`) is not itself evidence that foreground work
+    has started. If `session_id` never reaches `running` (e.g. a non-conforming agent, or the
+    prompt is rejected outright), the trigger still fires once `cancel_wait` elapses, exactly as
+    in v1.
 
     Callers must serialize prompts per session themselves (never call this a second time for the
     same session before a previous call has returned) -- v2 leaves concurrent `session/prompt`
@@ -297,7 +310,10 @@ async def run_prompt(
             return
         trigger_sent = True
         if on_cancel:
-            await agent.send_notification("session/cancel", {"sessionId": session_id})
+            cancel_params: dict[str, Any] = {"sessionId": session_id}
+            if cancel_meta is not None:
+                cancel_params["_meta"] = cancel_meta
+            await agent.send_notification("session/cancel", cancel_params)
             cancelled_at_index = len(agent.transcript) - 1
         if on_action is not None:
             action_id = await on_action()
@@ -308,12 +324,34 @@ async def run_prompt(
 
     async def _handle_one(entry: TranscriptEntry) -> None:
         """Dispatch one already-read line: mutate the outer turn state via `nonlocal`. Never
-        returns anything -- callers check `_turn_ended()` themselves after each call."""
+        returns anything -- callers check `_turn_ended()` themselves after each call.
+
+        `entry.parsed` may itself be a JSON-RPC batch array rather than a single object --
+        `ACP-BATCH-207` permits an agent to spontaneously emit a batch of `session/update`
+        notifications, and this driver must not simply go blind to a turn's own updates just
+        because the agent chose to deliver them that way (`emits_batch_updates.py`'s self-test,
+        added alongside V2-3's transport/JSON-RPC negative controls, is exactly this scenario).
+        Each dict-shaped element is dispatched via `_handle_message` through a synthetic
+        per-item entry (`dataclasses.replace(entry, parsed=item)`) that shares the parent line's
+        `raw`/`timestamp`/`direction` but carries just that one element as `.parsed`, so every
+        downstream consumer -- this function's own id/method matching, and any test that later
+        inspects `PromptTurn.updates`/`.response_entry` -- sees the same per-message shape it
+        would for an unbatched line. The transcript index recorded for an update extracted this
+        way is the *line's* own index (a batch has no separate transcript slot per element)."""
+        raw_msg = entry.parsed
+        if isinstance(raw_msg, list):
+            line_index = agent.transcript.index(entry)
+            for item in raw_msg:
+                if isinstance(item, dict):
+                    await _handle_message(replace(entry, parsed=item), line_index)
+            return
+        if isinstance(raw_msg, dict):
+            await _handle_message(entry, agent.transcript.index(entry))
+
+    async def _handle_message(entry: TranscriptEntry, line_index: int) -> None:
         nonlocal response_entry, message_id, running_seen, idle_update, stop_reason
         nonlocal action_response, ended_by_error
         msg = entry.parsed
-        if not isinstance(msg, dict):
-            return
         if entry.matches_id(prompt_id):
             response_entry = entry
             if "error" in msg:
@@ -331,8 +369,7 @@ async def run_prompt(
 
         method = msg.get("method")
         if method == "session/update":
-            index = agent.transcript.index(entry)
-            updates.append((index, entry))
+            updates.append((line_index, entry))
             params_ = msg.get("params")
             if isinstance(params_, dict) and params_.get("sessionId") == session_id:
                 update = params_.get("update")
@@ -403,15 +440,11 @@ async def run_prompt(
                 continue
             raise
 
+        was_running = running_seen
         await _handle_one(entry)
+        just_started_running = running_seen and not was_running
 
-        if (
-            not _turn_ended()
-            and trigger_armed
-            and not trigger_sent
-            and isinstance(entry.parsed, dict)
-            and entry.parsed.get("method") == "session/update"
-        ):
+        if not _turn_ended() and trigger_armed and not trigger_sent and just_started_running:
             try:
                 peek_entry = await agent.read_line(timeout=peek_timeout)
             except AgentTimeout:
