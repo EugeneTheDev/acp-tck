@@ -1,7 +1,7 @@
 # State
 
-**Last updated:** 2026-09-21 (v2 effort, session 1 — V2-0, V2-0b, V2-1a merged+pushed; V2-1b in flight)
-**Last commit pushed:** `1d795cc` on `v2-support` (V2-1a v2 skeleton; 160 tests)
+**Last updated:** 2026-09-21 (v2 effort, session 1 — V2-0…V2-1b merged+pushed; V2-1c review fixes in flight)
+**Last commit pushed:** `cec6aea` on `v2-support` (V2-1b; 170 tests) — plus workbench commits on top
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
@@ -38,13 +38,17 @@ against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude
 `testy-cross-check.md`, `upstream-issues.md` (internal drafts only, do not file).
 
 ## In flight
-- **V2-1b `v2-init-session`** (worktree `../acp-tck-2-v2-init-session`, off `1d795cc`): full v2
-  initialize/negotiation/capabilities rows, `session/new` rows gated on `capabilities.session`, v2 fixture
-  base implements the 7-method baseline minimally, defect fixtures, `VERSION-MISMATCH:` skip marker +
-  `Verdict.blocked_by_version_mismatch` (always false for v1), `tests/v2/test_cli.py` id sets, docs.
-  On report: verify from worktree (suite, `--protocol-version 2` runs against conforming + defect fixtures,
-  v1 conforming unchanged except the new always-false report field), diff-stat, merge, suite, push, cleanup.
-  Then V2-2 (prompt lifecycle + driver) per plan.md.
+- **V2-1c `v2-review-fixes`** (worktree `../acp-tck-2-v2-review-fixes`, off `cec6aea`+): the 8 SHOULD-FIX +
+  cheap NITs from `research/review-v2-slices-0-1a.md`, plus: v2 defect fixtures advertise
+  `capabilities: {"session": {}}` like `conforming.py` (found at V2-1b merge: `v2_only_errors_on_v1.py`
+  skipped SESSION rows for "not advertised"). On report: verify (suite, v1 + v2 smoke runs, README
+  quick-start command actually works), merge, push, cleanup. Then **V2-2** (prompt lifecycle + driver).
+
+**Done (2026-09-21): slice V2-1b** (`cec6aea`) — v2 registry now 9 ids (INIT-001/003/201/202/203/204,
+SCHEMA-001, SESSION-001/002 gated on `capabilities.session`); v2 `_base.py` implements the 7-method baseline
+minimally (list/resume/close/prompt/cancel untested until V2-2/V2-4); 5 defect fixtures; `new_session()` +
+`skip_if_version_mismatch()` helpers; `Verdict.blocked_by_version_mismatch` + `VERSION-MISMATCH:` marker
+(decision in plan.md "Version mismatch handling"); 170 passed.
 
 **Review landed:** `research/review-v2-slices-0-1a.md` — 0 BLOCKER / 8 SHOULD-FIX / 10 NIT; v1 behavior
 preserved, `common/` version-agnostic, vendored v2 schema byte-identical to spec @ 8f76d6c, both v2
