@@ -116,7 +116,15 @@ src/tck/
                             driver used by every session/prompt/cancel test
       test_transport.py       ACP-TRANSPORT-001/002 (framing, UTF-8)
       test_jsonrpc.py         ACP-JSONRPC-001..005 (id echo, result-xor-error, notifications, ...)
-      test_initialize.py      ACP-INIT-001..004, ACP-SCHEMA-001 (handshake + full-exchange schema)
+      test_initialize.py      ACP-INIT-001..004, ACP-SCHEMA-001 (handshake + full-exchange schema).
+                            ACP-INIT-003's unsupported-version (65535) probe params carry a
+                            v2-shaped `info` object alongside the v1 fields, in addition to
+                            `protocolVersion`/`clientCapabilities` -- so a dual-version protocol
+                            *router* agent (which selects v2 for any requested version >= 2 and
+                            validates the params as a v2 `InitializeRequest`, whose `info` is
+                            REQUIRED) doesn't spuriously reject the probe with `-32602` for a
+                            params-shape reason unrelated to version negotiation (slice V2-0b;
+                            see `router_requires_info.py` below)
       test_session.py         ACP-SESSION-001/002 (session/new sessionId, uniqueness)
       test_prompt.py          ACP-PROMPT-001..003 (stop reason, update validity, resource_link)
       test_cancel.py           ACP-CANCEL-001/002 (cancelled stop reason, no update after response)
@@ -218,6 +226,14 @@ tests/
     echoes_any_version.py  echoes the client's requested `protocolVersion` verbatim, including
                           for the unsupported 65535 request -- the strengthened ACP-INIT-003
                           false-negative pattern also present in `testy`/`examples/echo_agent.py`
+    router_requires_info.py  models a dual-version ACP v1/v2 protocol *router* (slice V2-0b):
+                          selects v2 for any requested version >= 2 (including the ACP-INIT-003
+                          probe's 65535) and validates the params as a v2 `InitializeRequest`,
+                          whose `info` is REQUIRED -- errors `-32602` naming the missing field
+                          if absent, otherwise answers `protocolVersion: 2`; behaves as an
+                          ordinary v1 agent for a `protocolVersion: 1` request. Self-test canary
+                          for ACP-INIT-003's probe carrying `info`: FAILed INIT-003 (spurious
+                          `-32602`, NOT CONFORMANT) before the fix, PASSes after
     result_and_error.py    initialize response carries both result and error (ACP-JSONRPC-002)
     answers_notifications.py  replies to the session/cancel notification (ACP-JSONRPC-003)
     unknown_method_no_error.py  unknown methods succeed instead of -32601 (ACP-JSONRPC-004 only)
@@ -588,6 +604,15 @@ All fixtures are pure Python, stdlib only, deterministic, offline, ~50 lines:
   to `1` for a client that only sends `protocolVersion: 1`. Self-test for ACP-INIT-003's
   `version != 65535 and version >= latest_supported` rule (PASS case, paired with
   `echoes_any_version.py`'s FAIL case).
+- `router_requires_info.py` -- models the reference SDKs' dual-version ACP v1/v2 protocol
+  *router* (`.agents/research/acp-v2-version-negotiation.md`, "Router trap for the TCK"): a
+  request for exactly `protocolVersion: 1` gets an ordinary v1 handshake, but anything `>= 2`
+  (including ACP-INIT-003's 65535 probe) is routed to v2, whose `InitializeRequest.info` is
+  REQUIRED -- a missing/malformed `info` gets `-32602` naming the missing field, a valid one
+  gets back `protocolVersion: 2`. Self-test canary for slice V2-0b: before ACP-INIT-003's probe
+  carried an `info` object, this fixture reproduced the spurious `-32602` a real router agent
+  gives for a params-shape reason unrelated to negotiation, FAILing ACP-INIT-003 and flipping
+  the whole run NOT CONFORMANT; it PASSes after the fix.
 - `asks_permission_closable.py` -- `asks_permission.py` plus `sessionCapabilities.close`;
   delays its permission request past `run_prompt`'s peek window so `session/close` deterministically
   wins the race, then replies to `session/close` before resolving the pending permission request

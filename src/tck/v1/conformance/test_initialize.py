@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from tck.common.harness import Direction
+from tck.common.report import current_tck_version
 from tck.v1.protocol import PROTOCOL_VERSION
 from tck.v1.validation import validate_agent_message, validate_agent_response
 
@@ -68,7 +69,18 @@ async def test_unsupported_version_still_succeeds(agent_launch):
     than its own v1 answer, which is the actual defect this requirement exists to catch.
 
     Two fresh processes are used (one per `initialize` call) rather than two handshakes over one
-    connection, matching every other test's "one fresh agent process" pattern."""
+    connection, matching every other test's "one fresh agent process" pattern.
+
+    The 65535 probe's params also carry a v2-shaped `info` object alongside the ordinary v1
+    fields (`.agents/research/acp-v2-version-negotiation.md`, "Router trap for the TCK"): a
+    dual-version *router* agent (both reference SDKs ship one) selects v2 for any
+    requested version `>= 2`, including 65535, and validates the params as a v2
+    `InitializeRequest`, whose `info` is REQUIRED. Without it, such an agent legitimately
+    answers `-32602` for a params-shape reason that has nothing to do with version negotiation
+    -- a false MANDATORY FAIL. The probe represents a future-version client, so it legitimately
+    carries every version's required client fields; extra keys are harmless for a plain v1
+    agent (no schema anywhere sets `additionalProperties: false`, per
+    `tck.v1.validation`'s documented quirks)."""
     async with connected_agent(agent_launch, handshake=False) as reference_agent:
         v1_req_id = await reference_agent.send_request(
             "initialize", {"protocolVersion": 1, "clientCapabilities": {}}
@@ -84,7 +96,18 @@ async def test_unsupported_version_still_succeeds(agent_launch):
 
     async with connected_agent(agent_launch, handshake=False) as agent:
         req_id = await agent.send_request(
-            "initialize", {"protocolVersion": 65535, "clientCapabilities": {}}
+            "initialize",
+            {
+                "protocolVersion": 65535,
+                "clientCapabilities": {},
+                # This probe represents a future-version client, so its params legitimately
+                # carry every version's required client fields -- including v2's REQUIRED
+                # `info` object (see the module-level docstring above and
+                # `.agents/research/acp-v2-version-negotiation.md`). A plain v1 agent ignores
+                # the extra key; a dual-version router agent needs it to select v2 without
+                # rejecting the params as invalid.
+                "info": {"name": "acp-tck", "version": current_tck_version()},
+            },
         )
         entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
         msg = entry.parsed
