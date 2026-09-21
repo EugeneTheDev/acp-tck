@@ -1,7 +1,7 @@
 # State
 
-**Last updated:** 2026-09-21 (v2 effort, session 1 — V2-0 merged+pushed; V2-0b and V2-1a programmers in flight)
-**Last commit pushed:** see `git log origin/v2-support -1` — V2-0b merged as `42d5587` (v1 INIT-003 probe carries `info`; 136 tests)
+**Last updated:** 2026-09-21 (v2 effort, session 1 — V2-0, V2-0b, V2-1a merged+pushed; V2-1b in flight)
+**Last commit pushed:** `1d795cc` on `v2-support` (V2-1a v2 skeleton; 160 tests)
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
@@ -38,19 +38,22 @@ against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude
 `testy-cross-check.md`, `upstream-issues.md` (internal drafts only, do not file).
 
 ## In flight
-- ~~V2-0b~~ **merged** as `42d5587` (136 passed). Note: the v1 handshake never sent `clientInfo`; only the
-  v2-required `info` was added to the 65535 probe. Pre-existing gap: `supports_v1_and_v2.py` has no CLI test.
-- **V2-1a `v2-skeleton`** (worktree `../acp-tck-2-v2-skeleton`): vendored `src/tck/v2/schema/` @ 8f76d6c,
-  `v2/protocol.py` (incl. `protocolMethods`, `_`-prefix enum helper), `v2/validation.py` (batch-aware root
-  dispatch, no `null`), `v2/requirements.py` (INIT-001/002 only), `v2/__init__.py::SPEC`, `v2/plugin.py`,
-  `v2/conformance/{_helpers,test_initialize}.py`, CLI `--protocol-version {1,2}`, fixtures
-  `tests/fixtures/agents/v2/{_base,conforming}.py`, `tests/v2/{test_registry,test_validation,test_cli}.py`,
-  docs. Touches `src/tck/v2/**`, `src/tck/__init__.py`, maybe minimal `src/tck/common/**`.
-Merge whichever reports first (verify: suite from its worktree, smoke runs, diff-stat, clean merge), then
-rebase-check the other. Next after both: **V2-1b** (full v2 initialize/capabilities/session-new tests +
-defect fixtures + a `VERSION-MISMATCH:` skip marker / `Verdict` flag for agents that negotiate a version
-the selected suite doesn't speak — design note: mirror `AUTH-GATED:`/`blocked_by_auth`; the field is always
-false for v1 runs; v1-side symmetric use is a later slice), then V2-2 … V2-7 per plan.md.
+- **V2-1b `v2-init-session`** (worktree `../acp-tck-2-v2-init-session`, off `1d795cc`): full v2
+  initialize/negotiation/capabilities rows, `session/new` rows gated on `capabilities.session`, v2 fixture
+  base implements the 7-method baseline minimally, defect fixtures, `VERSION-MISMATCH:` skip marker +
+  `Verdict.blocked_by_version_mismatch` (always false for v1), `tests/v2/test_cli.py` id sets, docs.
+  On report: verify from worktree (suite, `--protocol-version 2` runs against conforming + defect fixtures,
+  v1 conforming unchanged except the new always-false report field), diff-stat, merge, suite, push, cleanup.
+  Then V2-2 (prompt lifecycle + driver) per plan.md.
+
+**Done (2026-09-21): slice V2-1a** (`1d795cc`) — `src/tck/v2/` skeleton: vendored schema @ 8f76d6c,
+`protocol.py` (incl. `protocolMethods`, `_`-prefix enum helper), batch-aware `validation.py`, registry
+(ACP-INIT-001 reused, ACP-INIT-201 new), `SPEC`, plugin shim, `conformance/{_helpers,test_initialize}.py`,
+CLI `--protocol-version {1,2}`, fixtures `tests/fixtures/agents/v2/{_base,conforming}.py` (advertises
+`capabilities: {}` for now), `tests/v2/*`. `VersionSpec` gained `agent_info_field`/`agent_capabilities_field`
+(v1 defaults). 160 passed. Note: `scratch/` is gitignored and absent in fresh worktrees — `mkdir -p scratch`
+before `--report-json scratch/...`.
+**Done (2026-09-21): slice V2-0b** (`42d5587`) — v1 INIT-003 probe carries `info`; `router_requires_info.py`.
 
 **Done (2026-09-21): slice V2-0** — `src/tck/common/` (harness, requirements base, report, plugin core,
 `version.py::VersionSpec`) + `src/tck/v1/` (protocol, schema, requirements, validation, conformance,
