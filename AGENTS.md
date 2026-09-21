@@ -16,11 +16,15 @@ registry, schema validation, plugin shim, and conformance suite, sharing only th
 version-agnostic `common/` core with v1 -- nothing under `v2/` imports from `v1/` or vice versa.
 This split exists so `v2/` could be added without duplicating or forking the harness, report
 model, or plugin machinery. v2 support now covers the `initialize` handshake, the `session/new`
-baseline, and (V2-2a) the mock-client prompt driver plus the core prompt-turn requirements
+baseline, (V2-2a) the mock-client prompt driver plus the core prompt-turn requirements
 (`session/prompt`'s acceptance-receipt response shape, the user-message echo, and the
-`running`/idle `state_update` turn-completion machinery) -- gated behind `--protocol-version 2`;
-default remains v1 -- and is expected to grow in later slices. Everything below is v1-specific
-unless a section says otherwise.
+`running`/idle `state_update` turn-completion machinery), and (V2-2b) prompt content
+capabilities (`image`/`audio`/`embeddedContext`, all object-marker-gated under
+`capabilities.session.prompt.*`), the permission-request flow (`session/request_permission`),
+and the agent -> client method rules (`elicitation/create` MUST NOT be called unadvertised;
+every agent -> client method during a turn MUST be a defined v2 client/protocol method or
+`_`-prefixed) -- gated behind `--protocol-version 2`; default remains v1 -- and is expected to
+grow in later slices. Everything below is v1-specific unless a section says otherwise.
 
 Slices so far add an installable CLI (`acp-tck`), a requirement registry, a pytest plugin,
 transport/`initialize` conformance tests, mandatory session/prompt/cancel conformance tests, full
@@ -197,8 +201,10 @@ src/tck/
                             `quiet_period()`, never the full `--tck-timeout`)
   v2/                     the ACP v2 (Draft) package: protocol constants, vendored schema,
                           requirement registry, schema validation, the v2 pytest plugin shim,
-                          and a conformance suite covering the `initialize` handshake plus the
-                          `session/new` baseline (slice V2-1b). v2 is Draft (schema version
+                          and a conformance suite covering the `initialize` handshake, the
+                          `session/new` baseline (slice V2-1b), the core prompt-turn lifecycle
+                          (V2-2a), and (V2-2b) prompt content capabilities, the permission-
+                          request flow, and the agent -> client method rules. v2 is Draft (schema version
                           `2.0.0-alpha.5` at the vendored pin) and expected to churn -- coverage
                           here is still well short of v1 parity and expected to grow in
                           follow-up slices (session lifecycle beyond `session/new`, the
@@ -226,8 +232,23 @@ src/tck/
                           v1 never needed, not a consequence of v2 having a branch v1 lacks --
                           v1's schema has the same three top-level branches
                           (`Agent`/`Client`/`ProtocolLevel`)
-    requirements.py         `SPEC_REVISION`, `_DECLARATIONS`, `REGISTRY`, `get()` -- nine
-                          requirements: `ACP-INIT-001` (reused from v1 -- "`initialize` succeeds"
+    requirements.py         `SPEC_REVISION`, `_DECLARATIONS`, `REGISTRY`, `get()` -- 24
+                          requirements (nine from V2-1b, six V2-2a prompt-turn ids, and nine
+                          V2-2b additions: `ACP-PROMPTCAP-001/002/003` (reused v1 ids, re-cited
+                          to v2's `capabilities.session.prompt.{image,audio,embeddedContext}`
+                          object markers), `ACP-PROMPT-003` (ADVISORY, reused from v1 --
+                          `resource_link` MUST-accept vs. `content.mdx`'s text-only MUST, the
+                          same unresolved doc conflict v1 already carries), `ACP-PERM-201` (new,
+                          `Tier.CAPABILITY` on `capabilities.session` -- a `session/
+                          request_permission` observed mid-turn must use a valid shape/outcome),
+                          `ACP-CLIENTCAP-201` (new -- `elicitation/create` MUST NOT be called
+                          when unadvertised), `ACP-CLIENTCAP-202` (new -- every agent -> client
+                          method observed during a turn MUST be a defined v2 client/protocol
+                          method or `_`-prefixed), and two new INFORMATIONAL prompt-lifecycle
+                          probes, `ACP-INFO-CONCURRENT-001`/`ACP-INFO-UNKNOWNSESSION-001`, mirroring
+                          v1's informational tier but re-probed against the v2 prompt-turn shape
+                          -- see the module's docstring for the full id-namespacing rationale).
+                          `ACP-INIT-001` (reused from v1 -- "`initialize` succeeds"
                           is truly the same requirement, only the citation's spec location
                           changes; narrowed to *only* the non-error-result check, since judging
                           a v1-shaped result against v2 schema rules would mischaracterize an
@@ -306,6 +327,13 @@ src/tck/
                             `auth/login` (not v1's `authenticate`) when `--tck-auth-method` was
                             given; there is still no `skip_if_auth_gated`/`quiet_period`
                             counterpart yet -- no v2 auth-flow requirement exists this slice.
+                            (V2-2b) `run_prompt`'s existing permission-answering/
+                            client-request-recording logic (answers `session/request_permission`
+                            with the first option, or `cancelled` post-cancel; records any other
+                            agent -> client request on `PromptTurn.client_requests_seen`, since
+                            the mock client advertises `capabilities: {}`) needed no changes --
+                            it already covers everything `ACP-PERM-201`/`ACP-CLIENTCAP-201/202`
+                            need.
       test_initialize.py      ACP-INIT-001, ACP-INIT-003, ACP-INIT-201..204, ACP-SCHEMA-001 --
                             `ACP-INIT-001` (`test_initialize_succeeds`) asserts only that
                             `initialize` returns a non-error result; `ACP-INIT-003`/`ACP-INIT-201`/
@@ -368,7 +396,36 @@ src/tck/
                             session's own `sessionId` (`ACP-PROMPT-205` -- same check as v1's
                             `ACP-PROMPT-002` but a fresh id, since a `Tier.MANDATORY` ->
                             `Tier.CAPABILITY` change is a changed requirement under D3;
-                            vacuously PASSing if the turn sent no updates at all).
+                            vacuously PASSing if the turn sent no updates at all). (V2-2b)
+                            `ACP-PROMPT-003` also lives here: an ADVISORY `resource_link` content
+                            block, alongside `text`, must be accepted (not rejected) in a prompt.
+      test_prompt_capabilities.py  (V2-2b) ACP-PROMPTCAP-001/002/003 -- one test per
+                            `image`/`audio`/`embeddedContext` content block, each gated
+                            `@pytest.mark.capability("capabilities.session.prompt.<name>")`:
+                            sends a prompt containing that content-block type and asserts the
+                            agent accepts it (no JSON-RPC error) rather than rejecting it despite
+                            having advertised support.
+      test_permission.py      (V2-2b) ACP-PERM-201 (`Tier.CAPABILITY` on `capabilities.session`):
+                            drives a turn and, if (and only if) `run_prompt`'s mock client
+                            observed a `session/request_permission` request during it, asserts
+                            its shape (a non-empty `options` list, each with a `optionId`) --
+                            SKIPs with "no permission request observed during this turn" for any
+                            fixture/agent whose turn never asks for permission at all (`text`-only
+                            prompts to `conforming.py`, for instance).
+      test_client_capabilities.py  (V2-2b) ACP-CLIENTCAP-201/202: one test asserting
+                            `elicitation/create` is never observed in
+                            `PromptTurn.client_requests_seen` (the mock client always advertises
+                            `capabilities: {}}`, so any occurrence is unadvertised) and a second
+                            asserting every method actually observed there is either a defined
+                            v2 client/protocol method (`tck.v2.protocol.CLIENT_METHODS` union
+                            `PROTOCOL_METHODS`) or `_`-prefixed (the open-enum extensibility
+                            rule) -- v2 has no `fs/*`/`terminal/*` client surface at all, so a
+                            v1-shaped probe using those method names is exactly what
+                            `ACP-CLIENTCAP-202` exists to catch.
+      test_informational.py   (V2-2b) ACP-INFO-CONCURRENT-001/ACP-INFO-UNKNOWNSESSION-001 --
+                            report-only probes (`record_property`, never asserted on) for
+                            concurrent-prompt and unknown-`sessionId` behaviour the v2 spec is
+                            silent on; still FAILs if the prerequisite handshake itself fails.
 
 tests/
   conftest.py              agent_launch() helper for spawning fixture agents under
@@ -394,13 +451,20 @@ tests/
     test_validation.py      unit tests for `tck.v2.validation`'s three v2-specific behaviors:
                           batch root dispatch, no `null` special case for responses, and the
                           `find_unknown_root_keys` open-fallback carve-out
-    test_registry.py         `tck.v2.requirements.REGISTRY` invariants (all fifteen ids: the nine
-                          from V2-1b plus V2-2a's six prompt-turn ids) + two-way check against
+    test_registry.py         `tck.v2.requirements.REGISTRY` invariants (all 24 ids: the nine
+                          from V2-1b, V2-2a's six prompt-turn ids, and V2-2b's nine
+                          `ACP-PROMPTCAP-001/002/003`/`ACP-PROMPT-003`/`ACP-PERM-201`/
+                          `ACP-CLIENTCAP-201/202`/`ACP-INFO-CONCURRENT-001`/
+                          `ACP-INFO-UNKNOWNSESSION-001`) + two-way check against
                           `tck.v2.conformance` markers
     test_cli.py               end-to-end: run `python -m tck --protocol-version 2 --
                             <fixture>` as a subprocess; routing checks (`--help`, and that the
                             default/`--protocol-version 1` path still runs the v1 suite
-                            unchanged); the v2 conforming fixture PASSing every id; one test per
+                            unchanged); the v2 conforming fixture PASSing every id it exercises
+                            (V2-2b's `ACP-PROMPTCAP-001/002/003`/`ACP-PERM-201` SKIP against the
+                            plain `conforming.py` fixture, since it neither advertises prompt
+                            content capabilities nor ever asks permission); `conforming_full.py`
+                            (V2-2b) PASSing literally every one of the 24 ids; one test per
                             defect fixture asserting its exact FAIL set (V2-2a adds eight: the
                             single-defect `bad_stop_reason.py`/`vendor_stop_reason.py`/
                             `no_running_update.py`/`no_idle_after_running.py`/
@@ -408,10 +472,22 @@ tests/
                             `missing_message_id.py`/`update_wrong_session.py` fixtures under
                             `fixtures/agents/v2/`, run with a short `--tck-timeout` where the
                             fixture is designed to hang until it -- see the fixture catalogue
-                            below); and the version-mismatch scenario (the v1 conforming fixture
-                            run under `--protocol-version 2`: the negotiation-outcome ids --
-                            `ACP-INIT-001`/`003`/`201`/`202` -- PASS normally against the
-                            honestly-downgraded-to-`1` response, while every other MANDATORY/
+                            below; V2-2b adds four more: `rejects_image_when_advertised.py`,
+                            `calls_elicitation_unadvertised.py`, `calls_fs_unadvertised.py`
+                            (whose defect also cascades into `ACP-SCHEMA-001`, since
+                            `fs/read_text_file` isn't a known v2 method at all -- the same
+                            documented defect-cascades-into-schema pattern `ACP-INIT-204` already
+                            uses), and the positive control `calls_custom_method.py`; V2-2a's
+                            `no_idle_after_running.py`/`update_wrong_session.py` self-tests were
+                            also updated to include V2-2b's new run-prompt-dependent ids
+                            (`ACP-CLIENTCAP-201/202`, `ACP-PERM-201`, `ACP-PROMPT-003`) in their
+                            expected FAIL sets, since those fixtures break `run_prompt`'s
+                            turn-completion detection for every test that depends on it, not
+                            just the six V2-2a ids); and the version-mismatch scenario (the v1
+                            conforming fixture run under `--protocol-version 2`: the
+                            negotiation-outcome ids -- `ACP-INIT-001`/`003`/`201`/`202` -- PASS
+                            normally against the honestly-downgraded-to-`1` response, while every
+                            other MANDATORY/
                             CAPABILITY id -- computed as `(_MANDATORY_IDS | _CAPABILITY_IDS) -
                             _NEGOTIATION_IDS`, which now also covers V2-2a's six prompt-turn ids
                             -- SKIPs with the `VERSION-MISMATCH:` marker; zero FAILs anywhere, yet
@@ -555,7 +631,25 @@ tests/
                           `_send_user_message_update`, `_send_running_update`, `_stop_reason`,
                           `_send_idle_update` -- purely so each single-defect fixture below can
                           override exactly one step; `ConformingAgent`'s own observable
-                          behavior is unchanged.
+                          behavior is unchanged. V2-2b adds four more hooks on top -- `method is
+                          None` messages (responses to something the agent itself sent) now
+                          route to a new `_handle_response` no-op hook instead of being silently
+                          dropped; `_handle_prompt` calls a new `_prompt_rejection(prompt)` hook
+                          first (return `(code, message)` to reject the prompt outright with a
+                          JSON-RPC error instead of accepting it) and, once accepted, a new
+                          `_mid_turn_action(session_id)` hook after the running update (return
+                          `True` to defer the turn's completion to that action, `False` -- the
+                          default -- to finish immediately); the old inline chunk+idle-send tail
+                          is now `_finish_turn(session_id, stop_reason=None)`, called only when
+                          `_mid_turn_action` returned `False`. All four default to preserving
+                          `ConformingAgent`'s exact prior behavior. Two new subclasses build on
+                          these: `AsksPermissionAgent` (overrides `_mid_turn_action` to send
+                          `session/request_permission` and defer `_finish_turn` until the
+                          client's answer arrives, via the new `_handle_response` hook) and
+                          `SendsClientRequestAgent` (overrides `_mid_turn_action` to fire a
+                          configurable agent -> client request -- `_client_request_method()`/
+                          `_client_request_params(session_id)` -- and forget it, never deferring
+                          turn completion).
     conforming.py          advertises `capabilities: {"session": {}}` so `ACP-SESSION-001/002`
                           PASS rather than SKIP; otherwise a trivial entry point, mirrors
                           `fixtures/agents/v1/conforming.py`
@@ -594,11 +688,13 @@ tests/
     no_idle_after_running.py  replies, sends `running` and a content chunk, then goes silent
                           forever -- no turn-ending idle ever arrives. Large, honest cascade:
                           every test that calls `run_prompt` (all six V2-2a ids, plus
-                          `ACP-SCHEMA-001`'s prompt-turn extension in `test_initialize.py`)
-                          independently hits `AgentTimeout` and FAILs; run with a short
-                          `--tck-timeout` in `tests/v2/test_cli.py` to keep the self-test fast
-                          (~15s wall time for the seven affected tests, each bounded by its own
-                          timeout, never hanging the suite)
+                          `ACP-SCHEMA-001`'s prompt-turn extension in `test_initialize.py`, and
+                          -- as of V2-2b -- `ACP-CLIENTCAP-201/202`, `ACP-PERM-201`, and the
+                          ADVISORY `ACP-PROMPT-003`, since each drives its own independent
+                          `run_prompt` turn too) independently hits `AgentTimeout` and FAILs; run
+                          with a short `--tck-timeout` in `tests/v2/test_cli.py` to keep the
+                          self-test fast, each test bounded by its own timeout, never hanging the
+                          suite
     idle_before_running.py  sends an unsolicited "session-ready" `state_update {state: "idle"}`
                           (no `stopReason`) right after `session/new`, before any
                           `session/prompt` is ever issued -- the legal initial-ready-idle
@@ -618,9 +714,43 @@ tests/
                           cascade as `no_idle_after_running.py` -- `run_prompt`'s turn-end
                           predicate only recognizes an idle/running update as this turn's own
                           when its `sessionId` matches, so with every update misattributed, all
-                          six V2-2a tests plus `ACP-SCHEMA-001`'s prompt-turn extension
+                          six V2-2a tests plus `ACP-SCHEMA-001`'s prompt-turn extension and (as of
+                          V2-2b) `ACP-CLIENTCAP-201/202`/`ACP-PERM-201`/`ACP-PROMPT-003`
                           independently `AgentTimeout`, indistinguishable from an agent that
                           never responds to the prompted session at all
+    conforming_full.py     (V2-2b) `AsksPermissionAgent`, advertising every V2-2b capability
+                          marker (`capabilities.session.prompt.{image,audio,embeddedContext}`)
+                          on top of the plain `capabilities.session` baseline -- PASSes literally
+                          every one of the 24 registered ids; the intended "everything works"
+                          fixture for a full-suite smoke run (`test_v2_conforming_full_agent_
+                          passes_everything`)
+    asks_permission.py     (V2-2b) `AsksPermissionAgent` advertising only the plain
+                          `capabilities.session` baseline (no prompt-content markers) --
+                          isolates `ACP-PERM-201` PASSing while `ACP-PROMPTCAP-001/002/003` SKIP
+                          (not advertised); every other id unaffected
+    rejects_image_when_advertised.py  (V2-2b) advertises all three prompt-content markers, but
+                          `_prompt_rejection` errors out any prompt containing an `image` content
+                          block instead of accepting it as advertised. FAILs exactly
+                          `ACP-PROMPTCAP-001`; `ACP-PROMPTCAP-002/003` still PASS (audio/
+                          resource blocks are accepted normally, and both capabilities are
+                          advertised so those tests actually run instead of SKIPping)
+    calls_elicitation_unadvertised.py  (V2-2b) `SendsClientRequestAgent` sending
+                          `elicitation/create` mid-turn regardless of the client's advertised
+                          capabilities (the mock client always advertises `capabilities: {}}`, so
+                          this is always unadvertised). FAILs exactly `ACP-CLIENTCAP-201`;
+                          `ACP-CLIENTCAP-202` is unaffected since `elicitation/create` is itself
+                          a defined v2 client method
+    calls_fs_unadvertised.py  (V2-2b) `SendsClientRequestAgent` sending `fs/read_text_file`
+                          mid-turn -- a v1-shaped method name that does not exist as a v2 client
+                          method at all (`fs/*`/`terminal/*` were removed in v2). FAILs
+                          `ACP-CLIENTCAP-202` and, as an expected cascade, `ACP-SCHEMA-001` too
+                          (the schema validator flags the unknown method name); `ACP-CLIENTCAP-201`
+                          is unaffected
+    calls_custom_method.py  (V2-2b) `SendsClientRequestAgent` sending a `_`-prefixed custom
+                          method (`_tck/ping`) mid-turn -- legal per the open-enum rule. Positive
+                          control paired with `calls_fs_unadvertised.py`: PASSes every id it can
+                          (advertises only the plain `capabilities.session` baseline, so
+                          `ACP-PROMPTCAP-001/002/003`/`ACP-PERM-201` still SKIP)
 ```
 
 ## Running the TCK against an agent
@@ -645,16 +775,21 @@ never exits on its own, a real agent under test should not normally need this ch
 `--protocol-version {1,2}` (default `1`) picks which protocol-version package's conformance
 suite and plugin shim to run: `1` -> `src/tck/v1/conformance` with `-p tck.v1.plugin` (unchanged
 default behavior), `2` -> `src/tck/v2/conformance` with `-p tck.v2.plugin`. v2 is Draft and its
-registry is still well short of v1 parity (`initialize`, `session/new`, and (V2-2a) the core
-`session/prompt` turn/`state_update` lifecycle -- fifteen requirements in all -- see
+registry is still well short of v1 parity (`initialize`, `session/new`, (V2-2a) the core
+`session/prompt` turn/`state_update` lifecycle, and (V2-2b) prompt content capabilities, the
+permission flow, and the agent -> client method rules -- 24 requirements in all -- see
 `src/tck/v2/`'s entry in "Layout" above); it is expected to grow in follow-up slices.
 
 If the agent under test never actually negotiates the requested `--protocol-version` (e.g. a
 v1-only agent run under `--protocol-version 2`, which honestly negotiates down per the
 two-branch rule instead of erroring), every requirement that judges the *result's shape*
 against v2-only rules -- `ACP-INIT-203`/`ACP-INIT-204`/`ACP-SCHEMA-001`, plus any
-`@pytest.mark.capability(...)`-gated requirement such as `ACP-SESSION-001`/`002` and (V2-2a)
-`ACP-PROMPT-201`/`203`/`ACP-STATE-201..203`/`ACP-PROMPT-205` -- SKIPs with a
+`@pytest.mark.capability(...)`-gated requirement such as `ACP-SESSION-001`/`002`, (V2-2a)
+`ACP-PROMPT-201`/`203`/`ACP-STATE-201..203`/`ACP-PROMPT-205`, and (V2-2b)
+`ACP-PROMPTCAP-001/002/003`/`ACP-PROMPT-003`/`ACP-PERM-201`/`ACP-CLIENTCAP-201/202` (the latter
+two, plus `ACP-PROMPT-003`, also carry this same marker even though their own `Requirement`
+tier is ADVISORY/CAPABILITY respectively -- the version-mismatch gate is marker-driven, not
+tier-driven; see `tck.common.plugin`'s `_tck_capability_gate`) -- SKIPs with a
 message prefixed `"VERSION-MISMATCH:"` instead of either passing or failing, because a v1-shaped
 result cannot be fairly judged against v2 shape rules: FAILing it would mischaracterize an agent
 that simply doesn't speak v2 as broken. The run is still forced NOT CONFORMANT
@@ -1095,7 +1230,10 @@ updates, client_requests_seen, cancelled_at_index, action_response, action_sent_
 `running_seen`/`idle_update`/`stop_reason` capture the `state_update` machinery described above.
 `on_cancel`/`on_action`/`cancel_wait`/`extra_params` mirror v1's `run_prompt` exactly, including
 the same cancel-race mitigation via `cancel_race_peek(timeout)` -- built for a later slice
-(cancellation / `session/close` mid-turn); no test in V2-2a exercises them yet.
+(cancellation / `session/close` mid-turn); no test in V2-2a exercises them yet. V2-2b is the
+first slice to actually exercise the permission-answering path (`ACP-PERM-201`, via
+`AsksPermissionAgent`) and `client_requests_seen` (`ACP-CLIENTCAP-201/202`) -- both already
+worked correctly with zero changes to `run_prompt`/`_helpers.py` itself.
 
 Every wait inside `run_prompt` is bounded by `timeout`, so a non-conforming agent that never
 reaches either terminator (e.g. `no_idle_after_running.py`, `update_wrong_session.py`) produces

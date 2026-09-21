@@ -135,6 +135,16 @@ def cancel_race_peek(timeout: float) -> float:
     return max(0.05, min(0.5, timeout / 50))
 
 
+def quiet_period(timeout: float) -> float:
+    """V2-2b twin of v1's `quiet_period` (identical formula, deliberately re-implemented rather
+    than imported -- `.agents/plan.md` D6, "honest duplication, not shared machinery"): the
+    heuristic "nothing more is coming" wait used by INFORMATIONAL probes that conclude absence
+    (e.g. `ACP-INFO-CONCURRENT-001`'s "did a second, concurrent `session/prompt` get a
+    response at all") -- derived from `--tck-timeout` rather than a hard-coded sub-second
+    constant, clamped to a sane range."""
+    return max(0.5, min(2.0, timeout / 10))
+
+
 @dataclass(frozen=True)
 class PromptTurn:
     """The outcome of one v2 `session/prompt` turn driven by `run_prompt`.

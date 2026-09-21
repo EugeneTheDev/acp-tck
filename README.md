@@ -4,8 +4,9 @@
 
 A Test Compatibility Kit for the [Agent Client Protocol](https://agentclientprotocol.com) (ACP).
 Targets **v1** by default, with an opt-in **v2** (Draft) suite via `--protocol-version 2` that so
-far covers the `initialize` handshake, `session/new`, and the core `session/prompt`
-turn/`state_update` lifecycle -- still well short of v1 parity. It launches an agent
+far covers the `initialize` handshake, `session/new`, the core `session/prompt`
+turn/`state_update` lifecycle, prompt content capabilities, the permission flow, and the
+agent -> client method rules -- still well short of v1 parity. It launches an agent
 implementation as a stdio subprocess, drives it through the protocol
 -- initialize, session lifecycle, prompt turns, cancellation, error handling, transport hygiene --
 and reports which requirements pass, fail, don't apply, or were never exercised.
@@ -125,10 +126,12 @@ Capability-conditional coverage now includes `session/load`, `session/resume`, `
 `AGENTS.md` for the current requirement registry and what's implemented so far.
 
 ACP **v2** (Draft, schema version `2.0.0-alpha.5` at the vendored pin) is available via
-`--protocol-version 2`, but is currently only a skeleton: `initialize` and version negotiation
-(`ACP-INIT-001`, `ACP-INIT-201`). `tck.v2.validation` already understands batch JSON-RPC arrays
-and v2's other prompt-lifecycle message shapes, but no v2 conformance test exercises them yet --
-see `src/tck/v2/`'s entry in `AGENTS.md`'s "Layout" for exactly what's covered.
+`--protocol-version 2`, and now covers the `initialize`/version-negotiation baseline, the
+`session/new` baseline, the core `session/prompt` turn/`state_update` lifecycle, prompt content
+capabilities (`image`/`audio`/`embeddedContext`), the `session/request_permission` flow, and the
+agent -> client method rules (24 requirements in all) -- still well short of v1 parity (no
+session lifecycle beyond `session/new`, no cancellation/`session/close` mid-turn, no auth flow
+yet) -- see `src/tck/v2/`'s entry in `AGENTS.md`'s "Layout" for exactly what's covered.
 
 Also covered: `MANDATORY` negative tests asserting the agent never calls `fs/*`, `terminal/*`, or
 `elicitation/create` during a prompt turn when the client didn't advertise the matching capability

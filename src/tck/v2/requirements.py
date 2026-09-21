@@ -169,17 +169,98 @@ behavior -- see `ACP-SESSION-001`/`002`).
   diagnostic. SKIPPED as "no foreground work observed" (same gate as `ACP-STATE-202`) whenever
   `running` was never observed.
 
-Deliberately **not** added this slice (left for V2-2b or later, per the task's explicit scope):
-`ACP-PROMPT-202` (acceptance-before-idle ordering, ADVISORY/race-skipped), `ACP-PROMPT-204`
-(distinct `messageId`s across turns), `ACP-PROMPT-003` (text+resource_link baseline, ADVISORY),
-`ACP-STATE-204`/`ACP-STATE-205` (as separate ids -- `204`'s content is folded into
-`ACP-STATE-203` above; `205`, `state` value legality, has no fixture/test driving it yet),
-`ACP-STATE-206`/`ACP-STATE-207` (permission-driven state transitions; post-idle update
-recording), `ACP-MSG-201` (already fully covered by `ACP-PROMPT-205`'s schema validation -- the
-research report itself says "keep a separate id only for report legibility", which this slice
-declines), `ACP-PROMPTCAP-001..003`, `ACP-CLIENTCAP-201`, `ACP-PERM-201`, and the
-INFORMATIONAL rows (`ACP-INFO-V2CONCURRENT-001`, `ACP-INFO-UNKNOWNSESSION-001`,
-`ACP-INFO-V2UNKNOWNUPDATE-001`).
+Deliberately **not** added in V2-2a (added below, in V2-2b, or -- for one id -- permanently
+declined): `ACP-PROMPT-202` (acceptance-before-idle ordering, ADVISORY/race-skipped, still not
+added -- out of this slice's task list too), `ACP-PROMPT-204` (distinct `messageId`s across
+turns, still not added), `ACP-STATE-204`/`ACP-STATE-205` (as separate ids -- `204`'s content is
+folded into `ACP-STATE-203` above; `205`, `state` value legality, still has no fixture/test
+driving it and is not added below either), `ACP-STATE-206`/`ACP-STATE-207` (permission-driven
+state transitions; post-idle update recording -- still not added), `ACP-MSG-201` (already fully
+covered by `ACP-PROMPT-205`'s schema validation -- the research report itself says "keep a
+separate id only for report legibility", which this repo permanently declines).
+
+## V2-2b additions: prompt content capabilities, permission-request shape, the agent->client
+## method rules, `ACP-PROMPT-003`, and two INFORMATIONAL prompt-lifecycle probes
+
+Per `.agents/plan.md`'s "v2 tiering rule for session-baseline rows" (2026-09-21, slice V2-2a):
+every one of the seven rows below is only ever observable during a `session/prompt` turn, which
+itself only exists once the agent has advertised `capabilities.session` at all -- so
+`ACP-PERM-201`, `ACP-CLIENTCAP-201`, and `ACP-CLIENTCAP-202` are `Tier.CAPABILITY`,
+`capability="capabilities.session"`, exactly like `ACP-PROMPT-201`/`203`/`205` and
+`ACP-STATE-201..203` above, **not** `Tier.MANDATORY` as the source report's own table suggests --
+the report predates that tiering decision. `ACP-PROMPT-003` and the two INFORMATIONAL rows keep
+`capability=None` on the `Requirement` itself (`Requirement.__post_init__`'s invariant: non-
+`CAPABILITY` tiers must not carry a capability path), but their *tests* still carry
+`@pytest.mark.capability("capabilities.session")` -- `tck.common.plugin._tck_capability_gate`
+reads only the pytest marker, independent of the registered `Requirement`'s own tier, so a test
+can SKIP on the marker even though its `Requirement` is ADVISORY/INFORMATIONAL.
+
+- `ACP-PROMPTCAP-001`/`002`/`003` (reused from v1, new gate): "a prompt containing an
+  `image`/`audio`/`resource` (embedded context) block alongside text is accepted and the turn
+  reaches idle without a JSON-RPC error" is the same requirement v1's `ACP-PROMPTCAP-001..003`
+  name, re-cited to v2's content-block shapes and gated on the **object-marker** capability
+  paths `capabilities.session.prompt.image`/`.audio`/`.embeddedContext` -- v1 used a boolean gate
+  (`agentCapabilities.promptCapabilities.*`, `boolean=True`), but v2 has no boolean-encoded
+  capabilities anywhere (`ACP-INIT-204`), so the gate encoding changes without changing the
+  requirement's own text/tier; D3 treats a gate-encoding change (not a tier change) as still the
+  same requirement, so these ids are reused. Assertion target changes from v1's "valid
+  `stopReason` in the response" to v2's turn shape: a non-error acceptance receipt, which -- per
+  `run_prompt`'s own turn-end predicate -- is only returned once the turn has also reached an
+  idle (see `test_prompt.py`'s `ACP-PROMPT-201` precedent for why no separate idle assertion is
+  needed here).
+- `ACP-PROMPT-003` (reused from v1, unchanged tier): "a prompt of `text` + `resource_link` is
+  accepted, and the turn completes" is the same requirement text and tier (ADVISORY) v1's
+  `ACP-PROMPT-003` names -- the v1/v2 doc conflict (`initialization.mdx:203`'s "MUST support
+  `text` and `resource_link`" vs `content.mdx:33`'s "MUST support text[-only]") survives
+  verbatim into v2 (research report's own "Discrepancy 2"), so this reuses the id per D3 (same
+  text, same tier, only the citation moves to v2 sources).
+- `ACP-PERM-201` (new id): any `session/request_permission` the agent sends during a turn
+  validates -- `sessionId`, non-empty `title`, `options` with >=1 entry, each option carrying
+  `optionId`/`name`/`kind` -- and, once the client answers with a `selected` outcome, the turn
+  still reaches an idle. New id (no v1 counterpart at all: v1's `PermissionOption`/params shape
+  differs, has no `title`) in the `PERM` area the research report itself proposes. Tiered
+  `Tier.CAPABILITY` per the session-baseline rule above (report's own table suggests MANDATORY
+  "vacuous when unseen" -- superseded). SKIPs "no permission request observed" whenever the
+  fixture agent's turn never sends one at all, rather than treating that as either a PASS or a
+  FAIL -- the send itself is only MAY (`prompt-lifecycle.mdx:369`, research row C1), so there is
+  nothing to validate against for an agent that simply never asks.
+- `ACP-CLIENTCAP-201` (new id): with a mock client advertising no `capabilities.elicitation.*`
+  mode, no `elicitation/create` request is observed during a prompt turn (Req C5's MUST NOT).
+  New id (v1 has no elicitation capability or method at all). `Tier.CAPABILITY` per the
+  session-baseline rule (report's table suggests MANDATORY -- superseded).
+- `ACP-CLIENTCAP-202` (new id): every agent->client request/notification method observed during
+  a prompt turn is a member of v2's client method inventory (`CLIENT_METHODS`) or a
+  bidirectional protocol-level method (`PROTOCOL_METHODS`, e.g. `$/cancel_request`), or begins
+  with `_` (custom extension methods, Req 42/extensibility.mdx). This is the v2 **collapse** of
+  v1's three separate `ACP-CLIENTCAP-001/002/003` fs/terminal/elicitation rows into one: v2 has
+  no `fs/*`/`terminal/*` methods at all (Req C7 -- they were removed, not merely capability-
+  gated), so "calling one" is simply "calling an undefined method", indistinguishable from any
+  other made-up non-`_` method name; `elicitation/create`'s own capability-gated negative is
+  `ACP-CLIENTCAP-201` above, not duplicated here (an unadvertised elicitation call IS a defined
+  method, so it would otherwise pass this row's check trivially). New id (the fs/terminal
+  collapse means the requirement text is not the same as any single v1 id). Ownership: per
+  `.agents/plan.md`'s "v2 effort -- slices" list (the final, dated slice order), `ACP-CLIENTCAP-
+  201`+`202` are both owned by the V2-2 (prompt-lifecycle) slice, not the initialize/capabilities
+  slice -- an earlier draft decision in the same plan file suggesting the opposite ownership
+  predates that final ordering and is superseded by it. `Tier.CAPABILITY` per the session-
+  baseline rule (report's table suggests MANDATORY -- superseded).
+- `ACP-INFO-CONCURRENT-001` (new id, INFORMATIONAL): records what the agent does when a second
+  `session/prompt` for the same session is sent before the first has reached its terminating
+  idle -- accepted, a JSON-RPC error, or silence -- and never asserts on it: concurrency is
+  explicitly out of scope of the v2 design (research row X1, `docs/rfds/v2/prompt.mdx:86`: "This
+  RFD does not specify queueing, steering, or whether agents insert new prompts while busy").
+- `ACP-INFO-UNKNOWNSESSION-001` (reused from v1, INFORMATIONAL): records the agent's response to
+  `session/prompt` with a `sessionId` it never created, never asserting on it -- same
+  requirement v1's id names (spec silence on the error code), re-cited: v2's own `error.mdx` is
+  still "Documentation coming soon" (research row X2), so the code remains unspecified in v2
+  too.
+
+Deliberately **not** added this slice, per the already-recorded, explicit supersession in
+`.agents/plan.md`'s "v2 patches / open enums / extensibility -- decisions": custom `sessionUpdate`
+values MUST begin with `_`; an unknown *non*-`_`-prefixed discriminator is a MANDATORY FAIL, not
+an INFORMATIONAL probe -- so `ACP-INFO-V2UNKNOWNUPDATE-001` (the research report's own suggested
+INFORMATIONAL row for this) is never added at all, in this slice or later; the MANDATORY
+`ACP-ENUM-20x` check that supersedes it is explicitly slotted into slice V2-6.
 """
 
 from __future__ import annotations
@@ -429,6 +510,147 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "(IdleStateUpdate), :4869 (StopReason); docs/protocol/v2/extensibility.mdx:113-118"
         ),
         source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-PROMPTCAP-001",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session.prompt.image",
+        text=(
+            "A prompt containing an `image` content block alongside text is accepted (a "
+            "non-error `session/prompt` result), and the turn reaches idle, when the agent "
+            "advertises `capabilities.session.prompt.image`."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/initialization.mdx:201-226; schema/v2/schema.json:3219 "
+            "(prompt capability markers), :1194 (ImageContent)"
+        ),
+        source_report="acp-v2-prompt-lifecycle.md",
+    ),
+    Requirement(
+        id="ACP-PROMPTCAP-002",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session.prompt.audio",
+        text=(
+            "A prompt containing an `audio` content block alongside text is accepted (a "
+            "non-error `session/prompt` result), and the turn reaches idle, when the agent "
+            "advertises `capabilities.session.prompt.audio`."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/initialization.mdx:201-226; schema/v2/schema.json:3219 "
+            "(prompt capability markers), :1238 (AudioContent)"
+        ),
+        source_report="acp-v2-prompt-lifecycle.md",
+    ),
+    Requirement(
+        id="ACP-PROMPTCAP-003",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session.prompt.embeddedContext",
+        text=(
+            "A prompt containing a `resource` (embedded context) content block alongside text "
+            "is accepted (a non-error `session/prompt` result), and the turn reaches idle, "
+            "when the agent advertises `capabilities.session.prompt.embeddedContext`."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/initialization.mdx:201-226; schema/v2/schema.json:3219 "
+            "(prompt capability markers), :1504 (EmbeddedResource)"
+        ),
+        source_report="acp-v2-prompt-lifecycle.md",
+    ),
+    Requirement(
+        id="ACP-PROMPT-003",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "A prompt of `text` + `resource_link` content blocks is accepted, and the turn "
+            "reaches idle -- ADVISORY, since `initialization.mdx:203` ('agents advertising "
+            "`session` MUST support `text` and `resource_link`') conflicts with "
+            "`content.mdx:33` ('all agents MUST support text content blocks', silent on "
+            "`resource_link`); the conflict survives verbatim from v1 into v2."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/initialization.mdx:203; docs/protocol/v2/content.mdx:33; "
+            "schema/v2/schema.json:1341 (ResourceLink), :6531 (PromptRequest.prompt)"
+        ),
+        source_report="acp-v2-prompt-lifecycle.md",
+    ),
+    Requirement(
+        id="ACP-PERM-201",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "Any `session/request_permission` request the agent sends during a turn "
+            "validates: `sessionId`, a non-empty string `title`, and a non-empty `options` "
+            "array, each option carrying `optionId`/`name`/`kind`. Once the client answers "
+            "with a `selected` outcome, the turn still reaches an idle. Vacuous (SKIPPED) when "
+            "no permission request was observed during the turn -- sending one is only MAY."
+        ),
+        citation=_cite(
+            "schema/v2/schema.json:545 (RequestPermissionRequest, required "
+            "[\"sessionId\",\"title\",\"options\"], options.minItems:1), :1999 "
+            "(PermissionOption, required [\"optionId\",\"name\",\"kind\"]); "
+            "docs/protocol/v2/tool-calls.mdx:194,233,253"
+        ),
+        source_report="acp-v2-prompt-lifecycle.md",
+    ),
+    Requirement(
+        id="ACP-CLIENTCAP-201",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "With a mock client advertising no `capabilities.elicitation.*` mode, no "
+            "`elicitation/create` request is observed during a prompt turn."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/elicitation.mdx:54,166; schema/v2/schema.json:5842 "
+            "(x-method: elicitation/create)"
+        ),
+        source_report="acp-v2-prompt-lifecycle.md",
+    ),
+    Requirement(
+        id="ACP-CLIENTCAP-202",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "Every agent->client request/notification method observed during a prompt turn "
+            "is a member of `CLIENT_METHODS` or `PROTOCOL_METHODS` (e.g. `$/cancel_request`), "
+            "or begins with `_`. `fs/*`/`terminal/*` do not exist as v2 methods at all, so "
+            "calling either FAILs here as an undefined method (the v2 collapse of v1's "
+            "separate `ACP-CLIENTCAP-001/002` rows)."
+        ),
+        citation=_cite(
+            "schema/v2/meta.json:16-21 (agent->client method inventory); "
+            "docs/protocol/v2/migration.mdx:53-54,628-637 (fs/terminal removed); "
+            "docs/protocol/v2/extensibility.mdx:43,52 (MUST NOT call undefined methods)"
+        ),
+        source_report="acp-v2-prompt-lifecycle.md",
+    ),
+    Requirement(
+        id="ACP-INFO-CONCURRENT-001",
+        tier=Tier.INFORMATIONAL,
+        capability=None,
+        text=(
+            "Record (never assert) what the agent does when a second `session/prompt` for the "
+            "same session is sent before the first has reached its terminating idle: accepted, "
+            "a JSON-RPC error, or silence. Concurrency is explicitly out of scope of the v2 "
+            "design."
+        ),
+        citation=_cite(
+            "docs/rfds/v2/prompt.mdx:86 ('This RFD does not specify queueing, steering, or "
+            "whether agents insert new prompts while busy')"
+        ),
+        source_report="acp-v2-prompt-lifecycle.md",
+    ),
+    Requirement(
+        id="ACP-INFO-UNKNOWNSESSION-001",
+        tier=Tier.INFORMATIONAL,
+        capability=None,
+        text=(
+            "Record (never assert) the agent's response to `session/prompt` with a "
+            "`sessionId` it never created -- v2's `error.mdx` is still 'Documentation coming "
+            "soon', so the error code (if any) is unspecified."
+        ),
+        citation=_cite("docs/protocol/v2/error.mdx"),
+        source_report="acp-v2-prompt-lifecycle.md",
     ),
 )
 
