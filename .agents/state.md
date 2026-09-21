@@ -1,7 +1,7 @@
 # State
 
-**Last updated:** 2026-09-22 (v2 effort — V2-0…V2-2b merged+pushed; V2-3 branch ready, being verified/merged)
-**Last commit pushed:** `0da54fb` on `v2-support` (V2-2b; 200 tests, 24 v2 ids) — plus workbench commits on top
+**Last updated:** 2026-09-22 (v2 effort — V2-0…V2-3 merged+pushed; V2-4 session management in flight)
+**Last commit pushed:** `150e8a5` on `v2-support` (V2-3; 213 tests, 52 v2 ids) — plus workbench commits on top
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
@@ -38,20 +38,18 @@ against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude
 `testy-cross-check.md`, `upstream-issues.md` (internal drafts only, do not file).
 
 ## In flight
-- **V2-3 `v2-cancel-transport`** — programmer DONE, revised branch `v2-cancel-transport` @ `ba5ff34` pushed
-  (worktree `../acp-tck-2-v2-cancel-transport`, base `e139266`). Programmer-reported: 213 passed in 423 s;
-  52 v2 ids (+CANCEL-201..208, TRANSPORT-201/203 + re-cited TRANSPORT-002, JSONRPC-001..005 re-cited,
-  BATCH-201..208, INFO-BATCH/CANCEL-20x); 13 new fixtures incl. `emits_batch_updates.py` positive control
-  which exposed and fixed two TCK bugs (SCHEMA-001 scan assumed dict lines; CANCEL-205 `transcript.index`
-  on synthetic batch entries). **Orchestrator verification in progress**: suite from worktree, smoke runs
-  (`conforming_full.py --cancel-prompt __hang__`, `crashes_on_batch.py`, `wrong_id_echo.py -k jsonrpc`),
-  then squash-merge, suite on `v2-support`, push, remove worktree/branch. If this session died mid-way:
-  check `git log v2-support -1` — if V2-3 is not merged, redo the verification and merge.
-- Wall time follow-up: suite ≈423 s (target was ≤300 s). Schedule a perf slice later (e.g. `-k` scoping,
-  `pytest-xdist`), not blocking.
-- Next after V2-3 merge: **V2-4** session management (plan.md "v2 effort — slices"; inputs
-  `research/acp-v2-session-management.md`, plan.md "v2 session management — decisions" + tiering rule),
-  then V2-5 auth, V2-6 patches/enums/hygiene, V2-7 cross-check/CI/docs, then a full review pass.
+- **V2-4 `v2-session-mgmt`** (worktree `../acp-tck-2-v2-session-mgmt`, off `150e8a5`+): RESUME-20x
+  (`replayFrom` MUSTs; try-three-routes-then-SKIP), LIST-20x, CLOSE-201/202, DELETE-20x
+  (`capabilities.session.delete`), ADDDIRS-20x, MCP-20x, CONFIG-20x (`inferred:configOptions`, `configId`);
+  fixtures; `conforming_full.py` extended. On report: verify (suite, `conforming_full.py --cancel-prompt
+  __hang__`, a resume/list defect fixture), merge, push, cleanup. Then **V2-5** (authentication).
+- Wall time: suite ≈422 s. Perf slice deferred (plan.md "Deferred nits").
+
+**Done (2026-09-22): slice V2-3** (`150e8a5`) — CANCEL-201..208, TRANSPORT-201/203 + re-cited TRANSPORT-002,
+JSONRPC-001..005 re-cited, BATCH-201..208, INFO-BATCH/CANCEL-20x; 13 fixtures incl. `emits_batch_updates.py`
+(exposed + fixed two TCK bugs: dict-only SCHEMA-001 scan, `transcript.index` on synthetic batch entries);
+`INFO-CONCURRENT-001`→`201`. 213 passed. Review-pass item: record-only ADVISORY rows (BATCH-206/207/208,
+CANCEL-204) should probably be INFORMATIONAL.
 
 **Done (2026-09-21): slice V2-2b** (`0da54fb`) — PROMPTCAP-001..003 re-gated, PROMPT-003 ADVISORY, PERM-201,
 CLIENTCAP-201/202, INFO-CONCURRENT-001 (id to be renamed 201 in V2-3), INFO-UNKNOWNSESSION-001; fixtures incl.

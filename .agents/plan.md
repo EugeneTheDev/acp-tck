@@ -244,6 +244,11 @@ Turn-end predicate (driver): an idle `state_update` ends the turn iff it carries
   any `$def` lookup (already implied by D6; the v1 validator's dict-only assumption is not reused).
 
 ### Deferred nits (do not lose)
+- Review-pass item (V2-3): `ACP-BATCH-206/207/208` and `ACP-CANCEL-204` are ADVISORY but record-only and
+  always SKIP ("cannot force"/"unobservable"). A row that can never be judged should be INFORMATIONAL (or
+  omitted, as v1 did for Req 10). Re-tier in the final review pass.
+- Perf: full suite ≈423 s after V2-3 (target ≤300 s). Candidates: `-k` scoping in `tests/v2/test_cli.py`,
+  `pytest-xdist`, fewer full-suite fixture runs.
 - review-v2-slices-0-1a #10: `VersionSpec.conformance_package` and `schema_dir` have no consumers — drop
   them (update D1 wording) or wire `conformance_package` into diagnostics. Pick up in the final review pass.
 - review-v2-slices-0-1a #18: `__init__.py` in `tests/v1/`/`tests/common/` (optional).
