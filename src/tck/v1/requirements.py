@@ -133,13 +133,20 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "for a v1 request and 2 for anything >= 2) may correctly answer higher than its "
             "v1-request answer; only echoing 65535 verbatim, or answering something lower than "
             "its own v1 answer, is a violation (review-slices-5-6.md B2 -- the prior equality "
-            "rule produced a false FAIL against dual-version agents)."
+            "rule produced a false FAIL against dual-version agents). The 65535 probe's params "
+            "also carry a v2-shaped info object alongside the v1 fields, since the probe "
+            "represents a future-version client and a dual-version router agent selects v2 for "
+            "any requested version >= 2 (including 65535) and validates the params as a v2 "
+            "InitializeRequest, whose info is REQUIRED -- omitting it would produce a spurious "
+            "-32602 for a params-shape reason unrelated to version negotiation."
         ),
         citation=_cite(
             "docs/protocol/v1/initialization.mdx:94-98; testy-cross-check.md finding 1 "
-            "(strengthening rationale); review-slices-5-6.md B2 (weakened to >=)"
+            "(strengthening rationale); review-slices-5-6.md B2 (weakened to >=); "
+            "acp-v2-version-negotiation.md:137,185 (router selects v2 for >=2 and requires "
+            "info, spurious -32602 without it)"
         ),
-        source_report="acp-v1-protocol-surface.md; testy-cross-check.md",
+        source_report="acp-v1-protocol-surface.md; testy-cross-check.md; acp-v2-version-negotiation.md",
     ),
     Requirement(
         id="ACP-INIT-004",

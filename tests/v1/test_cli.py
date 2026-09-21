@@ -385,6 +385,33 @@ def test_version_mismatch_errors_fails_init_003_only():
         assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
 
 
+def test_router_requires_info_passes_everything():
+    """`router_requires_info.py` models a dual-version protocol *router* (slice V2-0b): it
+    selects v2 for any requested version >= 2, including the ACP-INIT-003 probe's 65535, and
+    validates the params as a v2 `InitializeRequest`, whose `info` is REQUIRED. Before the
+    probe in `test_initialize.py` carried `info`, this fixture reproduced the spurious
+    `-32602` a real dual-version router agent would give (see the fixture's own docstring) --
+    ACP-INIT-003 FAILed and the run was NOT CONFORMANT. With the fix, it PASSes: the fixture is
+    otherwise identical to `conforming.py` (advertises `agentCapabilities: {}`, no
+    modes/configOptions/authMethods), so the same SKIP/PASS split applies."""
+    result = _run_cli("router_requires_info.py")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    assert set(statuses) == _ALL_IDS | _INFORMATIONAL_IDS, (
+        f"requirement table missing/extra ids: {result.stdout}"
+    )
+    skip_ids = _CANCEL_IDS | _CAPABILITY_GATED_IDS
+    for req_id in skip_ids:
+        assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised/unadvertised):\n{result.stdout}"
+    for req_id, status in statuses.items():
+        if req_id in skip_ids:
+            continue
+        assert status == "PASS", f"{req_id} is {status}, expected PASS for router_requires_info.py:\n{result.stdout}"
+    assert "NOT TESTED" not in result.stdout
+    assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
+
+
 def test_echoes_any_version_fails_init_003_only():
     """`echoes_any_version.py` echoes the client's requested `protocolVersion` verbatim for
     *every* request, including the unsupported 65535 one -- exactly the false-negative pattern
