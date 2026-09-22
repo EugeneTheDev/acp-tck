@@ -1,7 +1,7 @@
 # State
 
-**Last updated:** 2026-09-22 (v2 effort — V2-0…V2-6 merged+pushed; V2-7 cross-check + review pass in flight)
-**Last commit pushed:** `26bf0f2` on `v2-support` (V2-6 hygiene; 239 tests, 106 v2 ids, suite ≈360 s) — plus workbench commits on top
+**Last updated:** 2026-09-22 (v2 effort — V2-0…V2-7 merged+pushed; V2-8 review fixes in flight)
+**Last commit pushed:** `9151515` on `v2-support` (V2-7 cross-check; 246 tests, 106 v2 ids, suite ≈360 s) — plus workbench commits on top
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
@@ -37,19 +37,23 @@ against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude
 `codex-wrapper.md`). v1 research: `research/acp-v1-*.md`, `review-slices-*.md`, `spec-drift-check.md`,
 `testy-cross-check.md`, `upstream-issues.md` (internal drafts only, do not file).
 
-## In flight (two agents, independent)
-- **V2-7 `v2-cross-check`** (programmer, worktree `../acp-tck-2-v2-cross-check`, off `26bf0f2`+):
-  `scripts/cross-check.sh` v2 leg (testy dual build `--no-default-features --features unstable_protocol_v2`,
-  `--protocol-version 2 --cancel-prompt wait_for_cancel`), repo-authored Python v2 fixture on
-  `agent-client-protocol==1.0.0rc2` under `scripts/cross-check/`, `cross-check-summary.py` version-aware,
-  `docs/cross-check.md` v2 table + explanations, CI job v2 leg (informational), README/AGENTS.md. Any
-  unexpected FAIL is escalated as a possible TCK bug, not papered over.
-- **Review landed:** `research/review-v2-slices-1b-6.md` — 1 BLOCKER (RESUME-202..205 bypass the three-route
-  helper → false FAILs), 20 SHOULD-FIX, 22 NIT; decisions recorded in plan.md "Review decisions … → slice
-  V2-8". `research/upstream-issues-v2.md` drafted (13 items; internal only).
-- After V2-7 merges: **V2-8 review-fix slice** (all items in plan.md "Review decisions"; includes re-running
-  `scripts/cross-check.sh` and refreshing the v2 baseline/CI expectations), then final state/plan update and
-  a summary for the user (merge to `main` is the user's decision).
+## In flight
+- **V2-8 `v2-review-fixes`** (programmer, worktree `../acp-tck-2-v2-review-fixes`, off `9151515`+): every item
+  in plan.md "Review decisions from research/review-v2-slices-1b-6.md → slice V2-8" (BLOCKER: RESUME-202..205
+  via `obtain_resumable_session`; re-tier BATCH-206/207/208 + CANCEL-204 → INFORMATIONAL; MCP probes carry
+  `type`; over-assertion fixes CONFIG-202/BATCH-203/204; batch-array unwrapping everywhere; conforming_full
+  terminal auth method + terminal updates; docs drift incl. unscoped cascades, id count, D3 rationale text,
+  `blocked_by_version_mismatch` v1 wording + v1 self-test with a v2-only fixture; `docs/cross-check.md`
+  "spurious PASS" wording → legitimate PASS) then re-run `scripts/cross-check.sh` and refresh
+  `docs/cross-check.md` + CI `--expect` baselines. On report: verify (suite; conforming_full 101/106 PASS;
+  cross-check summary OK), merge, push, cleanup. Then final state/plan rewrite + user summary; merging
+  `v2-support` → `main` is the user's decision.
+
+**Done (2026-09-22): slice V2-7** (`9151515`) — cross-check v2 legs (`testy` dual build in separate
+`--target-dir`; repo-authored `scripts/cross-check/python_v2_agent.py` on rc2), N-report summary with
+per-report `--expect`, CI baselines, `docs/cross-check.md` v2 section. Baseline: testy_v2 CONFORMANT;
+python_v2_agent FAILs BATCH-201/202 (SDK crash on arrays) + INIT-003/201/202 (native v2 rejects other
+versions with -32602). 246 passed.
 
 **Done (2026-09-22): slice V2-6** (`26bf0f2`) — PATCH-201..209, ENUM-201..203, META-201, EXT-201..203, re-cited
 EXT-001/META-001/ERROR-001/SHUTDOWN-001/SCHEMA-002/STDERR-001/INFO-PARSE-001/INFO-INVALIDREQ-001; rich turn in
