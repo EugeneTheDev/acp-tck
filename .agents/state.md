@@ -1,7 +1,7 @@
 # State
 
-**Last updated:** 2026-09-22 (comment trimming + stderr fix landed; V2-8 resumed)
-**Last commit pushed:** `70d9669` on `v2-support` (comment trimming `52a7bd1`/`2337d1c`/`176a056` + stderr fix; 246 passed). V2-8 branch `v2-review-fixes`
+**Last updated:** 2026-09-22 (V2-8 LANDED as `e855bdb`; final comment trim `trim-final` in flight; full state rewrite pending)
+**Last commit pushed:** `e855bdb` on `v2-support` (slice V2-8 squash; 252 passed; conforming_full 101/106 CONFORMANT). V2-8 worktree/branch removed. V2-8 branch `v2-review-fixes`
 pushed at WIP tip `a517657` (based on `f030d71`).
 
 ## Standing user decisions (2026-09-22, this session)
@@ -22,7 +22,14 @@ bookkeeping and history narration; research citations, footguns, maintenance not
 `tests/v1/test_cli.py` stderr byte-count assertion parses the count instead of a substring check that matched
 `350`. Suite fully green (246 passed) at `70d9669`.
 
-## In flight — slice V2-8 `v2-review-fixes` (RESUMED 2026-09-22, one programmer, existing worktree)
+## Done (2026-09-22): slice V2-8 (`e855bdb`) — see the squash commit message for the item list
+
+## In flight — `trim-final` (one programmer, worktree `../acp-tck-2-trim-final`, off `e855bdb`)
+Comments-only: strip the ~56 residual review-report/slice references V2-8 brought into `src/tck/v2/**` comments
+(Requirement text/citation literals stay). On report: verify, squash-merge, suite (252), push, cleanup; then
+FULL rewrite of this file + plan.md to "done" and the user summary.
+
+## (historical) V2-8 resumption notes
 Programmer was told to `git merge origin/v2-support` (`70d9669`) into the branch first (comment-vs-code
 conflicts expected), then finish the WIP (NIT 26 + `test_cli.py` AUTH-201/206 SKIP fallout incl.
 `test_terminal_env_duplicate_names_fails_auth_207_only`), then the remaining list below. Orchestrator decisions
