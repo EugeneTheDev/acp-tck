@@ -635,7 +635,9 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "succeeds with an object result (AUTH-C1/C2). Nothing is asserted about sessions "
             "after logout (must-NOT list) -- if `--tck-auth-method` was given, `logout` is "
             "called after a successful `authenticate`; otherwise it is called standalone and "
-            "only its own success is checked."
+            "only its own success is checked. Only actually exercised when "
+            "`--allow-logout`/`--tck-allow-logout` is given (destructive: may revoke the "
+            "operator's own credentials); SKIPs otherwise."
         ),
         citation=_cite(
             "schema/v1/schema.json:2666-2701,4735-4756 (AgentAuthCapabilities, LogoutRequest) "

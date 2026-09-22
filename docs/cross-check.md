@@ -27,7 +27,7 @@ ACP-ADDDIRS-001              PASS        SKIPPED
 ACP-AUTH-001                 PASS        PASS
 ACP-AUTH-002                 PASS        PASS
 ACP-AUTH-003                 SKIPPED     SKIPPED
-ACP-AUTH-004                 PASS        SKIPPED
+ACP-AUTH-004                 SKIPPED     SKIPPED
 ACP-AUTH-005                 SKIPPED     PASS
 ACP-CANCEL-001                PASS        SKIPPED
 ACP-CANCEL-002                PASS        SKIPPED
@@ -166,11 +166,13 @@ research's prediction ("permanently SKIPPED", `testy-cross-check.md` §3.2, Test
 
 ### ACP-AUTH-004 (CAPABILITY) / ACP-AUTH-005 (ADVISORY) — differ by design, not a deviation
 
-`testy` advertises `authMethods` and `auth.logout`, so AUTH-004 (logout, gated on the capability
-marker) runs and PASSes, while AUTH-005 (the empty-`authMethods` negative control) correctly
-SKIPs. `echo_agent` advertises neither, so AUTH-004 SKIPs (capability not advertised) and
-AUTH-005 (the negative control for the no-`authMethods` case) applies and PASSes. Both are the
-capability-gating machinery working as designed, not a TCK bug or an unexpected agent behaviour.
+`testy` advertises `authMethods` and `auth.logout`, so AUTH-004's capability gate is satisfied,
+while AUTH-005 (the empty-`authMethods` negative control) correctly SKIPs. `echo_agent`
+advertises neither, so AUTH-004 SKIPs (capability not advertised) and AUTH-005 (the negative
+control for the no-`authMethods` case) applies and PASSes. `scripts/cross-check.sh` does not pass
+`--allow-logout`, so AUTH-004 SKIPs for `testy` too, regardless of the capability gate --
+calling `logout` for real is opt-in (see `--allow-logout`'s help text). A SKIPPED CAPABILITY
+does not affect the verdict. None of this is a TCK bug or an unexpected agent behaviour.
 
 ## v2 cross-check
 

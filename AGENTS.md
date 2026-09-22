@@ -54,8 +54,8 @@ long enough for `session/cancel` to land; SKIP with "cancellation not exercised"
 was inconclusive, not that the agent failed), `--report-json PATH`, `--close-grace S`, `-k EXPR`,
 `--protocol-version {1,2}` (default 1), `--auth-method ID` (drives `authenticate`/`auth/login`
 before session-dependent tests; without it, auth-gated agents SKIP those tests and the run is
-forced NOT CONFORMANT via `Verdict.blocked_by_auth`), `--allow-logout` (v2 only; opt-in to
-actually calling `auth/logout`, since it may revoke the operator's own credentials).
+forced NOT CONFORMANT via `Verdict.blocked_by_auth`), `--allow-logout` (opt-in to actually
+calling `logout`/`auth/logout`, since it may revoke the operator's own credentials).
 
 If an agent negotiates down to a different protocol version than requested (e.g. a v1-only
 agent run under `--protocol-version 2`), every requirement that judges the *result's shape*

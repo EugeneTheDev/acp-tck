@@ -73,12 +73,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--allow-logout",
         action="store_true",
-        help="Opt in to actually calling v2's auth/logout against the agent under test "
-        "(ACP-AUTH-203), passed through as --tck-allow-logout. Off by default because it may "
+        help="Opt in to actually calling logout against the agent under test (v1's ACP-AUTH-004, "
+        "v2's ACP-AUTH-203), passed through as --tck-allow-logout. Off by default because it may "
         "revoke the operator's own credentials for whatever account the agent is authenticated "
-        "as -- without it, ACP-AUTH-203 SKIPs instead of exercising the method. Has no effect "
-        "on v1 (--protocol-version 1): its logout test (ACP-AUTH-004) is gated purely by the "
-        "agentCapabilities.auth.logout marker.",
+        "as -- without it, both requirements SKIP instead of exercising the method.",
     )
     parser.add_argument(
         "--close-grace",

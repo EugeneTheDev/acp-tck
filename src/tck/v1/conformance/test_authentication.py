@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from tck.common.plugin import current_auth_method_id
+from tck.common.plugin import current_allow_logout, current_auth_method_id
 
 from ._helpers import connected_agent, new_session
 
@@ -135,7 +135,16 @@ async def test_logout_succeeds(agent_launch):
     """ACP-AUTH-004. If `--tck-auth-method` was given, `connected_agent`'s handshake has
     already authenticated -- `logout` is then called on that authenticated connection.
     Otherwise it's called standalone; only its own success is checked (nothing about session
-    state after logout, per the must-NOT list)."""
+    state after logout, per the must-NOT list).
+
+    SKIPs unless `--allow-logout`/`--tck-allow-logout` was given, since calling `logout` for
+    real may revoke the operator's own credentials for whatever account the agent is
+    authenticated as -- mirrors v2's `ACP-AUTH-203`. Checked after the `capability` marker gate
+    above has already had its chance to SKIP with the more specific "not advertised" reason."""
+    if not current_allow_logout():
+        pytest.skip(
+            "logout not exercised: pass --allow-logout (it may revoke the operator's credentials)"
+        )
     async with connected_agent(agent_launch) as agent:
         req_id = await agent.send_request("logout", {})
         entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
