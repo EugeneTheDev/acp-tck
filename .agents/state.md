@@ -1,20 +1,36 @@
 # State
 
-**Last updated:** 2026-09-22 (comment-trimming pass in flight; V2-8 still paused)
-**Last commit pushed:** `acc7d6f` on `v2-support`. V2-8 branch `v2-review-fixes` pushed at WIP tip `a517657`.
+**Last updated:** 2026-09-22 (comment trimming landed; stderr-assert fix in flight; V2-8 still paused)
+**Last commit pushed:** `176a056` on `v2-support` (three comment-trimming squash commits `52a7bd1`, `2337d1c`,
+`176a056`; suite 245 passed + 1 pre-existing self-test failure, see below). V2-8 branch `v2-review-fixes`
+pushed at WIP tip `a517657` (based on `f030d71`).
 
-## In flight — comment-trimming pass (user request, 2026-09-22; MUST land before V2-8 resumes)
-User asked: shorten comments/docstrings everywhere (concise; keep behaviour/gotchas/maintenance notes and research
-citations; drop slice numbers, review-report bookkeeping, history narration). Comments-only, names only if
-necessary; no behaviour change. Three programmers in parallel, disjoint file sets, all branched off `acc7d6f`:
-- `trim-comments-a` / `../acp-tck-2-trim-a`: `src/tck/common`, `src/tck/v1`, `tests/common`, `tests/v1`,
-  `tests/fixtures/agents/v1`, `scripts`.
-- `trim-comments-b` / `../acp-tck-2-trim-b`: `src/tck/v2`.
-- `trim-comments-c` / `../acp-tck-2-trim-c`: `tests/v2`, `tests/fixtures/agents/v2`.
-Merge plan: squash-merge each as it reports (order of arrival), suite green on `v2-support`, push, remove
-worktrees/branches. Then resume V2-8: the programmer should `git merge v2-support` into `v2-review-fixes` (one
-conflict pass, not a 14-commit rebase) and, as part of V2-8, trim any extended/slice-referencing comments its own
-work adds. A final trim of remaining "ongoing work" comments happens after V2-8 lands.
+## Standing user decisions (2026-09-22, this session)
+- **Spawn ONLY ONE programmer at a time** from now on, regardless of what `prompt.md` allows.
+- Adhere to subagent definitions: `programmer` = Sonnet, `researcher` = Opus. Never override the model.
+- `Requirement(...).text=`/`citation=` literals that mention slices / review docs / D-decisions stay as they are
+  (part of the ongoing plan); comments/docstrings are now slice-free everywhere.
+- Programmers on mechanical passes: comments only, no behaviour analysis, no whole-file reads, never fix
+  out-of-scope failures (report them).
+
+## Done (2026-09-22): comment-trimming pass
+Comments/docstrings across `src/`, `tests/`, `scripts/` are concise and free of slice numbers, review-report
+bookkeeping and history narration; research citations, footguns, maintenance notes kept. One rename:
+`tests/v2/test_registry.py::test_registry_has_exactly_the_v2_6_requirements` →
+`test_registry_has_exactly_the_expected_requirements`. No logic change.
+
+## In flight — `fix-stderr-assert` (one programmer, worktree `../acp-tck-2-fix-stderr-assert`, off `176a056`)
+Pre-existing latent bug surfaced by all three trimmers: `tests/v1/test_cli.py::
+test_noisy_stderr_and_parse_error_reply_agent_informational_notes` asserts `"0 stderr byte(s)" not in line`; the
+fixture emits 350 bytes here so the substring matches `350`. Fix = anchor/parse the count. On report: verify,
+squash-merge, suite (expect 246 passed), push, remove worktree/branch. THEN resume V2-8 (next section).
+
+## Resuming V2-8 after that
+Spawn one programmer on the EXISTING worktree `../acp-tck-2-v2-review-fixes` (branch `v2-review-fixes`; do not
+`git worktree add`). Its branch predates the trimming commits: have it `git merge v2-support` (one conflict pass;
+conflicts will be comment-vs-code in `src/tck/v2/**`, `tests/v2/**`, fixtures) rather than rebase 14 commits.
+Its own new/extended comments must follow the trimmed style (no slice numbers). Task list = "V2-8 remaining work"
+below.
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
