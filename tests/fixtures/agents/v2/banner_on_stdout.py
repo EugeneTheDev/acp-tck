@@ -2,7 +2,7 @@
 """Non-conforming fixture: prints a human banner line to stdout before behaving like a
 conforming agent -- violates the v2 "agent MUST NOT write anything to stdout that is not a
 valid ACP message" transport rule (`ACP-TRANSPORT-201`). Mirrors v1's `banner_on_stdout.py`
-on top of v2's `_base.py` (D6 -- never imports v1's own fixture module).
+on top of v2's `_base.py` -- never imports v1's own fixture module.
 
 v2's `ConformingAgent` has no `on_start` hook (unlike v1's), so the banner is printed directly
 in `main()`, strictly before the agent's own `run()` loop ever touches stdout -- the banner is

@@ -17,10 +17,8 @@ registered).
 None of these tests carries a `@pytest.mark.capability(...)` marker (there is nothing for the
 autouse `_tck_capability_gate` to look up -- `capability="inferred:configOptions"` is
 documentation-only), so each connects via `_helpers.v2_only_agent` -- the shared "manual
-initialize + skip on VERSION-MISMATCH + login_if_needed" pattern (review-v2-slices-1b-6 finding
-19; this file previously kept its own byte-for-byte copy, including a hand-copied `initialize`
-params literal that bypassed `SPEC.initialize_params()` and omitted `capabilities` entirely)
-instead of `connected_agent(agent_launch)` directly, so a v1-only agent forced under
+initialize + skip on VERSION-MISMATCH + login_if_needed" pattern -- instead of
+`connected_agent(agent_launch)` directly, so a v1-only agent forced under
 `--protocol-version 2` SKIPs with the `VERSION-MISMATCH:` marker instead of just "session/new
 returned no configOptions" (`tests/v2/test_cli.py`'s `test_v1_conforming_agent_under_protocol_
 version_2_is_blocked_by_version_mismatch` invariant).
@@ -127,8 +125,7 @@ async def test_config_options_shape_is_valid(agent_launch, tmp_path):
 def _pick_settable_option(config_options: list[Any]) -> tuple[dict[str, Any], str, Any]:
     """Pick the first configOptions entry this suite knows how to `session/set_config_option`,
     returning `(option, set_type, new_value)`. Skips if `config_options[0]` is a custom type this
-    suite has no wire encoding for. Plain function, not `async def` (review-v2-slices-1b-6 NIT
-    finding 32): it never awaits anything."""
+    suite has no wire encoding for. Plain function, not `async def`: it never awaits anything."""
     target = config_options[0]
     if target.get("type") == "boolean":
         return target, "boolean", not target.get("currentValue")
@@ -148,12 +145,12 @@ async def test_set_config_option_returns_the_complete_list(agent_launch, tmp_pat
     speculatively calling `session/set_config_option` when `session/new` advertised no
     `configOptions` at all -- there would be nothing legitimate to set.
 
-    Does NOT assert `changed["currentValue"] == new_value` (review-v2-slices-1b-6 finding 2;
-    `acp-v2-session-management.md:508`, C9: "Asserting `currentValue == the value you sent` is
-    weaker than it looks -- an agent may legitimately reflect a dependent adjustment; keep that
-    sub-assertion ADVISORY"). Only the superset-of-ids check below is this row's actual
-    contract; whether the changed entry's own value echoes what was sent is recorded via
-    `record_property`, never asserted."""
+    Does not require `changed["currentValue"] == new_value` to hold
+    (`acp-v2-session-management.md:508`, C9): an agent may legitimately reflect a dependent
+    adjustment instead, so that sub-assertion stays ADVISORY rather than part of this row's
+    contract. Only the superset-of-ids check below is this row's actual contract; whether the
+    changed entry's own value echoes what was sent is recorded via `record_property`, never
+    asserted."""
     async with v2_only_agent(agent_launch) as agent:
         result = await _new_session_full_result(agent, tmp_path, timeout=agent_launch.default_timeout)
         config_options = result.get("configOptions")

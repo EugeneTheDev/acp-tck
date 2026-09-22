@@ -87,9 +87,9 @@ async def test_response_envelope_is_result_xor_error_with_valid_shape(agent_laun
 @pytest.mark.requirement("ACP-JSONRPC-003")
 async def test_notification_receives_no_response(agent_launch, tmp_path):
     """ACP-JSONRPC-003. `session/cancel` with no prompt in flight is a pure notification. Checks
-    every message inside a batch-array line too, not just a bare object line (review-v2-slices-
-    1b-6 finding 5): an agent that folds a spurious response into a batch alongside something
-    else would otherwise pass this MANDATORY check by accident."""
+    every message inside a batch-array line too, not just a bare object line: an agent that
+    folds a spurious response into a batch alongside something else would otherwise pass this
+    MANDATORY check by accident."""
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
 

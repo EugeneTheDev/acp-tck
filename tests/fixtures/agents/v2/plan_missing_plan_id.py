@@ -11,8 +11,8 @@ violation; `ACP-PATCH-204`/`208` SKIP "no <variant> observed"; `ACP-ENUM-201` st
 via `priority`/`status` on the plan entry (both correctly shaped), so it still PASSes even
 though the surrounding `plan` object is missing its id.
 
-NOT unaffected otherwise, contrary to an earlier version of this docstring (review-v2-slices-
-1b-6 finding 16): `_base.ConformingAgent._reply_to_prompt` calls `_send_rich_turn_updates` on
+Not unaffected otherwise, though: `_base.ConformingAgent._reply_to_prompt` calls
+`_send_rich_turn_updates` on
 *every* turn a driven prompt observes, so this malformed `plan_update` is emitted on every
 `run_prompt` call any other test in the suite makes against this fixture too -- and
 `ACP-PROMPT-205` (CAPABILITY, affects the verdict) schema-validates every `session/update` it

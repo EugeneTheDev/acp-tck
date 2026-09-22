@@ -10,8 +10,8 @@ is enough to FAIL it on its own. Also cascades into `ACP-SCHEMA-001`: `ContentCh
 update is ever sent here, so `ACP-PATCH-204/205/208` and `ACP-ENUM-201` all SKIP "no <variant>
 observed".
 
-Also cascades into `ACP-PROMPT-205` (review-v2-slices-1b-6 finding 16):
-`_base.ConformingAgent._reply_to_prompt` calls `_send_rich_turn_updates` on *every* turn a driven
+Also cascades into `ACP-PROMPT-205`: `_base.ConformingAgent._reply_to_prompt` calls
+`_send_rich_turn_updates` on *every* turn a driven
 prompt observes, so this malformed `agent_message_chunk` is emitted on every `run_prompt` call
 any other test in the suite makes against this fixture too -- and `ACP-PROMPT-205` (CAPABILITY,
 affects the verdict) schema-validates every `session/update` it sees, so it also FAILs whenever

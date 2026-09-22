@@ -2,7 +2,7 @@
 """Non-conforming (ADVISORY-only) fixture: replies to unknown methods with an empty success
 result instead of `-32601 "Method not found"`. Should only trip the ADVISORY
 `ACP-JSONRPC-004`, not any MANDATORY/CAPABILITY requirement. Mirrors v1's
-`unknown_method_no_error.py` on top of v2's `_base.py` (D6).
+`unknown_method_no_error.py` on top of v2's `_base.py`.
 """
 
 import sys

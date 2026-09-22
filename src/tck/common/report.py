@@ -170,8 +170,7 @@ class Verdict:
     show up as an ordinary SKIPPED rather than FAIL/NOT_TESTED, so `conformant` is forced
     `False` whenever this is set, regardless of the tier counts.
 
-    NOT v2-only (review-v2-slices-1b-6 finding 11 -- corrects an earlier, false claim here that
-    this was "always `False` for a v1 run"): the capability gate that emits this marker
+    NOT v2-only: the capability gate that emits this marker
     (`tck.common.plugin`'s `_tck_capability_gate`) is version-agnostic -- it fires whenever the
     negotiated `protocolVersion` does not equal `spec.protocol_version` for *this run*, in either
     direction. A strict `ACP-INIT-202`-conforming v2 agent that answers `2` to a v1-shaped

@@ -77,9 +77,9 @@ async def test_resume_a_resumable_session_succeeds(agent_launch, tmp_path):
 async def _add_history(agent, session_id, *, timeout):
     """Run one ordinary prompt turn on an *already-obtained* session (see
     `obtain_resumable_session`), so there is something to (optionally) replay on the resume call
-    that follows. `ACP-RESUME-202..205` (finding 1 -- the BLOCKER, `.agents/research/
-    review-v2-slices-1b-6.md`) must not obtain their session via a hand-rolled `connected_agent` +
-    `session/new` that bypasses `obtain_resumable_session`'s three-route strategy: doing so
+    that follows. `ACP-RESUME-202..205` must not obtain their session via a hand-rolled
+    `connected_agent` + `session/new` that bypasses `obtain_resumable_session`'s three-route
+    strategy: doing so
     hard-asserts that a direct `session/resume` of a just-created session succeeds, which is
     exactly the route the session-management report says is not guaranteed. Instead, obtain the
     session the same way `ACP-RESUME-201` does (SKIPping where it SKIPs, hard-FAILing only on
@@ -379,11 +379,10 @@ async def test_deleted_session_no_longer_listed(agent_launch, tmp_path):
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         before_entry = await list_sessions(agent, timeout=agent_launch.default_timeout)
         before_msg = before_entry.parsed
-        # review-v2-slices-1b-6 finding 31: guard `isinstance(before_msg, dict)` *before*
-        # calling `.get("result")` on it -- a malformed (non-dict) response used to raise
-        # `AttributeError` (an opaque FAIL) instead of being handled by the SKIP below, since a
-        # comprehension's own `if` clause filters items, it does not guard the iterable
-        # expression evaluated to produce them.
+        # Guard `isinstance(before_msg, dict)` *before* calling `.get("result")` on it -- a
+        # malformed (non-dict) response would otherwise raise `AttributeError` (an opaque FAIL)
+        # instead of being handled by the SKIP below, since a comprehension's own `if` clause
+        # filters items, it does not guard the iterable expression evaluated to produce them.
         before_sessions = (
             (before_msg.get("result") or {}).get("sessions") or []
             if isinstance(before_msg, dict)
@@ -478,10 +477,9 @@ async def test_new_session_with_stdio_mcp_server_recorded(agent_launch, tmp_path
     """ACP-MCP-201 (INFORMATIONAL). Never asserts on the outcome -- see the requirements module
     docstring's judgment-call note.
 
-    Includes the `type: "stdio"` discriminator `$defs/McpServer`'s `anyOf` requires
-    (review-v2-slices-1b-6 finding 8): without it, a conforming agent answers `-32602` for a
-    request the TCK itself malformed, recording a misleading `accepted=False` that looks like a
-    finding about the agent under test."""
+    Includes the `type: "stdio"` discriminator `$defs/McpServer`'s `anyOf` requires: without it,
+    a conforming agent answers `-32602` for a request the TCK itself malformed, recording a
+    misleading `accepted=False` that looks like a finding about the agent under test."""
     async with connected_agent(agent_launch) as agent:
         req_id = await agent.send_request(
             "session/new",
@@ -508,9 +506,8 @@ async def test_new_session_with_stdio_mcp_server_recorded(agent_launch, tmp_path
 async def test_new_session_with_http_mcp_server_recorded(agent_launch, tmp_path, record_property):
     """ACP-MCP-202 (INFORMATIONAL). Never asserts on the outcome.
 
-    Includes the `type: "http"` discriminator `$defs/McpServer`'s `anyOf` requires
-    (review-v2-slices-1b-6 finding 8) -- see `test_new_session_with_stdio_mcp_server_recorded`'s
-    docstring for why this matters."""
+    Includes the `type: "http"` discriminator `$defs/McpServer`'s `anyOf` requires -- see
+    `test_new_session_with_stdio_mcp_server_recorded`'s docstring for why this matters."""
     async with connected_agent(agent_launch) as agent:
         req_id = await agent.send_request(
             "session/new",

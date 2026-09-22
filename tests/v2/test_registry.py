@@ -148,10 +148,9 @@ def test_registry_has_exactly_the_expected_requirements():
 
 
 def test_advisory_tier_is_exactly_these_ids():
-    """Pins the ADVISORY set (review-v2-slices-1b-6 finding 17: the registry meta-tests checked
-    shape invariants but never the actual tier membership, so a re-tiering mistake -- e.g. this
-    slice's own ADVISORY -> INFORMATIONAL moves for `ACP-BATCH-206/207/208`/`ACP-CANCEL-204` --
-    could silently regress without any test catching it)."""
+    """Pins the ADVISORY set: without this, the registry meta-tests would only check shape
+    invariants and never actual tier membership, so a re-tiering mistake could silently regress
+    without any test catching it."""
     assert {req.id for req in REGISTRY.values() if req.tier is Tier.ADVISORY} == {
         "ACP-AUTH-201",
         "ACP-AUTH-205",
@@ -179,7 +178,7 @@ def test_advisory_tier_is_exactly_these_ids():
 def test_informational_tier_is_exactly_these_ids():
     """Pins the INFORMATIONAL set -- see `test_advisory_tier_is_exactly_these_ids` above.
     `ACP-BATCH-206/207/208` and `ACP-CANCEL-204` are here (not ADVISORY): each is always SKIPped,
-    never PASS/FAIL, so per review-v2-slices-1b-6 they belong in the record-only tier."""
+    never PASS/FAIL, so they belong in the record-only tier."""
     assert {req.id for req in REGISTRY.values() if req.tier is Tier.INFORMATIONAL} == {
         "ACP-BATCH-206",
         "ACP-BATCH-207",

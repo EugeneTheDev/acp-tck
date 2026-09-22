@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Non-conforming fixture: mangles every response id -- adds 1 to integer ids and appends a
 suffix to string ids -- instead of echoing the request id verbatim. Violates ACP-JSONRPC-001.
-Mirrors v1's `wrong_id_echo.py` on top of v2's `_base.py` (D6).
+Mirrors v1's `wrong_id_echo.py` on top of v2's `_base.py`.
 """
 
 import sys

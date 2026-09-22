@@ -60,8 +60,7 @@ STOP_REASONS = frozenset(
 # Open-enum value sets for the `ACP-ENUM-201`/`ACP-ENUM-202` families (schema/v2/schema.json's
 # `ToolKind`, `ToolCallStatus`, `PlanEntryPriority`, `PlanEntryStatus`,
 # `SessionUpdate.sessionUpdate`, `StateUpdate.state`, `ToolCallContent.type`). Hand-copied
-# constants, same as `STOP_REASONS` above; promoted here from `test_enums.py`'s own former
-# module-local copies (review-v2-slices-1b-6 finding 20). `tests/v2/test_validation.py`'s
+# constants, same as `STOP_REASONS` above. `tests/v2/test_validation.py`'s
 # `test_enum_sets_match_the_schema` independently re-derives each of these from `schema.json`'s
 # own `anyOf`/`const` branches and asserts equality, so a schema refresh that adds, removes, or
 # renames a branch is caught as a test failure rather than silently drifting out of sync.
