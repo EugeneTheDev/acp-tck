@@ -33,6 +33,7 @@ from .report import (
     Report,
     Status,
     TestOutcome,
+    Verdict,
     build_requirement_results,
     compute_verdict,
     current_tck_version,
@@ -613,6 +614,56 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) ->
 
 _TIER_ORDER = [Tier.MANDATORY, Tier.CAPABILITY, Tier.ADVISORY, Tier.INFORMATIONAL]
 
+_STATUS_MARKUP: dict[Status, str] = {
+    Status.PASS: "green",
+    Status.FAIL: "red",
+    Status.SKIPPED: "yellow",
+    Status.NOT_TESTED: "light",
+}
+"""`TerminalWriter._esctable` keyword for each status's colour -- `light` is pytest's own name
+for ANSI code 2 (faint/dim), used here as NOT_TESTED's own colour so "never ran" reads visually
+distinct from a SKIPPED yellow."""
+
+
+def _status_markup(status: Status, *, count: int | None = None) -> dict[str, bool]:
+    """Markup kwargs for one status token. For the tier-count summary lines, pass the token's
+    `count`: a zero count always renders dim, regardless of status, so a clean run's `FAIL=0`
+    doesn't draw the eye with an alarming red. Non-zero counts (and per-requirement rows, which
+    don't pass `count`) get the status's own colour."""
+    if count == 0:
+        return {"light": True}
+    return {_STATUS_MARKUP[status]: True}
+
+
+def _verdict_reason(verdict: Verdict) -> str:
+    """The `VERDICT: NOT CONFORMANT (...)` reason: every actual cause, comma-joined, omitting
+    zero-valued terms -- so a capability-only failure reads as "1 capability failure" rather
+    than the misleading "0 mandatory failures" the line used to always lead with.
+
+    Given `compute_verdict`'s rules (`report.py`), `not conformant` is the negation of an AND of
+    exactly the five conditions checked below, so at least one is always true here -- the
+    `"no cause recorded"` fallback is unreachable through `compute_verdict`, kept only so this
+    never renders empty parentheses if that invariant ever changes.
+    """
+    mandatory = verdict.tier_counts[Tier.MANDATORY.value]
+    capability = verdict.tier_counts[Tier.CAPABILITY.value]
+    n_fail = mandatory[Status.FAIL.value]
+    n_not_tested = mandatory[Status.NOT_TESTED.value]
+    n_cap_fail = capability[Status.FAIL.value]
+
+    parts: list[str] = []
+    if n_fail:
+        parts.append(f"{n_fail} mandatory failure{'s' if n_fail != 1 else ''}")
+    if n_not_tested:
+        parts.append(f"{n_not_tested} mandatory not tested")
+    if n_cap_fail:
+        parts.append(f"{n_cap_fail} capability failure{'s' if n_cap_fail != 1 else ''}")
+    if verdict.blocked_by_auth:
+        parts.append("blocked by authentication")
+    if verdict.blocked_by_version_mismatch:
+        parts.append("blocked by version mismatch")
+    return ", ".join(parts) if parts else "no cause recorded"
+
 STARTED_AT_KEY = pytest.StashKey[str]()
 REPORT_KEY = pytest.StashKey[Report]()
 
@@ -759,28 +810,33 @@ def pytest_terminal_summary(
             label = "NOT TESTED" if status is Status.NOT_TESTED else status.value
             note = _informational_note(result)
             suffix = f"  ({note})" if note else ""
-            terminalreporter.write_line(f"  {req_id:<28} {label}{suffix}")
+            terminalreporter.write(f"  {req_id:<28} ")
+            terminalreporter.write(label, **_status_markup(status))
+            terminalreporter.write_line(suffix)
 
     verdict = report.verdict
     mandatory = verdict.tier_counts[Tier.MANDATORY.value]
+    n_fail = mandatory[Status.FAIL.value]
+    n_not_tested = mandatory[Status.NOT_TESTED.value]
     terminalreporter.write_line("")
     for tier in _TIER_ORDER:
         counts = verdict.tier_counts[tier.value]
-        summary = ", ".join(f"{status.value}={counts[status.value]}" for status in Status)
-        terminalreporter.write_line(f"  {tier.value:<14} {summary}")
+        terminalreporter.write(f"  {tier.value:<14} ")
+        statuses = list(Status)
+        for i, status in enumerate(statuses):
+            n = counts[status.value]
+            token = f"{status.value}={n}"
+            if i < len(statuses) - 1:
+                terminalreporter.write(token, **_status_markup(status, count=n))
+                terminalreporter.write(", ")
+            else:
+                terminalreporter.write_line(token, **_status_markup(status, count=n))
 
     if verdict.conformant:
         terminalreporter.write_line("VERDICT: CONFORMANT", bold=True, green=True)
     else:
-        n_fail = mandatory[Status.FAIL.value]
-        n_not_tested = mandatory[Status.NOT_TESTED.value]
-        reason = f"{n_fail} mandatory failures, {n_not_tested} not tested"
-        if verdict.blocked_by_auth:
-            reason += ", blocked by authentication"
-        if verdict.blocked_by_version_mismatch:
-            reason += ", blocked by version mismatch"
         terminalreporter.write_line(
-            f"VERDICT: NOT CONFORMANT ({reason})",
+            f"VERDICT: NOT CONFORMANT ({_verdict_reason(verdict)})",
             bold=True,
             red=True,
         )
