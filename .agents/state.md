@@ -1,7 +1,7 @@
 # State
 
-**Last updated:** 2026-09-22 (v2 effort — V2-0…V2-4 merged+pushed; perf slice V2-4b in flight)
-**Last commit pushed:** `8679393` on `v2-support` (V2-4; 220 tests, 76 v2 ids, suite ≈540 s) — plus workbench commits on top
+**Last updated:** 2026-09-22 (v2 effort — V2-0…V2-4b merged+pushed; V2-5 authentication in flight)
+**Last commit pushed:** `7183441` on `v2-support` (V2-4b perf; 220 tests, 76 v2 ids, suite ≈293 s) — plus workbench commits on top
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
@@ -38,12 +38,19 @@ against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude
 `testy-cross-check.md`, `upstream-issues.md` (internal drafts only, do not file).
 
 ## In flight
-- **V2-4b `suite-perf`** (worktree `../acp-tck-2-suite-perf`, off `8679393`+): cut `uv run pytest` wall time
-  from ≈540 s to ≤300 s without weakening assertions — `--durations` profiling, `-k` scoping in
-  `tests/v2/test_cli.py` (keep full-suite runs only for conforming/conforming_full/emits_batch_updates/
-  version-mismatch), `pytest-xdist` (pinned via `uv add --dev`) if still needed, shorter fixture sleeps where
-  safe; run twice to prove no flakiness. On report: verify (suite twice), merge, push, cleanup. Then **V2-5**
-  (authentication; plan.md "v2 authentication — decisions", incl. opt-in `--allow-logout`), V2-6, V2-7, review.
+- **V2-5 `v2-auth`** (worktree `../acp-tck-2-v2-auth`, off `7183441`+): AUTH rows per plan.md "v2 authentication
+  — decisions" (201 ADVISORY methodId unique; terminal-unadvertised MANDATORY — reuse AUTH-002 per D3 if same;
+  203 logout CAPABILITY `inferred:authMethods` behind new opt-in `--allow-logout`/`--tck-allow-logout`;
+  204 `auth/login` CAPABILITY needing `--auth-method`; 205 ADVISORY no `-32000` when `authMethods` empty;
+  206 custom `type` `_`-prefix MANDATORY; 207 terminal descriptor + unique `env` names on a second connection
+  advertising `capabilities.auth.terminal`); `AUTH-GATED:`/`blocked_by_auth` unchanged; fixtures incl. v2
+  `gated_by_auth.py`; `conforming_full.py` gains an `authMethods` entry (id `tck`). On report: verify
+  (suite; `conforming_full.py --auth-method tck --allow-logout --cancel-prompt __hang__`; `gated_by_auth.py`
+  without `--auth-method` → blocked_by_auth), merge, push, cleanup. Then **V2-6**, **V2-7**, review pass.
+
+**Done (2026-09-22): slice V2-4b** (`7183441`) — `-k` scoping in `tests/v2/test_cli.py`; suite 540 s → 293 s
+(3 consecutive runs), no `src/tck/**` change, no xdist needed. Per-test subprocess spawn (~90 ms × ~73 tests)
+is the inherent cost floor of an unscoped run.
 
 **Done (2026-09-22): slice V2-4** (`8679393`) — RESUME-201..205, LIST-201..204, CLOSE-201/202, DELETE-201..203,
 ADDDIRS-201/202, MCP-201/202 (INFORMATIONAL: use unobservable), CONFIG-201..206 (`inferred:configOptions`),
