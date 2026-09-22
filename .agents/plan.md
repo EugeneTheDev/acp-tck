@@ -243,6 +243,39 @@ Turn-end predicate (driver): an idle `state_update` ends the turn iff it carries
 - v2 validator: top level includes array branches — the v2 validator must dispatch on list-vs-dict before
   any `$def` lookup (already implied by D6; the v1 validator's dict-only assumption is not reused).
 
+### Review decisions from `research/review-v2-slices-1b-6.md` (orchestrator, 2026-09-22) → slice V2-8
+- **BLOCKER (finding 1):** `ACP-RESUME-202..205` must obtain their session via the same three-route
+  `obtain_resumable_session` helper as `ACP-RESUME-201` and SKIP where it SKIPs; never hard-FAIL an agent the
+  TCK admits it may not get a resumable session from.
+- **D3 refinement (replaces the "tier change ⟹ new id" wording):** v1 ids are kept for rows whose *method
+  surface and meaning* are unchanged (connection-level rows; `session/new` → SESSION-001/002 even though the
+  tier became CAPABILITY; PROMPTCAP-001..003 even though the gate encoding changed). Areas whose method
+  surface changed in v2 are renumbered wholesale into 2xx (PROMPT/STATE, AUTH, CONFIG, RESUME, LIST, CLOSE,
+  DELETE, ADDDIRS). `ACP-AUTH-202` and `ACP-PROMPT-205` stay; rewrite their rationale text accordingly.
+- `ACP-MCP-201/202` stay INFORMATIONAL (MCP connection unobservable; M6 is SHOULD). Fix finding 8: the
+  probes must include the schema-required `type` discriminator on `mcpServers` entries.
+- `ACP-BATCH-206/207/208`, `ACP-CANCEL-204`: ADVISORY → **INFORMATIONAL** (record-only; make the inert ones
+  record a property). Keep for inventory traceability.
+- `ACP-BATCH-201` stays MANDATORY; its text must say the RFC-2119 force is on the sender side and why the
+  receiver rule is still treated as MUST (JSON-RPC §6 adopted) — vs `ACP-BATCH-203` ADVISORY.
+- `conforming_full.py`: advertise a `terminal` auth method when the client advertised
+  `capabilities.auth.terminal` (AUTH-207 PASS); emit `terminal_update` + `terminal_output_chunk` behind the
+  rich-turn flag (PATCH-206/207 PASS). Target 101/106 PASS.
+- Over-assertion fixes: `ACP-CONFIG-202` must not require an echoed `currentValue` beyond what the report
+  grants; `ACP-BATCH-203/204` must not depend on a SHOULD-only unknown-method reply; the `ACP-BATCH-204` probe
+  must not batch `session/new` (lifecycle-sensitive — the very SHOULD NOT of BATCH-208).
+- Batch-array blindness: `ACP-JSONRPC-003`, `ACP-CANCEL-202`, `ACP-SCHEMA-002`, `resume_session` must unwrap
+  array lines like `run_prompt` does (one shared helper in `_helpers`).
+- Docs drift: fixture docstrings + `AGENTS.md` entries must state the *unscoped* cascade where `-k` hides
+  it (eleven self-tests, six undocumented); id count 106; `blocked_by_version_mismatch` is NOT always false
+  for v1 — the common capability gate now emits `VERSION-MISMATCH:` for a v2-only agent under
+  `--protocol-version 1` too (this is the intended symmetric behaviour; document it, add a v1 self-test
+  with a v2-only fixture).
+- `check-*` SKILL.md: no change (pull failure did not reproduce).
+- All remaining SHOULD-FIX rows of the review are in scope for V2-8; NITs: apply cheap ones, list the rest.
+- V2-8 also re-runs `scripts/cross-check.sh` (after V2-7 merges) and refreshes the v2 baseline table and CI
+  expectations, since re-tiering/RESUME changes alter the scorecard.
+
 ### Deferred nits (do not lose)
 - Review-pass item (V2-6): `ACP-PATCH-206/207` (terminal_update / terminal_output_chunk) never PASS against
   any fixture — add a v2 fixture (or extend `conforming_full.py`) that emits terminal updates per the
