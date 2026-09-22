@@ -1,7 +1,7 @@
 # State
 
-**Last updated:** 2026-09-22 (v2 effort — V2-0…V2-3 merged+pushed; V2-4 session management in flight)
-**Last commit pushed:** `150e8a5` on `v2-support` (V2-3; 213 tests, 52 v2 ids) — plus workbench commits on top
+**Last updated:** 2026-09-22 (v2 effort — V2-0…V2-4 merged+pushed; perf slice V2-4b in flight)
+**Last commit pushed:** `8679393` on `v2-support` (V2-4; 220 tests, 76 v2 ids, suite ≈540 s) — plus workbench commits on top
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
@@ -38,12 +38,17 @@ against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude
 `testy-cross-check.md`, `upstream-issues.md` (internal drafts only, do not file).
 
 ## In flight
-- **V2-4 `v2-session-mgmt`** (worktree `../acp-tck-2-v2-session-mgmt`, off `150e8a5`+): RESUME-20x
-  (`replayFrom` MUSTs; try-three-routes-then-SKIP), LIST-20x, CLOSE-201/202, DELETE-20x
-  (`capabilities.session.delete`), ADDDIRS-20x, MCP-20x, CONFIG-20x (`inferred:configOptions`, `configId`);
-  fixtures; `conforming_full.py` extended. On report: verify (suite, `conforming_full.py --cancel-prompt
-  __hang__`, a resume/list defect fixture), merge, push, cleanup. Then **V2-5** (authentication).
-- Wall time: suite ≈422 s. Perf slice deferred (plan.md "Deferred nits").
+- **V2-4b `suite-perf`** (worktree `../acp-tck-2-suite-perf`, off `8679393`+): cut `uv run pytest` wall time
+  from ≈540 s to ≤300 s without weakening assertions — `--durations` profiling, `-k` scoping in
+  `tests/v2/test_cli.py` (keep full-suite runs only for conforming/conforming_full/emits_batch_updates/
+  version-mismatch), `pytest-xdist` (pinned via `uv add --dev`) if still needed, shorter fixture sleeps where
+  safe; run twice to prove no flakiness. On report: verify (suite twice), merge, push, cleanup. Then **V2-5**
+  (authentication; plan.md "v2 authentication — decisions", incl. opt-in `--allow-logout`), V2-6, V2-7, review.
+
+**Done (2026-09-22): slice V2-4** (`8679393`) — RESUME-201..205, LIST-201..204, CLOSE-201/202, DELETE-201..203,
+ADDDIRS-201/202, MCP-201/202 (INFORMATIONAL: use unobservable), CONFIG-201..206 (`inferred:configOptions`),
+SESSION-203; `_session_with_history` try-three-routes helper; 7 fixtures; `conforming_full.py` extended.
+220 passed (540 s). Review-pass item: confirm MCP rows' INFORMATIONAL tier vs plan's CAPABILITY intent.
 
 **Done (2026-09-22): slice V2-3** (`150e8a5`) — CANCEL-201..208, TRANSPORT-201/203 + re-cited TRANSPORT-002,
 JSONRPC-001..005 re-cited, BATCH-201..208, INFO-BATCH/CANCEL-20x; 13 fixtures incl. `emits_batch_updates.py`
