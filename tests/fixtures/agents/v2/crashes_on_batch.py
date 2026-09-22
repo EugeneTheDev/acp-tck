@@ -7,10 +7,8 @@ the shared `ACP-BATCH-204`/`205` test, and `ACP-INFO-BATCH-201`/`202` (INFORMATI
 prerequisite handshake inside `_v2_only_agent` still succeeds, only the batch probe itself dies,
 so these become `AgentExited` FAILs rather than a recorded behaviour). `ACP-BATCH-206`/`207`/`208`
 are unaffected -- they are unconditional record-only SKIPs that never send anything at all.
-Every other id in this slice (`ACP-TRANSPORT-*`, `ACP-JSONRPC-*`, and everything cancellation-
-related) is unaffected: none of those tests ever sends a batch-shaped line, so this fixture's
-only defect is never triggered outside `test_batch.py` -- the acceptance-criteria example of a
-fixture that must fail *only* batch rows.
+Every non-batch id (`ACP-TRANSPORT-*`, `ACP-JSONRPC-*`, cancellation) is unaffected too, since
+none of those tests ever sends a batch-shaped line -- a fixture that fails *only* batch rows.
 """
 
 import sys

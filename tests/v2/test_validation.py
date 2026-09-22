@@ -94,9 +94,9 @@ def test_unknown_key_on_a_plain_object_def_is_still_flagged():
     ]
 
 
-# --- review-v2-slices-0-1a.md finding 5: the open-fallback carve-out must not swallow a
-# missing/null/non-`_`-prefixed discriminator -- each of these must fall through to the normal
-# allowed-root-properties comparison instead of being waved through as "legitimately open" ---
+# --- the open-fallback carve-out must not swallow a missing/null/non-`_`-prefixed discriminator
+# -- each of these must fall through to the normal allowed-root-properties comparison instead of
+# being waved through as "legitimately open" ---
 
 
 def test_missing_discriminator_falls_through_to_normal_check():
@@ -108,16 +108,16 @@ def test_null_discriminator_falls_through_to_normal_check():
 
 
 def test_non_underscore_unknown_discriminator_falls_through_and_is_flagged():
-    """`.agents/plan.md` "v2 patches / open enums": a non-`_`-prefixed unknown discriminator
-    value is illegal, not a legitimate use of the open fallback -- it must not dodge the
-    unknown-root-key check the way a `_`-prefixed value legitimately does."""
+    """A non-`_`-prefixed unknown discriminator value is illegal, not a legitimate use of the
+    open fallback -- it must not dodge the unknown-root-key check the way a `_`-prefixed value
+    legitimately does."""
     assert find_unknown_root_keys("AuthMethod", {"type": "something_else", "bogus": True}) == [
         "bogus"
     ]
 
 
-# --- review-v2-slices-0-1a.md finding 4: neither helper may raise on an unhashable agent-
-# supplied value (a list or dict where a string was expected) ---
+# --- neither helper may raise on an unhashable agent-supplied value (a list or dict where a
+# string was expected) ---
 
 
 def test_find_unknown_root_keys_never_raises_on_a_list_discriminator_value():

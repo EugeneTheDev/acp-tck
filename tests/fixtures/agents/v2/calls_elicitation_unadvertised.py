@@ -5,9 +5,9 @@ advertised `capabilities.elicitation.*` -- the mock client in `run_prompt` alway
 
 FAILs exactly `ACP-CLIENTCAP-201` (MUST NOT call `elicitation/create` when unadvertised).
 `ACP-CLIENTCAP-202` is unaffected: `elicitation/create` is itself a defined v2 client method, so
-it does not trip the "undefined method" check. Every other V2-2b/V2-2a id is unaffected -- the
-turn otherwise finishes normally (this fixture fires-and-forgets, via
-`SendsClientRequestAgent`, so it never waits for the mock client's `-32601` reply).
+it does not trip the "undefined method" check. The turn otherwise finishes normally (this
+fixture fires-and-forgets, via `SendsClientRequestAgent`, so it never waits for the mock client's
+`-32601` reply).
 """
 
 import sys

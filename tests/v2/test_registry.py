@@ -2,16 +2,8 @@
 every `@pytest.mark.requirement(...)` used under `src/tck/v2/conformance/` (import the modules
 and inspect `pytestmark` directly -- no grep). Mirrors `tests/v1/test_registry.py`.
 
-Slice V2-1b expanded the registry from the two-requirement `initialize`-handshake skeleton to the
-full `initialize`/`session/new` baseline covered so far. Slice V2-2a added the mock-client prompt
-driver's core prompt-turn requirements. Slice V2-2b added prompt content capabilities, the
-permission-request shape, the agent->client method rules, reused `ACP-PROMPT-003`, and two
-INFORMATIONAL prompt-lifecycle probes. Slice V2-3 added cancellation, stdio transport, the
-JSON-RPC envelope, and batching (see `tck.v2.requirements`'s module docstring for the
-id-namespacing decisions). Slice V2-4 added session management: `session/resume` (including
-replay), `session/list`, `session/close`'s own contract (`ACP-CLOSE-202` reuses the same test as
-`ACP-CANCEL-208`), `session/delete`, `additionalDirectories`, MCP server config, and
-`configOptions`.
+See `tck.v2.requirements`'s module docstring for the id-namespacing decisions (e.g. why
+`ACP-CLOSE-202` reuses `ACP-CANCEL-208`'s test instead of adding a second probe).
 """
 
 from __future__ import annotations
@@ -39,35 +31,12 @@ def test_ids_are_unique_and_well_formed():
         assert _ID_PATTERN.match(req_id), f"{req_id!r} does not match ACP-<AREA>-<NNN>"
 
 
-def test_registry_has_exactly_the_v2_6_requirements():
-    """This slice's registry covers the `initialize` handshake, the `session/new` baseline,
-    (V2-2a) the mock-client prompt driver's core prompt-turn requirements, (V2-2b) prompt
-    content capabilities, the permission-request shape, the agent->client method rules, reused
-    `ACP-PROMPT-003`, and the two INFORMATIONAL prompt-lifecycle probes, (V2-3) cancellation
-    (`ACP-CANCEL-201..208`, `ACP-INFO-CANCEL-201/202`), stdio transport (`ACP-TRANSPORT-002`,
-    reused from v1; `ACP-TRANSPORT-201`/`203`, new/widened), the JSON-RPC envelope
-    (`ACP-JSONRPC-001..005`, all reused from v1 -- only the evidence-gathering probe widens to
-    cover batches), and batching (`ACP-BATCH-201..208`, `ACP-INFO-BATCH-201/202`), (V2-4)
-    session management: `session/resume` (`ACP-SESSION-203`, `ACP-RESUME-201..205`),
-    `session/list` (`ACP-LIST-201..204`), `session/close` (`ACP-CLOSE-201`; `ACP-CLOSE-202`
-    reuses `test_cancel.py`'s `ACP-CANCEL-208` test rather than adding a second probe),
-    `session/delete` (`ACP-DELETE-201..203`), `additionalDirectories` (`ACP-ADDDIRS-201/202`),
-    MCP server config (`ACP-MCP-201/202`, INFORMATIONAL), and `configOptions`
-    (`ACP-CONFIG-201..204,206`), and (V2-5) authentication: `authMethods` uniqueness
-    (`ACP-AUTH-201`, ADVISORY, re-cites v1's `ACP-AUTH-001`), the terminal-method client-
-    capability gate (`ACP-AUTH-202`, MANDATORY, new id -- wire encoding changed from v1), the
-    `auth/login`/`session/new` flow (`ACP-AUTH-204`, CAPABILITY, mirrors v1's `ACP-AUTH-003`),
-    `auth/logout` (`ACP-AUTH-203`, CAPABILITY, replaces v1's `ACP-AUTH-004` outright -- v2 has no
-    logout capability marker), the no-`authMethods` case (`ACP-AUTH-205`, ADVISORY, re-cites v1's
-    `ACP-AUTH-005`), the open-enum `type` rule (`ACP-AUTH-206`, MANDATORY, new in v2), and the
-    terminal descriptor shape (`ACP-AUTH-207`, MANDATORY, new in v2), and (V2-6) patch/upsert
-    semantics (`ACP-PATCH-201,203..209`; `ACP-PATCH-202` and the re-worded `ACP-PROMPT-001` are
+def test_registry_has_exactly_the_expected_requirements():
+    """Notable non-obvious ids: `ACP-PATCH-202` and the re-worded `ACP-PROMPT-001` are
     deliberately not registered -- duplicates of `ACP-PROMPT-201`/`ACP-PROMPT-203` and
-    `ACP-STATE-203` respectively), open-enum emitter rules (`ACP-ENUM-201..203`),
-    extensibility/hygiene re-cited from v1 (`ACP-EXT-001`, `ACP-META-001`, `ACP-ERROR-001`,
-    `ACP-SHUTDOWN-001`, `ACP-SCHEMA-002`, `ACP-STDERR-001`, `ACP-INFO-PARSE-001`,
-    `ACP-INFO-INVALIDREQ-001`), and new hygiene rows (`ACP-META-201`, `ACP-EXT-201..203`) -- see
-    `tck.v2.requirements`'s module docstring for the full id-namespacing rationale."""
+    `ACP-STATE-203` respectively. `ACP-AUTH-203` (CAPABILITY) replaces v1's `ACP-AUTH-004`
+    outright -- v2 has no logout capability marker. See `tck.v2.requirements`'s module docstring
+    for the full id-namespacing rationale."""
     assert set(REGISTRY) == {
         "ACP-INIT-001",
         "ACP-INIT-003",
@@ -249,12 +218,12 @@ def test_every_registry_id_is_referenced_by_at_least_one_test():
 
 
 def test_cli_selftest_tier_sets_match_the_registry():
-    """v2 twin of `tests/v1/test_registry.py::test_cli_selftest_tier_sets_match_the_registry`
-    (review-v2-slices-0-1a.md finding 8): `tests/v2/test_cli.py` hand-maintains
-    `_MANDATORY_IDS`/`_CAPABILITY_IDS`, which must mirror `REGISTRY`'s own `Tier` field exactly
-    -- otherwise a tier misclassification could go unnoticed. `tests/v2` is a package (unlike
-    `tests/v1`), so the sibling module is imported as `v2.test_cli`, not the bare `test_cli` v1
-    uses -- see `AGENTS.md`'s `tests/v2/__init__.py` layout note."""
+    """v2 twin of `tests/v1/test_registry.py::test_cli_selftest_tier_sets_match_the_registry`:
+    `tests/v2/test_cli.py` hand-maintains `_MANDATORY_IDS`/`_CAPABILITY_IDS`, which must mirror
+    `REGISTRY`'s own `Tier` field exactly -- otherwise a tier misclassification could go
+    unnoticed. `tests/v2` is a package (unlike `tests/v1`), so the sibling module is imported as
+    `v2.test_cli`, not the bare `test_cli` v1 uses -- see `AGENTS.md`'s `tests/v2/__init__.py`
+    layout note."""
     import v2.test_cli as test_cli
 
     by_tier: dict[Tier, set[str]] = {tier: set() for tier in Tier}

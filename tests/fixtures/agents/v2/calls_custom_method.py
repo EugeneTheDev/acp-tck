@@ -3,9 +3,9 @@
 the open-enum extensibility rule, since custom methods MUST begin with `_` (mirrors v1's
 `_tck/...`-prefixed probe convention).
 
-Must PASS every V2-2b id: `ACP-CLIENTCAP-202`'s check is `not in known methods and not
-_-prefixed`, so a `_`-prefixed method never trips it (paired with `calls_fs_unadvertised.py`'s
-negative control). `ACP-CLIENTCAP-201` is unaffected (not `elicitation/create`).
+`ACP-CLIENTCAP-202`'s check is `not in known methods and not _-prefixed`, so a `_`-prefixed
+method never trips it (paired with `calls_fs_unadvertised.py`'s negative control).
+`ACP-CLIENTCAP-201` is unaffected (not `elicitation/create`).
 """
 
 import sys

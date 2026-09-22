@@ -8,8 +8,8 @@ client/protocol method, or `_`-prefixed) and, as an expected cascade, `ACP-SCHEM
 `fs/read_text_file` isn't a known agent-authored method at all, so the schema validator flags it
 as "not a known agent-authored request/notification method" (same documented
 defect-cascades-into-schema pattern as `ACP-INIT-204`). `ACP-CLIENTCAP-201` is unaffected:
-`fs/read_text_file` is not `elicitation/create`. Every other V2-2b/V2-2a id is unaffected --
-fires-and-forgets via `SendsClientRequestAgent`, so the turn otherwise finishes normally.
+`fs/read_text_file` is not `elicitation/create`. Fires-and-forgets via `SendsClientRequestAgent`,
+so the turn otherwise finishes normally.
 """
 
 import sys
