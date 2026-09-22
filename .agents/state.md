@@ -1,8 +1,20 @@
 # State
 
-**Last updated:** 2026-09-22 (PAUSED by the user mid-slice V2-8; all agents stopped, all work flushed)
-**Last commit pushed:** `9151515` on `v2-support` (V2-7 cross-check; 246 tests, 106 v2 ids, suite ≈360 s) — plus
-workbench commits on top (tip `f030d71` + this state update). V2-8 branch `v2-review-fixes` pushed at WIP tip `a517657`.
+**Last updated:** 2026-09-22 (comment-trimming pass in flight; V2-8 still paused)
+**Last commit pushed:** `acc7d6f` on `v2-support`. V2-8 branch `v2-review-fixes` pushed at WIP tip `a517657`.
+
+## In flight — comment-trimming pass (user request, 2026-09-22; MUST land before V2-8 resumes)
+User asked: shorten comments/docstrings everywhere (concise; keep behaviour/gotchas/maintenance notes and research
+citations; drop slice numbers, review-report bookkeeping, history narration). Comments-only, names only if
+necessary; no behaviour change. Three programmers in parallel, disjoint file sets, all branched off `acc7d6f`:
+- `trim-comments-a` / `../acp-tck-2-trim-a`: `src/tck/common`, `src/tck/v1`, `tests/common`, `tests/v1`,
+  `tests/fixtures/agents/v1`, `scripts`.
+- `trim-comments-b` / `../acp-tck-2-trim-b`: `src/tck/v2`.
+- `trim-comments-c` / `../acp-tck-2-trim-c`: `tests/v2`, `tests/fixtures/agents/v2`.
+Merge plan: squash-merge each as it reports (order of arrival), suite green on `v2-support`, push, remove
+worktrees/branches. Then resume V2-8: the programmer should `git merge v2-support` into `v2-review-fixes` (one
+conflict pass, not a 14-commit rebase) and, as part of V2-8, trim any extended/slice-referencing comments its own
+work adds. A final trim of remaining "ongoing work" comments happens after V2-8 lands.
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
