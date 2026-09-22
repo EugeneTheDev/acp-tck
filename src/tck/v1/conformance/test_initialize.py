@@ -11,7 +11,7 @@ from tck.common.report import current_tck_version
 from tck.v1.protocol import PROTOCOL_VERSION
 from tck.v1.validation import validate_agent_message, validate_agent_response
 
-from ._helpers import connected_agent, new_session, run_prompt
+from ._helpers import connected_agent, new_session, run_prompt, skip_if_version_mismatch
 
 
 @pytest.mark.requirement("ACP-INIT-001")
@@ -36,7 +36,11 @@ async def test_initialize_succeeds_and_validates(agent_launch):
 
 @pytest.mark.requirement("ACP-INIT-002")
 async def test_requested_v1_is_echoed(agent_launch):
-    """ACP-INIT-002."""
+    """ACP-INIT-002. A single `initialize` requesting v1 cannot distinguish "the agent does not
+    support v1" from "the agent supports v1 but echoed a different version" -- the returned
+    `protocolVersion` is the only evidence either way, so a non-`1` answer is treated as a
+    version mismatch (`skip_if_version_mismatch` SKIPs, which forces
+    `Verdict.blocked_by_version_mismatch` and NOT CONFORMANT), not as an echo violation."""
     async with connected_agent(agent_launch, handshake=False) as agent:
         req_id = await agent.send_request(
             "initialize", {"protocolVersion": 1, "clientCapabilities": {}}
@@ -46,11 +50,7 @@ async def test_requested_v1_is_echoed(agent_launch):
         assert isinstance(msg, dict) and isinstance(msg.get("result"), dict), (
             f"initialize did not return a result object: {entry.text!r}"
         )
-        version = msg["result"].get("protocolVersion")
-        # Req 5: the agent echoes the requested version *only if it supports it*, otherwise it
-        # returns its own latest -- for a v1-only TCK requesting v1, "not 1" means the agent
-        # does not support protocol v1, not that it violated an echo rule.
-        assert version == 1, f"agent does not support protocol v1 (returned {version!r} instead)"
+        skip_if_version_mismatch(msg["result"])
 
 
 @pytest.mark.requirement("ACP-INIT-003")
@@ -134,7 +134,8 @@ async def test_unsupported_version_still_succeeds(agent_launch):
 
 @pytest.mark.requirement("ACP-INIT-004")
 async def test_agent_info_present(agent_launch):
-    """ACP-INIT-004 (ADVISORY)."""
+    """ACP-INIT-004 (ADVISORY). `skip_if_version_mismatch` SKIPs if the agent did not actually
+    negotiate v1 -- `agentInfo` is a v1 shape expectation, not a negotiation-outcome one."""
     async with connected_agent(agent_launch, handshake=False) as agent:
         req_id = await agent.send_request(
             "initialize", {"protocolVersion": PROTOCOL_VERSION, "clientCapabilities": {}}
@@ -144,6 +145,7 @@ async def test_agent_info_present(agent_launch):
         assert isinstance(msg, dict) and isinstance(msg.get("result"), dict), (
             f"initialize did not return a result object: {entry.text!r}"
         )
+        skip_if_version_mismatch(msg["result"])
         agent_info = msg["result"].get("agentInfo")
         assert isinstance(agent_info, dict), "agentInfo is not present in the initialize result"
         assert isinstance(agent_info.get("name"), str), f"agentInfo.name is not a string: {agent_info!r}"
@@ -151,7 +153,7 @@ async def test_agent_info_present(agent_launch):
 
 
 @pytest.mark.requirement("ACP-SCHEMA-001")
-async def test_full_exchange_validates_against_schema(agent_launch, tmp_path):
+async def test_full_exchange_validates_against_schema(agent_launch, agent_initialize_result, tmp_path):
     """ACP-SCHEMA-001. Every message the agent emits during initialize -> session/new ->
     session/prompt validates against the vendored v1 schema.
 
@@ -169,7 +171,14 @@ async def test_full_exchange_validates_against_schema(agent_launch, tmp_path):
     never authenticated. The `initialize` (and, if it ran, `authenticate`) traffic is still
     present in `agent.transcript` and still schema-validated below, exactly as if this test had
     sent it by hand.
+
+    `connected_agent` never hands its own `initialize` result back, so this reads the
+    session-scoped `agent_initialize_result` fixture instead -- it performs the identical
+    `initialize` call (same params, same agent command) and is used purely to decide whether to
+    `skip_if_version_mismatch` before driving the exchange at all.
     """
+    if agent_initialize_result.result is not None:
+        skip_if_version_mismatch(agent_initialize_result.result)
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
 

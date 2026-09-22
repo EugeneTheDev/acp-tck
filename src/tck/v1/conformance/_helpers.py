@@ -130,6 +130,30 @@ async def new_session(agent: AgentProcess, cwd: Path, *, timeout: float | None =
     return session_id
 
 
+def skip_if_version_mismatch(init_result: dict[str, Any]) -> None:
+    """Skip with the `VERSION-MISMATCH: ` marker (`tck.common.plugin`'s `_VERSION_MISMATCH_MARKER`
+    substring, scanned by `_build_report()` to set `Verdict.blocked_by_version_mismatch`) unless
+    `init_result`'s negotiated `protocolVersion` is this suite's own `PROTOCOL_VERSION` (1).
+
+    An agent that negotiates a different version (e.g. a v2-only agent answering something other
+    than `1` to a v1 client) is not thereby "broken": the negotiation itself is judged normally
+    by `ACP-INIT-001`/`003`, which only ever assert on the negotiation outcome, never on the
+    *shape* of the result payload. But a test that goes on to assert v1-shape requirements
+    against that same result -- the echoed version being exactly `1` (`ACP-INIT-002`), `agentInfo`
+    being present (`ACP-INIT-004`), the exchange validating against the v1 schema
+    (`ACP-SCHEMA-001`/`002`), or prompt-turn/`_meta` behaviour that presumes a v1-shaped response
+    (`ACP-META-001`, `ACP-PROMPT-001`) -- cannot honestly judge a result the agent never claimed
+    was v1-shaped; call this right after such a test has its own `init_result` in hand, before
+    evaluating any v1-shape assertion."""
+    negotiated = init_result.get("protocolVersion")
+    if negotiated != PROTOCOL_VERSION:
+        pytest.skip(
+            f"VERSION-MISMATCH: negotiated protocolVersion={negotiated!r}, expected "
+            f"{PROTOCOL_VERSION!r} -- this agent does not speak v1, so its result cannot be "
+            "judged against v1-only shape requirements"
+        )
+
+
 def quiet_period(timeout: float) -> float:
     """The heuristic "nothing more is coming" wait used by tests that conclude absence (e.g. "no
     response to a notification", "no update follows the response") -- derived from the same

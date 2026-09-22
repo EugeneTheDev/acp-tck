@@ -10,7 +10,7 @@ from tck.v1 import validation
 from tck.common.harness import AgentExited, AgentTimeout, Direction
 from tck.v1.protocol import STOP_REASONS
 
-from ._helpers import connected_agent, new_session, run_prompt
+from ._helpers import connected_agent, new_session, run_prompt, skip_if_version_mismatch
 
 
 @pytest.mark.requirement("ACP-EXT-001")
@@ -42,11 +42,17 @@ async def test_unknown_custom_method_receives_a_response(agent_launch):
 
 
 @pytest.mark.requirement("ACP-META-001")
-async def test_prompt_meta_field_is_accepted(agent_launch, tmp_path):
+async def test_prompt_meta_field_is_accepted(agent_launch, agent_initialize_result, tmp_path):
     """ACP-META-001 (ADVISORY; Reqs 41, 43). A `session/prompt` carrying `_meta` with a
     `traceparent` key (SHOULD-reserved by Req 43) is accepted and resolves normally -- proves
     the agent does not choke on `_meta` placed exactly where the spec says custom data
-    belongs."""
+    belongs.
+
+    `skip_if_version_mismatch` on the session-scoped `agent_initialize_result` (see
+    `test_full_exchange_validates_against_schema`'s docstring) SKIPs first, since a v1-shaped
+    `session/prompt` result cannot be judged against an agent that never negotiated v1."""
+    if agent_initialize_result.result is not None:
+        skip_if_version_mismatch(agent_initialize_result.result)
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         turn = await run_prompt(
@@ -71,7 +77,7 @@ async def test_prompt_meta_field_is_accepted(agent_launch, tmp_path):
 
 
 @pytest.mark.requirement("ACP-SCHEMA-002")
-async def test_full_exchange_has_no_unknown_root_keys(agent_launch, tmp_path):
+async def test_full_exchange_has_no_unknown_root_keys(agent_launch, agent_initialize_result, tmp_path):
     """ACP-SCHEMA-002 (ADVISORY; Req 41 -- implementations MUST NOT add custom root fields to a
     spec type, `_meta` is for custom data instead). The vendored schema has no
     `additionalProperties: false` anywhere, so mandatory schema validation (ACP-SCHEMA-001)
@@ -82,7 +88,10 @@ async def test_full_exchange_has_no_unknown_root_keys(agent_launch, tmp_path):
     `$ref`) and flag any key not in that union. Swept over the same
     initialize -> session/new -> session/prompt exchange ACP-SCHEMA-001 validates, using the
     same "derive `method_by_id` from the SENT transcript" trick as
-    `test_initialize.py::test_full_exchange_validates_against_schema`."""
+    `test_initialize.py::test_full_exchange_validates_against_schema`, including that same
+    test's `skip_if_version_mismatch` guard."""
+    if agent_initialize_result.result is not None:
+        skip_if_version_mismatch(agent_initialize_result.result)
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         await run_prompt(
