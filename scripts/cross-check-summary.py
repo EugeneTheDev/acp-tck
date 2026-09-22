@@ -1,16 +1,28 @@
 #!/usr/bin/env python3
-"""Render a compact requirement-by-requirement comparison table from two `acp-tck
+"""Render a compact requirement-by-requirement comparison table from two or more `acp-tck
 --report-json` reports (see `scripts/cross-check.sh`). Stdlib only -- no project dependency.
 
 Usage:
   cross-check-summary.py <left.json> <left-label> <right.json> <right-label>
+                          [--report <path> <label> ...]
                           [--expect-only-mandatory-fail ID [ID ...]]
+                          [--expect LABEL=ID,ID,...]
 
-`--expect-only-mandatory-fail` checks, for *each* report, that the set of MANDATORY-tier
-requirements with status FAIL is exactly the given id set (order-independent) -- e.g.
-`--expect-only-mandatory-fail ACP-INIT-003` asserts that the only MANDATORY FAIL in each
-report is ACP-INIT-003, and exits 1 (after printing the table) if either report has a
-different set of MANDATORY FAILs. Passing no ids after the flag asserts zero MANDATORY FAILs.
+The two positional (path, label) pairs are always required (this is the original, still
+fully backward-compatible interface -- e.g. the v1 testy/echo_agent leg). `--report PATH
+LABEL` may be repeated to add further reports to the same comparison table -- e.g. the v2
+testy/python_v2_agent legs -- so a single invocation can print all four side by side.
+
+`--expect-only-mandatory-fail` sets the *default* expected set of MANDATORY-tier FAIL ids
+(order-independent) for every report that doesn't have a more specific `--expect` override --
+e.g. `--expect-only-mandatory-fail ACP-INIT-003` asserts that the only MANDATORY FAIL in each
+report is ACP-INIT-003. Passing no ids after the flag asserts zero MANDATORY FAILs by default.
+
+`--expect LABEL=ID,ID,...` (repeatable) overrides that default for one specific report by
+label -- needed because the v1 and v2 legs have different expected upstream baselines (e.g.
+`echo_agent (1.0.0rc1)=ACP-INIT-003` vs `python_v2_agent=ACP-BATCH-201,ACP-BATCH-202,...`).
+`LABEL=` (an empty id list) asserts zero MANDATORY FAILs for that report. A report with
+neither a `--expect` override nor `--expect-only-mandatory-fail` given is not checked at all.
 """
 
 from __future__ import annotations
@@ -62,6 +74,17 @@ def check_only_mandatory_fail(report: dict, label: str, expected_ids: set[str]) 
     return True
 
 
+def _parse_expect(spec: str) -> tuple[str, set[str]]:
+    """Parse one `--expect LABEL=ID,ID,...` argument. `LABEL=` (empty right-hand side) means
+    "expect zero MANDATORY FAILs for this report"."""
+    if "=" not in spec:
+        raise argparse.ArgumentTypeError(f"--expect value must be LABEL=ID,ID,... (got {spec!r})")
+    label, _, ids = spec.partition("=")
+    if not label:
+        raise argparse.ArgumentTypeError(f"--expect value must start with a non-empty LABEL= (got {spec!r})")
+    return label, {i for i in ids.split(",") if i}
+
+
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog=argv[0] if argv else "cross-check-summary.py",
@@ -73,11 +96,29 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("right_path")
     parser.add_argument("right_label")
     parser.add_argument(
+        "--report",
+        nargs=2,
+        metavar=("PATH", "LABEL"),
+        action="append",
+        default=[],
+        help="add another report to the comparison table (repeatable)",
+    )
+    parser.add_argument(
         "--expect-only-mandatory-fail",
         nargs="*",
         default=None,
         metavar="ID",
-        help="assert the only MANDATORY-tier FAIL(s) in each report are exactly these ids",
+        help="default expected MANDATORY-tier FAIL id set for any report without a more "
+        "specific --expect override",
+    )
+    parser.add_argument(
+        "--expect",
+        metavar="LABEL=ID,ID,...",
+        action="append",
+        default=[],
+        type=_parse_expect,
+        help="expected MANDATORY-tier FAIL id set for one specific report, by label "
+        "(repeatable; overrides --expect-only-mandatory-fail for that label)",
     )
     return parser.parse_args(argv[1:])
 
@@ -88,30 +129,32 @@ def main(argv: list[str]) -> int:
     except SystemExit as exc:
         return int(exc.code or 2)
 
-    left = _load(args.left_path)
-    right = _load(args.right_path)
+    reports: list[tuple[str, dict]] = [
+        (args.left_label, _load(args.left_path)),
+        (args.right_label, _load(args.right_path)),
+    ]
+    for path, label in args.report:
+        reports.append((label, _load(path)))
 
-    left_reqs = _requirements_by_id(left)
-    right_reqs = _requirements_by_id(right)
-    all_ids = sorted(set(left_reqs) | set(right_reqs))
+    reqs_by_report = [(label, _requirements_by_id(report)) for label, report in reports]
+    all_ids = sorted(set().union(*(set(reqs) for _, reqs in reqs_by_report)))
 
     id_width = max((len(i) for i in all_ids), default=len("requirement id"))
     id_width = max(id_width, len("requirement id"))
-    col_width = max(len(args.left_label), len(args.right_label), len("status"))
+    col_width = max((len(label) for label, _ in reports), default=0)
+    col_width = max(col_width, len("status"))
 
-    header = (
-        f"{'requirement id'.ljust(id_width)}  "
-        f"{args.left_label.ljust(col_width)}  {args.right_label.ljust(col_width)}"
+    header = f"{'requirement id'.ljust(id_width)}  " + "  ".join(
+        label.ljust(col_width) for label, _ in reports
     )
     print(header)
     print("-" * len(header))
     for req_id in all_ids:
-        left_status = left_reqs.get(req_id, {}).get("status", "MISSING")
-        right_status = right_reqs.get(req_id, {}).get("status", "MISSING")
-        print(f"{req_id.ljust(id_width)}  {left_status.ljust(col_width)}  {right_status.ljust(col_width)}")
+        cells = [reqs.get(req_id, {}).get("status", "MISSING") for _, reqs in reqs_by_report]
+        print(f"{req_id.ljust(id_width)}  " + "  ".join(c.ljust(col_width) for c in cells))
 
     print()
-    for label, report in ((args.left_label, left), (args.right_label, right)):
+    for label, report in reports:
         if "_error" in report:
             print(f"{label}: could not read report ({report['_error']})")
             continue
@@ -125,12 +168,20 @@ def main(argv: list[str]) -> int:
             f"tier_counts={tier_counts}"
         )
 
-    if args.expect_only_mandatory_fail is not None:
-        expected = set(args.expect_only_mandatory_fail)
+    per_label_expect: dict[str, set[str]] = dict(args.expect)
+    if args.expect_only_mandatory_fail is not None or per_label_expect:
+        default_expected = set(args.expect_only_mandatory_fail or [])
         print()
-        left_ok = check_only_mandatory_fail(left, args.left_label, expected)
-        right_ok = check_only_mandatory_fail(right, args.right_label, expected)
-        if not (left_ok and right_ok):
+        all_ok = True
+        for label, report in reports:
+            if label in per_label_expect:
+                expected = per_label_expect[label]
+            elif args.expect_only_mandatory_fail is not None:
+                expected = default_expected
+            else:
+                continue
+            all_ok = check_only_mandatory_fail(report, label, expected) and all_ok
+        if not all_ok:
             return 1
 
     return 0

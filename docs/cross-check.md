@@ -3,15 +3,20 @@
 Run via `scripts/cross-check.sh` (see `AGENTS.md` "Cross-checking against upstream agents" for
 prerequisites and how to run it). This is a manual/CI cross-check, not part of `uv run pytest`.
 
-**Latest run:** 2026-09-18, against:
+**Latest run:** 2026-09-22, against:
 
 - Rust SDK `testy` (`agent-client-protocol-test`, built `--no-default-features`) from
-  `agentclientprotocol/rust-sdk` @ `8bc6275a3d6b5accf102718d715017bfbb918c5c`
+  `agentclientprotocol/rust-sdk` @ `28688b2d97a81975ff875180c3a3e46e6cad0161`
 - Python SDK `examples/echo_agent.py` from `agentclientprotocol/python-sdk` @
-  `d92b9683346c9e109895503878315e06d3eedb99`, pinned to `agent-client-protocol==1.0.0rc1`
+  `9d07d7871ef4b220b8507e15fc4b1560f0950a64`, pinned to `agent-client-protocol==1.0.0rc1`
   (`uv run --no-project --with 'agent-client-protocol==1.0.0rc1' python echo_agent.py`, which
   empirically bypasses the script's own unpinned PEP 723 header)
 - Both run with `acp-tck --cancel-prompt wait_for_cancel`
+
+(Re-verified during slice V2-7 with the same two revisions used for the v2 legs below, to
+confirm the v1 baseline -- ACP-INIT-003 + ACP-INIT-004 only -- still holds unchanged; see
+"v2 cross-check" below for why the v2 leg needed an isolated Rust `--target-dir` rather than
+reusing this v1 binary.)
 
 ## Comparison table
 
@@ -83,9 +88,13 @@ for the underlying `--report-json` reports, which are gitignored and regenerated
 Verdict lines:
 
 ```
-testy: VERDICT: NOT CONFORMANT (1 mandatory failures, 0 not tested); exit 1
-echo_agent (1.0.0rc1): VERDICT: NOT CONFORMANT (1 mandatory failures, 0 not tested); exit 1
+testy: VERDICT: NOT CONFORMANT (blocked_by_auth=False) tier_counts={'MANDATORY': {'PASS': 20, 'FAIL': 1, 'SKIPPED': 0, 'NOT_TESTED': 0}, 'CAPABILITY': {'PASS': 18, 'FAIL': 0, 'SKIPPED': 1, 'NOT_TESTED': 0}, 'ADVISORY': {'PASS': 10, 'FAIL': 1, 'SKIPPED': 1, 'NOT_TESTED': 0}, 'INFORMATIONAL': {'PASS': 4, 'FAIL': 0, 'SKIPPED': 0, 'NOT_TESTED': 0}}
+echo_agent: VERDICT: NOT CONFORMANT (blocked_by_auth=False) tier_counts={'MANDATORY': {'PASS': 18, 'FAIL': 1, 'SKIPPED': 2, 'NOT_TESTED': 0}, 'CAPABILITY': {'PASS': 0, 'FAIL': 0, 'SKIPPED': 19, 'NOT_TESTED': 0}, 'ADVISORY': {'PASS': 8, 'FAIL': 2, 'SKIPPED': 2, 'NOT_TESTED': 0}, 'INFORMATIONAL': {'PASS': 4, 'FAIL': 0, 'SKIPPED': 0, 'NOT_TESTED': 0}}
 ```
+
+(Verdict lines are `scripts/cross-check-summary.py`'s own printed format; the exact wording has
+evolved with the report schema, but the substance is unchanged: exactly one MANDATORY FAIL
+[ACP-INIT-003] for each agent, both NOT CONFORMANT.)
 
 ## Explanation of every non-PASS
 
@@ -163,11 +172,281 @@ SKIPs. `echo_agent` advertises neither, so AUTH-004 SKIPs (capability not advert
 AUTH-005 (the negative control for the no-`authMethods` case) applies and PASSes. Both are the
 capability-gating machinery working as designed, not a TCK bug or an unexpected agent behaviour.
 
+## v2 cross-check
+
+Added in slice V2-7. There is no upstream v2 example agent yet (unlike v1's
+`examples/echo_agent.py`; see `.agents/research/reference-sdks-v2-status.md`), so the second v2
+leg is a small, repo-authored agent, `scripts/cross-check/python_v2_agent.py`, built directly on
+the upstream Python SDK's `acp.experimental.v2` runtime (not TCK code -- it lives under
+`scripts/`, is not part of the `tck` package, and is exercised the same way any other agent
+under test is).
+
+**Revisions used (same checkouts as the v1 re-run above):**
+
+- Rust SDK `testy`, built `--no-default-features --features unstable_protocol_v2` (the
+  `unstable_protocol_v2` cargo feature -- distinct from the `unstable` umbrella feature, which
+  also adds a non-v1 `mcpCapabilities.acp` field the strict v1 build must avoid) from
+  `agentclientprotocol/rust-sdk` @ `28688b2d97a81975ff875180c3a3e46e6cad0161`, built into an
+  **isolated `--target-dir`** (`$OUT_DIR/target-v2`), not the checkout's own `target/debug/`
+  -- see "Why the v2 Rust build uses a separate `--target-dir`" below.
+- Python SDK's `acp.experimental.v2` runtime, from `agentclientprotocol/python-sdk` @
+  `9d07d7871ef4b220b8507e15fc4b1560f0950a64`, pinned to `agent-client-protocol==1.0.0rc2`
+  (`uv run --no-project --with 'agent-client-protocol==1.0.0rc2' python
+  scripts/cross-check/python_v2_agent.py`)
+- ACP v2 spec revision the TCK's vendored v2 schema is pinned to:
+  `8f76d6c8cf379a0f8a7fe2bbee6007fb2a53a84e` (`tck.v2.protocol.SCHEMA_REVISION`)
+- Both run with `acp-tck --protocol-version 2 --cancel-prompt wait_for_cancel`
+
+**Exact commands:** `scripts/cross-check.sh` (`ACP_CROSS_CHECK_V2` defaults to `1`; set it to
+`0` to skip both v2 legs and run only the v1 comparison above).
+
+### Why the v2 Rust build uses a separate `--target-dir`
+
+`.agents/research/reference-sdks-v2-status.md` assumed a *dual*-feature `testy` build (v1 +
+`unstable_protocol_v2`, which routes each connection to a v1 or v2 native agent based on the
+client's own `initialize` request) "reproduces the v1 baseline unchanged," and suggested reusing
+one binary for both legs. Verified empirically in this slice, and found **no longer true**:
+building the dual-feature binary and running the existing v1 leg against it flips
+`ACP-INIT-003` from FAIL to **PASS** -- a different scorecard than the documented v1 baseline.
+
+Root cause: slice V2-0b (already landed, after the research above was written) strengthened the
+v1 `ACP-INIT-003` probe to send an `info: {name, version}` object alongside the unsupported
+`protocolVersion: 65535`, so a future version-routing agent could not sidestep the probe simply
+by rejecting v1-shaped params. Against a strict v1-only build this makes no difference (the
+extra field is just ignored). But against the dual-feature build's router, a `65535` request
+that also carries a valid `info` object now validates as **v2** params (v2's `InitializeRequest`
+requires `info`; v1's does not), so the router accepts it and hands it to the native v2 agent --
+which then legitimately answers `protocolVersion: 2`, its own latest supported version, never
+echoing `65535`. That is fully compliant behaviour for ACP-INIT-003's rule, so the test now
+PASSes -- not because the v1 agent's own version-negotiation improved, but because the strengthened
+probe no longer reaches the v1 code path at all once `info` is present.
+
+Verified both ways: a strict `--no-default-features`-only build (isolated `--target-dir`,
+avoiding cache contamination) reproduces the documented v1 baseline exactly
+(`ACP-INIT-003` FAIL, `ACP-INIT-004` FAIL, `NOT CONFORMANT`); the dual-feature build does not
+(`ACP-INIT-003` PASSes). **Decision:** build the v2 leg's dual-feature binary into its own
+`--target-dir` (`$OUT_DIR/target-v2`) and leave the v1 leg's `--no-default-features`-only build
+at the checkout's own `target/debug/testy`, exactly as before -- the two legs never share a
+binary. This is the strategy `scripts/cross-check.sh` implements; see the comment above its v2
+build step for the short version of this explanation.
+
+### v2 comparison table
+
+```
+requirement id               testy            echo_agent       testy_v2         python_v2_agent
+-----------------------------------------------------------------------------------------------
+ACP-ADDDIRS-201               MISSING          MISSING          SKIPPED          SKIPPED
+ACP-ADDDIRS-202               MISSING          MISSING          SKIPPED          SKIPPED
+ACP-AUTH-201                  MISSING          MISSING          PASS             PASS
+ACP-AUTH-202                  MISSING          MISSING          PASS             PASS
+ACP-AUTH-203                  MISSING          MISSING          SKIPPED          SKIPPED
+ACP-AUTH-204                  MISSING          MISSING          SKIPPED          SKIPPED
+ACP-AUTH-205                  MISSING          MISSING          PASS             PASS
+ACP-AUTH-206                  MISSING          MISSING          PASS             PASS
+ACP-AUTH-207                  MISSING          MISSING          SKIPPED          SKIPPED
+ACP-BATCH-201                 MISSING          MISSING          PASS             FAIL
+ACP-BATCH-202                 MISSING          MISSING          PASS             FAIL
+ACP-BATCH-203                 MISSING          MISSING          PASS             FAIL
+ACP-BATCH-204                 MISSING          MISSING          PASS             FAIL
+ACP-BATCH-205                 MISSING          MISSING          PASS             FAIL
+ACP-BATCH-206                 MISSING          MISSING          SKIPPED          SKIPPED
+ACP-BATCH-207                 MISSING          MISSING          SKIPPED          SKIPPED
+ACP-BATCH-208                 MISSING          MISSING          SKIPPED          SKIPPED
+ACP-CANCEL-201                MISSING          MISSING          PASS             PASS
+ACP-CANCEL-202                MISSING          MISSING          PASS             PASS
+ACP-CANCEL-203                MISSING          MISSING          PASS             PASS
+ACP-CANCEL-204                MISSING          MISSING          SKIPPED          SKIPPED
+ACP-CANCEL-205                MISSING          MISSING          PASS             PASS
+ACP-CANCEL-206                MISSING          MISSING          PASS             PASS
+ACP-CANCEL-207                MISSING          MISSING          PASS             PASS
+ACP-CANCEL-208                MISSING          MISSING          PASS             PASS
+ACP-CLIENTCAP-201             MISSING          MISSING          PASS             PASS
+ACP-CLIENTCAP-202             MISSING          MISSING          PASS             PASS
+ACP-CLOSE-201                 MISSING          MISSING          PASS             PASS
+ACP-CLOSE-202                 MISSING          MISSING          PASS             PASS
+ACP-CONFIG-201                MISSING          MISSING          SKIPPED          SKIPPED
+ACP-CONFIG-202                MISSING          MISSING          SKIPPED          SKIPPED
+ACP-CONFIG-203                MISSING          MISSING          SKIPPED          SKIPPED
+ACP-CONFIG-204                MISSING          MISSING          SKIPPED          SKIPPED
+ACP-CONFIG-206                MISSING          MISSING          SKIPPED          SKIPPED
+ACP-DELETE-201                MISSING          MISSING          SKIPPED          SKIPPED
+ACP-DELETE-202                MISSING          MISSING          SKIPPED          SKIPPED
+ACP-DELETE-203                MISSING          MISSING          SKIPPED          SKIPPED
+ACP-ENUM-201                  MISSING          MISSING          SKIPPED          SKIPPED
+ACP-ENUM-202                  MISSING          MISSING          PASS             PASS
+ACP-ENUM-203                  MISSING          MISSING          SKIPPED          SKIPPED
+ACP-EXT-201                   MISSING          MISSING          PASS             PASS
+ACP-EXT-202                   MISSING          MISSING          PASS             PASS
+ACP-EXT-203                   MISSING          MISSING          PASS             PASS
+ACP-INFO-BATCH-201            MISSING          MISSING          PASS             PASS
+ACP-INFO-BATCH-202            MISSING          MISSING          PASS             PASS
+ACP-INFO-CANCEL-201           MISSING          MISSING          PASS             PASS
+ACP-INFO-CANCEL-202           MISSING          MISSING          PASS             PASS
+ACP-INFO-CONCURRENT-201       MISSING          MISSING          PASS             PASS
+ACP-INIT-201                  MISSING          MISSING          PASS             FAIL
+ACP-INIT-202                  MISSING          MISSING          PASS             FAIL
+ACP-INIT-203                  MISSING          MISSING          PASS             PASS
+ACP-INIT-204                  MISSING          MISSING          PASS             PASS
+ACP-JSONRPC-004 (v2)          MISSING          MISSING          PASS             PASS
+ACP-LIST-201                  MISSING          MISSING          PASS             PASS
+ACP-LIST-202                  MISSING          MISSING          PASS             PASS
+ACP-LIST-203                  MISSING          MISSING          PASS             PASS
+ACP-LIST-204                  MISSING          MISSING          PASS             PASS
+ACP-MCP-201                   MISSING          MISSING          SKIPPED          SKIPPED
+ACP-MCP-202                   MISSING          MISSING          SKIPPED          SKIPPED
+ACP-META-201                  MISSING          MISSING          PASS             PASS
+ACP-PATCH-201                 MISSING          MISSING          PASS             PASS
+ACP-PATCH-203                 MISSING          MISSING          PASS             PASS
+ACP-PATCH-204                 MISSING          MISSING          SKIPPED          SKIPPED
+ACP-PATCH-205                 MISSING          MISSING          SKIPPED          SKIPPED
+ACP-PATCH-206                 MISSING          MISSING          SKIPPED          SKIPPED
+ACP-PATCH-207                 MISSING          MISSING          SKIPPED          SKIPPED
+ACP-PATCH-208                 MISSING          MISSING          SKIPPED          SKIPPED
+ACP-PATCH-209                 MISSING          MISSING          SKIPPED          SKIPPED
+ACP-PERM-201                  MISSING          MISSING          SKIPPED          SKIPPED
+ACP-PROMPT-201                MISSING          MISSING          PASS             PASS
+ACP-PROMPT-203                MISSING          MISSING          PASS             PASS
+ACP-PROMPT-205                MISSING          MISSING          PASS             PASS
+ACP-PROMPTCAP-001 (shared id) PASS             SKIPPED          SKIPPED          SKIPPED
+ACP-RESUME-201                MISSING          MISSING          PASS             PASS
+ACP-RESUME-202                MISSING          MISSING          PASS             PASS
+ACP-RESUME-203                MISSING          MISSING          PASS             PASS
+ACP-RESUME-204                MISSING          MISSING          PASS             SKIPPED
+ACP-RESUME-205                MISSING          MISSING          PASS             PASS
+ACP-SESSION-203                MISSING          MISSING          PASS             PASS
+ACP-STATE-201                  MISSING          MISSING          PASS             PASS
+ACP-STATE-202                  MISSING          MISSING          PASS             PASS
+ACP-STATE-203                  MISSING          MISSING          PASS             PASS
+ACP-TRANSPORT-201              MISSING          MISSING          PASS             PASS
+ACP-TRANSPORT-203              MISSING          MISSING          PASS             PASS
+```
+
+(Every id shared with v1 -- `ACP-INIT-001/003`, `ACP-JSONRPC-001/002/003/005`,
+`ACP-ERROR-001`, `ACP-EXT-001`, `ACP-SCHEMA-001/002`, `ACP-SESSION-001/002`,
+`ACP-SHUTDOWN-001`, `ACP-STDERR-001`, `ACP-TRANSPORT-002`, `ACP-META-001`,
+`ACP-PROMPT-003`, `ACP-INFO-{PARSE,INVALIDREQ,UNKNOWNSESSION}-001` -- all still applies at v2
+and PASSes for both v2 agents except `ACP-INIT-003`, addressed below; omitted from this table
+for brevity since the v1 table above already shows the shared-id columns. See
+`scratch/cross-check/testy-v2.json` / `python-v2.json`, gitignored, for the complete, exact
+`cross-check-summary.py` output including every shared id.)
+
+**Per-tier counts:**
+
+| tier | testy_v2 PASS/FAIL/SKIPPED/NOT_TESTED | python_v2_agent PASS/FAIL/SKIPPED/NOT_TESTED |
+|---|---|---|
+| MANDATORY | 18/0/1/0 | 13/5/1/0 |
+| CAPABILITY | 31/0/20/0 | 30/0/21/0 |
+| ADVISORY | 16/0/8/0 | 13/3/8/0 |
+| INFORMATIONAL | 10/0/2/0 | 10/0/2/0 |
+
+Verdict lines:
+
+```
+testy_v2: VERDICT: CONFORMANT (blocked_by_auth=False) tier_counts={'MANDATORY': {'PASS': 18, 'FAIL': 0, 'SKIPPED': 1, 'NOT_TESTED': 0}, 'CAPABILITY': {'PASS': 31, 'FAIL': 0, 'SKIPPED': 20, 'NOT_TESTED': 0}, 'ADVISORY': {'PASS': 16, 'FAIL': 0, 'SKIPPED': 8, 'NOT_TESTED': 0}, 'INFORMATIONAL': {'PASS': 10, 'FAIL': 0, 'SKIPPED': 2, 'NOT_TESTED': 0}}
+python_v2_agent: VERDICT: NOT CONFORMANT (blocked_by_auth=False) tier_counts={'MANDATORY': {'PASS': 13, 'FAIL': 5, 'SKIPPED': 1, 'NOT_TESTED': 0}, 'CAPABILITY': {'PASS': 30, 'FAIL': 0, 'SKIPPED': 21, 'NOT_TESTED': 0}, 'ADVISORY': {'PASS': 13, 'FAIL': 3, 'SKIPPED': 8, 'NOT_TESTED': 0}, 'INFORMATIONAL': {'PASS': 10, 'FAIL': 0, 'SKIPPED': 2, 'NOT_TESTED': 0}}
+```
+
+`testy_v2` is fully **CONFORMANT** -- zero FAILs anywhere, all CAPABILITY-tier families PASS
+once `capabilities.session` commits it to the full 7-method baseline. `python_v2_agent` is
+**NOT CONFORMANT**, entirely due to genuine upstream Python SDK behaviour (below), not any
+weakness or omission in the fixture: every CAPABILITY-tier row is PASS or SKIPPED (zero
+CAPABILITY FAILs), so the fixture's own implementation of the baseline it advertises is correct.
+
+### Explanation of every non-PASS on the v2 legs
+
+#### ACP-BATCH-201/202 (MANDATORY) / ACP-BATCH-203/204/205 (ADVISORY) — FAIL for python_v2_agent only, expected upstream behaviour (a)
+
+The Python SDK's v2 transport has **zero JSON-RPC batch support**: `_transport.py` parses each
+line with a bare `json.loads(line)` and never checks for a top-level array, so
+`connection.py`'s dispatch (`message.get("method")`) raises an uncaught `AttributeError` the
+moment a batch (`[...]`) arrives, crashing the whole process. This is exactly the finding
+recorded in `.agents/research/acp-v2-cancellation-and-batching.md` §B before this slice began
+("Python SDK confirmed to have zero batch support ... crashing the process with an uncaught
+`AttributeError`"), reproduced here against a live run: every `ACP-BATCH-2xx` test that sends a
+JSON-RPC batch array observes `AgentExited(exit_code=1)` instead of a response.
+
+```
+tck.common.harness.process.AgentExited: agent process exited while waiting for a line (exit_code=1)
+```
+
+`testy_v2` (native Rust v2 support, correctly implementing batching) PASSes all five -- this is
+squarely a Python SDK limitation, not a TCK bug, and not something `python_v2_agent.py` itself
+could paper over (the crash happens inside the SDK's own transport layer, before any of the
+fixture's own code runs).
+
+#### ACP-INIT-003/201/202 (MANDATORY) — FAIL for python_v2_agent only, expected upstream behaviour (a)
+
+The native (non-router) Python v2 `Agent` rejects any `protocolVersion` other than exactly `2`
+with a JSON-RPC `-32602 Invalid params` error, instead of succeeding with its own latest
+supported version as v2's negotiation rule requires (`!= 65535 and >= latest_supported`, and
+separately the downgrade case `N < min(S)` must also always succeed). This matches
+`reference-sdks-v2-status.md`'s "native Python v2 rejects unsupported `protocolVersion` with
+`-32602`" finding, reproduced here for all three version-negotiation probes:
+
+```
+--> {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":65535,"info":{"name":"acp-tck","version":"..."}}}
+<-- {"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid params","data":{"expectedProtocolVersion":2,"receivedProtocolVersion":65535}}}
+
+--> {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"info":{"name":"acp-tck","version":"0"}}}
+<-- {"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid params","data":{"expectedProtocolVersion":2,"receivedProtocolVersion":1}}}
+```
+
+`testy_v2`'s native v2 route correctly always succeeds (its dual-feature router negotiates down
+to whatever the client asked for, up to its own max). Not a TCK bug: the SDK's own error `data`
+payload confirms this is a deliberate `expectedProtocolVersion`/`receivedProtocolVersion` strict
+check, not an accident, and not something the fixture agent can influence (it never sees the
+request -- the SDK's own `AgentSideConnection`/`InitializationState` layer rejects it before
+`initialize()` is ever called).
+
+#### CAPABILITY-tier SKIPPED for both v2 agents — expected
+
+`ACP-ADDDIRS-2xx`, `ACP-CONFIG-2xx`, `ACP-DELETE-2xx`, `ACP-MCP-2xx`, `ACP-PATCH-2{04,05,06,07}`,
+`ACP-PERM-201`, `ACP-PROMPTCAP-00x`, `ACP-BATCH-2{06,07,08}`, `ACP-ENUM-{201,203}` SKIP for both
+`testy_v2` and `python_v2_agent` because neither advertises the corresponding sub-capability
+(`capabilities.session.delete`, `.additionalDirectories`, `.mcp.*`, `.prompt.{image,audio,
+embeddedContext}`) or because the underlying event (a permission request, a patch-family session
+update, an enum-valued field) simply never occurs during the TCK's short deterministic prompt
+turns. This is the four-status verdict model working as designed, not a deviation.
+
+#### ACP-RESUME-204 (CAPABILITY) — SKIPPED for python_v2_agent, PASS for testy_v2, both conforming
+
+`python_v2_agent.py` deliberately does not retain or replay any session history on
+`session/resume` (see its own docstring/comments); ACP-RESUME-204's own text says "absence of
+the message from replay is conforming (R5) and SKIPs this check rather than FAILing it" --
+exactly the observed behaviour. `testy_v2` does retain and correctly replay history, so the
+check actually runs and PASSes. Neither is a deviation; both are valid, spec-conforming designs
+for a capability the requirement itself treats as optional-in-practice.
+
+#### AUTH family (CAPABILITY/ADVISORY/MANDATORY) SKIPPED for both — expected, no `--auth-method` given
+
+Neither v2 leg is run with `--tck-auth-method`/`--auth-method` (unlike the v1
+`conforming_full.py` self-test), so `ACP-AUTH-207` (the `auth/login` flow itself) and the
+`type: "terminal"` / logout capability checks correctly SKIP rather than exercise an
+unconfigured flow -- consistent with how `ACP-AUTH-003` behaves on the v1 side without
+`--auth-method`.
+
 ## Conclusion
 
-No TCK bug was found: `testy`'s scorecard matches the predicted scorecard in
-`.agents/research/testy-cross-check.md` §3.1 exactly (once accounting for the already-decided
-ACP-INIT-003 strengthening). `echo_agent`'s scorecard matches the prediction except for one new,
-genuine ADVISORY-tier finding (ACP-JSONRPC-004, explained above) that reflects real upstream SDK
-behaviour introduced after the research was written, not a TCK defect. No assertion was weakened
-to accommodate either agent.
+No TCK bug was found on either the v1 or the v2 legs. `testy`'s v1 scorecard matches the
+predicted scorecard in `.agents/research/testy-cross-check.md` §3.1 exactly (once accounting for
+the already-decided ACP-INIT-003 strengthening); `echo_agent`'s v1 scorecard matches the
+prediction except for the previously-documented ACP-JSONRPC-004 finding. On v2, `testy_v2` is
+fully CONFORMANT (zero FAILs, matching the research's prediction that testy's native v2 agent
+correctly implements the full baseline), and every one of `python_v2_agent`'s eight FAILs is
+either (a) the already-documented, pre-slice Python SDK batch-support crash
+(`.agents/research/acp-v2-cancellation-and-batching.md` §B) or (a) the already-documented
+strict-version-rejection in the native Python v2 `Agent` (`.agents/research/
+reference-sdks-v2-status.md`) -- both genuine upstream SDK limitations discovered before this
+slice, now empirically reproduced and confirmed rather than newly found here. Zero CAPABILITY-tier
+FAILs on either v2 agent means both fixtures/agents correctly implement whatever baseline they
+advertise. No assertion was weakened, and no `src/tck/**` change was made, to accommodate any of
+the four agents.
+
+**Documented v2 CI baseline** (asserted by `scripts/cross-check-summary.py`'s `--expect`
+flags in both `scripts/cross-check.sh` and `.github/workflows/ci.yml`):
+
+- `testy_v2`: zero MANDATORY FAILs (fully conformant).
+- `python_v2_agent`: exactly `ACP-BATCH-201`, `ACP-BATCH-202`, `ACP-INIT-003`, `ACP-INIT-201`,
+  `ACP-INIT-202` as MANDATORY FAILs -- any other MANDATORY FAIL, or the disappearance of one of
+  these five (e.g. if a future python-sdk release adds batch support or relaxes strict version
+  rejection), is worth investigating and updating this document for.
