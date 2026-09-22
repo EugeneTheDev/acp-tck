@@ -392,11 +392,12 @@ def test_v2_only_agent_under_protocol_version_1_is_blocked_by_version_mismatch()
     and zero CAPABILITY FAILs occur -- proving `Verdict.blocked_by_version_mismatch` itself is
     symmetric, not "always `False` for a v1 run".
 
-    Unlike v2's own conformance tests, v1's MANDATORY/ADVISORY tests were written under a
-    single-version assumption and never call a `skip_if_version_mismatch`-equivalent guard
-    themselves, so a handful of them (`ACP-INIT-002`/`004`, `ACP-META-001`, `ACP-PROMPT-001`,
-    `ACP-SCHEMA-001`/`002`) genuinely FAIL here against the v2-shaped result -- an accurate,
-    pre-existing asymmetry in *test coverage*, not evidence against the flag's own symmetry."""
+    v1's own MANDATORY/ADVISORY tests that judge a result's *shape* against v1's rules
+    (`ACP-INIT-002`/`004`, `ACP-META-001`, `ACP-PROMPT-001`, `ACP-SCHEMA-001`/`002`) call their
+    own `skip_if_version_mismatch` twin (`tck.v1.conformance._helpers`) right after obtaining
+    the `initialize` result, mirroring v2's `test_initialize.py`/`test_batch.py`/
+    `test_transport.py` pattern -- so they SKIP with the `VERSION-MISMATCH:` marker here too,
+    exactly like the CAPABILITY-tier ids, and the run has zero FAILs despite being blocked."""
     result = _run_cli(
         "v2_only_honest.py", fixture_dir=FIXTURES_DIR_V2, protocol_version=1
     )
@@ -406,15 +407,15 @@ def test_v2_only_agent_under_protocol_version_1_is_blocked_by_version_mismatch()
 
     statuses = _table_statuses(result.stdout)
     fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
-    assert fails == {
+    assert fails == set(), result.stdout
+    for req_id in _CAPABILITY_IDS | {
         "ACP-INIT-002",
         "ACP-INIT-004",
         "ACP-META-001",
         "ACP-PROMPT-001",
         "ACP-SCHEMA-001",
         "ACP-SCHEMA-002",
-    }, result.stdout
-    for req_id in _CAPABILITY_IDS:
+    }:
         assert statuses.get(req_id) == "SKIPPED", f"{req_id}: {result.stdout}"
 
 

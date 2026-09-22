@@ -7,12 +7,17 @@ import pytest
 from tck.v1.protocol import STOP_REASONS
 from tck.v1.validation import validate_agent_message
 
-from ._helpers import connected_agent, new_session, run_prompt
+from ._helpers import connected_agent, new_session, run_prompt, skip_if_version_mismatch
 
 
 @pytest.mark.requirement("ACP-PROMPT-001")
-async def test_text_only_prompt_resolves_with_a_valid_stop_reason(agent_launch, tmp_path):
-    """ACP-PROMPT-001."""
+async def test_text_only_prompt_resolves_with_a_valid_stop_reason(agent_launch, agent_initialize_result, tmp_path):
+    """ACP-PROMPT-001. `skip_if_version_mismatch` on the session-scoped `agent_initialize_result`
+    (see `test_initialize.py::test_full_exchange_validates_against_schema`'s docstring) SKIPs
+    first, since a v1-shaped stopReason cannot be judged against an agent that never negotiated
+    v1."""
+    if agent_initialize_result.result is not None:
+        skip_if_version_mismatch(agent_initialize_result.result)
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         turn = await run_prompt(
