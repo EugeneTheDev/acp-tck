@@ -1,7 +1,7 @@
 # State
 
-**Last updated:** 2026-09-22 (v2 effort — V2-0…V2-5 merged+pushed; V2-6 hygiene in flight)
-**Last commit pushed:** `fac2649` on `v2-support` (V2-5 auth; 229 tests, 83 v2 ids, suite ≈310 s) — plus workbench commits on top
+**Last updated:** 2026-09-22 (v2 effort — V2-0…V2-6 merged+pushed; V2-7 cross-check + review pass in flight)
+**Last commit pushed:** `26bf0f2` on `v2-support` (V2-6 hygiene; 239 tests, 106 v2 ids, suite ≈360 s) — plus workbench commits on top
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
@@ -37,14 +37,26 @@ against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude
 `codex-wrapper.md`). v1 research: `research/acp-v1-*.md`, `review-slices-*.md`, `spec-drift-check.md`,
 `testy-cross-check.md`, `upstream-issues.md` (internal drafts only, do not file).
 
-## In flight
-- **V2-6 `v2-hygiene`** (worktree `../acp-tck-2-v2-hygiene`, off `fac2649`+): PATCH-201..209 (keyed upserts:
-  messageId/toolCallId/planId MUSTs), ENUM-201..203 (`_`-prefix emitter rule), META-201, EXT-201..203, re-cited
-  EXT-001/META-001/ERROR-001/SHUTDOWN-001/SCHEMA-002, STDERR-001, INFO-PARSE-001/INVALIDREQ-001 v2 twins;
-  `conforming_full.py` emits a tool call + multi-chunk message + plan; defect fixtures. On report: verify,
-  merge, push, cleanup. Then **V2-7** (cross-check + CI + docs), then the **review pass** (items listed in
-  plan.md "Deferred nits": AUTH-202→AUTH-002 id, MCP tier, record-only ADVISORY→INFORMATIONAL, conforming_full
-  terminal method, VersionSpec dead fields).
+## In flight (two agents, independent)
+- **V2-7 `v2-cross-check`** (programmer, worktree `../acp-tck-2-v2-cross-check`, off `26bf0f2`+):
+  `scripts/cross-check.sh` v2 leg (testy dual build `--no-default-features --features unstable_protocol_v2`,
+  `--protocol-version 2 --cancel-prompt wait_for_cancel`), repo-authored Python v2 fixture on
+  `agent-client-protocol==1.0.0rc2` under `scripts/cross-check/`, `cross-check-summary.py` version-aware,
+  `docs/cross-check.md` v2 table + explanations, CI job v2 leg (informational), README/AGENTS.md. Any
+  unexpected FAIL is escalated as a possible TCK bug, not papered over.
+- **Reviewer** (researcher role) writing `research/review-v2-slices-1b-6.md` (read-only review of
+  `1d795cc..26bf0f2` against plan.md decisions/research; decides the plan.md "Deferred nits" review-pass
+  items) and `research/upstream-issues-v2.md` (drafts: stale `schema.json:3128` 4-method comment, stale
+  `migration.mdx:191/224`, Python SDK batch crash, SDK strict-v2 negotiation errors, Python v2 bindings from
+  unstable schema — internal notes only, do not file).
+- After both: **V2-8 review-fix slice** (BLOCKER/SHOULD-FIX + review-pass items), then final state/plan
+  update and a summary for the user (merge to `main` is the user's decision).
+
+**Done (2026-09-22): slice V2-6** (`26bf0f2`) — PATCH-201..209, ENUM-201..203, META-201, EXT-201..203, re-cited
+EXT-001/META-001/ERROR-001/SHUTDOWN-001/SCHEMA-002/STDERR-001/INFO-PARSE-001/INFO-INVALIDREQ-001; rich turn in
+`conforming_full.py`; 10 fixtures; enum scan batch-unwrap fix. 239 passed (≈360 s). Registry 106 ids.
+Notes: PATCH-206/207 never PASS (no terminal-update fixture); `custom_method_no_response.py` cascades into
+BATCH-203/204/205 + ERROR-001 in an unscoped run (batch probes use `_tck/...` methods).
 
 **Done (2026-09-22): slice V2-5** (`fac2649`) — AUTH-201..207, `--allow-logout`/`--tck-allow-logout`
 (opt-in logout probe), `login_if_needed` helper fixing an auth-gate bypass in self-initializing v2 tests,

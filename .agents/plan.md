@@ -244,6 +244,9 @@ Turn-end predicate (driver): an idle `state_update` ends the turn iff it carries
   any `$def` lookup (already implied by D6; the v1 validator's dict-only assumption is not reused).
 
 ### Deferred nits (do not lose)
+- Review-pass item (V2-6): `ACP-PATCH-206/207` (terminal_update / terminal_output_chunk) never PASS against
+  any fixture — add a v2 fixture (or extend `conforming_full.py`) that emits terminal updates per the
+  patches report's wire tables so the rows are exercised.
 - Review-pass item (V2-5): `conforming_full.py` (v2) should also advertise a `terminal` auth method when the
   client advertised `capabilities.auth.terminal`, so MANDATORY `ACP-AUTH-207` PASSes instead of SKIPping on
   the all-PASS fixture.
