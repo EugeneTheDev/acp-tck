@@ -1,7 +1,8 @@
 # State
 
-**Last updated:** 2026-09-22 (v2 effort — V2-0…V2-7 merged+pushed; V2-8 review fixes in flight)
-**Last commit pushed:** `9151515` on `v2-support` (V2-7 cross-check; 246 tests, 106 v2 ids, suite ≈360 s) — plus workbench commits on top
+**Last updated:** 2026-09-22 (PAUSED by the user mid-slice V2-8; all agents stopped, all work flushed)
+**Last commit pushed:** `9151515` on `v2-support` (V2-7 cross-check; 246 tests, 106 v2 ids, suite ≈360 s) — plus
+workbench commits on top (tip `f030d71` + this state update). V2-8 branch `v2-review-fixes` pushed at WIP tip `a517657`.
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
@@ -10,12 +11,67 @@
 2. `.agents/skills/*/.repo` are gitignored pointers to the upstream checkouts; if missing in this worktree,
    copy them from `/Users/eugene/Documents/JetBrains/projects/acp-tck/.agents/skills/*/.repo` (spec →
    `../agent-client-protocol`, rust → `../acp-rust-sdk`, python → `../acp-python-sdk`, a2a → `../a2a-tck`).
-3. Verify the tree: `uv run pytest -q` (≈100 s; expect 135 passed) and
-   `uv run acp-tck --cancel-prompt __hang__ --auth-method tck -- python tests/fixtures/agents/v1/conforming_full.py`
-   (exit 0, CONFORMANT, only ACP-AUTH-005 SKIPPED). Layout is now `src/tck/common/` + `src/tck/v1/`,
-   tests in `tests/common/`, `tests/v1/`, fixtures in `tests/fixtures/agents/v1/` (see `AGENTS.md`).
-4. Check whether the four research reports listed under "In flight" exist; if they do, judge them and
-   proceed to "Next actions". If not, re-spawn the missing researcher(s) with the same question.
+3. Verify the tree on `v2-support`: `uv run pytest -q` (≈360 s; expect 246 passed) and
+   `uv run acp-tck --protocol-version 2 --cancel-prompt __hang__ --auth-method tck --allow-logout -- python
+   tests/fixtures/agents/v2/conforming_full.py` (exit 0, CONFORMANT). Layout: `src/tck/common/` + `src/tck/v1/`
+   + `src/tck/v2/`; tests in `tests/common/`, `tests/v1/`, `tests/v2/`; fixtures in `tests/fixtures/agents/v{1,2}/`
+   (see `AGENTS.md`).
+4. **Resume slice V2-8** — see "In flight" below. The worktree `../acp-tck-2-v2-review-fixes` (branch
+   `v2-review-fixes`, 14 commits off `f030d71`, tip `a517657` = WIP, pushed to origin) still exists on disk;
+   do NOT remove it. Spawn a fresh `programmer` and hand it that existing worktree/branch (tell it not to
+   `git worktree add`), with the "V2-8 remaining work" list below as its task. Then follow the merge checklist.
+
+## In flight — slice V2-8 `v2-review-fixes` (PAUSED, programmer stopped)
+Source of truth for the item list: plan.md "Review decisions from research/review-v2-slices-1b-6.md → slice V2-8".
+Programmer's hand-off (2026-09-22):
+
+**Done, committed on the branch (verified green when committed):** BLOCKER finding 1 (RESUME-202..205 via
+`obtain_resumable_session`, self-test `resume_always_errors.py`); SHOULD-FIX findings 2–21 (incl. BATCH-206/207/208
++ CANCEL-204 → INFORMATIONAL, CONFIG-202/BATCH-203/204 over-assertions, batch-array unwrapping in all scans,
+`conforming_full.py` terminal auth method + terminal updates, self-test cascade widening, enum constant sets moved
+to `tck.v2.protocol` with a schema meta-test, aggregate read-loop deadlines); NITs 22, 23, 24, 31, 32; NIT 25 was
+already fixed. NIT 23 intentionally changed ACP-AUTH-201/206 from vacuous PASS to SKIP when no `authMethods` is
+advertised — this is a correct behaviour change, and is the cause of the self-test fallout below.
+
+**Partial (in WIP commit `a517657`, NOT verified green):**
+- NIT 26 (`test_batch.py` ACP-BATCH-201 reads until a response-shaped line) — code-complete, verified in isolation.
+- `tests/v2/test_cli.py` self-test expectations after NIT 23: `_NO_AUTH_SKIP_IDS` and the inline `expected_skips`
+  in `test_v2_conforming_agent_passes_everything` now include ACP-AUTH-201/206 (likely fixed; not re-run).
+- **Next thing to do:** `test_terminal_env_duplicate_names_fails_auth_207_only` (`tests/v2/test_cli.py` ~line 1923)
+  still asserts ACP-AUTH-201/202/206 PASS. Check whether AUTH-201/206's tests in `test_authentication.py`
+  (`_initialized_agent(..., capabilities=None)`, lines ~57/79) connect with `capabilities.auth.terminal` advertised —
+  the only connection on which `terminal_env_duplicate_names.py` shows its one `authMethods` entry. If not, those
+  two ids now SKIP for that fixture and the assertion needs the same correction. Then re-run
+  `uv run pytest -q tests/v2/test_cli.py` (last run before the two edits: 2 failed / 65 passed, 309 s — exactly the
+  two sites above) and the full suite.
+
+**V2-8 remaining work (not started):**
+- NITs 27, 28 (citation lines ENUM-201/JSONRPC-001), 29 (double-count judgment call), 30 (PATCH-209 SKIP on
+  refusal/cancelled), 33 (record_property counts + sessionId filter), 34 (vacuous assertions), 35
+  (`--tck-allow-logout` help text), 36 (deferred-nits judgment call), 37 (v1 session/prompt guard port to v2 —
+  moderate risk, programmer may skip with a note), 38 (5 fixture docstrings citing wrong id), 39
+  (`vendor_stop_reason.py` stale docstring), 40, 41, 42 (comments/rename in `tests/v2/test_cli.py`).
+- New fixture `tests/fixtures/agents/v2/v2_only_honest.py` + `tests/v1/test_cli.py` self-test proving
+  `blocked_by_version_mismatch` is symmetric (a v2-only agent under `--protocol-version 1`); docs wording that it
+  is "always false for v1" must go.
+- `docs/cross-check.md` "spurious PASS" wording → a dual-router's `2` answer to the 65535 probe is a legitimate PASS.
+- Re-run `scripts/cross-check.sh`; refresh `docs/cross-check.md` tables and `.github/workflows/ci.yml` `--expect`
+  baselines (re-tiering and the new SKIPs may move rows).
+- `AGENTS.md`/`README.md` drift: unscoped-cascade claims, id count 106, D3 rationale text, `conforming_full.py`
+  PASS count (target 101/106).
+- Rebase onto current `origin/v2-support` (still `f030d71` at pause — no rebase needed unless it moves), full
+  `uv run pytest -q` (expect ≈250 passed, ≈400 s), push branch, report.
+
+**Orchestrator merge checklist on report:** run suite from the worktree; smoke-run `conforming_full.py` under
+`--protocol-version 2 --auth-method tck --allow-logout --cancel-prompt __hang__` and check tier counts; check a few
+defect fixtures' FAIL sets; `scripts/cross-check-summary.py` OK against the refreshed baseline; `git diff --stat
+v2-support...v2-review-fixes`; squash-merge into `v2-support`; suite on `v2-support`; push; remove worktree and
+branch (local + remote). Then final rewrite of this file and `plan.md` to "done", and the user summary.
+
+**User decisions still open (surface in the final summary):** merge `v2-support` → `main`; make v1's ACP-AUTH-004
+`logout` opt-in like v2's `--allow-logout`; accept MANDATORY tier for "v2-only agent asked for 1 must answer 2"
+(reference SDKs violate it); accept that v2 is Draft/alpha and will churn (re-vendor before any release); whether
+to file `research/upstream-issues-v2.md` drafts.
 
 ## Mission (this effort)
 Add ACP **v2** support to the TCK side by side with v1, without regressing v1. Integration branch is
@@ -37,17 +93,7 @@ against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude
 `codex-wrapper.md`). v1 research: `research/acp-v1-*.md`, `review-slices-*.md`, `spec-drift-check.md`,
 `testy-cross-check.md`, `upstream-issues.md` (internal drafts only, do not file).
 
-## In flight
-- **V2-8 `v2-review-fixes`** (programmer, worktree `../acp-tck-2-v2-review-fixes`, off `9151515`+): every item
-  in plan.md "Review decisions from research/review-v2-slices-1b-6.md → slice V2-8" (BLOCKER: RESUME-202..205
-  via `obtain_resumable_session`; re-tier BATCH-206/207/208 + CANCEL-204 → INFORMATIONAL; MCP probes carry
-  `type`; over-assertion fixes CONFIG-202/BATCH-203/204; batch-array unwrapping everywhere; conforming_full
-  terminal auth method + terminal updates; docs drift incl. unscoped cascades, id count, D3 rationale text,
-  `blocked_by_version_mismatch` v1 wording + v1 self-test with a v2-only fixture; `docs/cross-check.md`
-  "spurious PASS" wording → legitimate PASS) then re-run `scripts/cross-check.sh` and refresh
-  `docs/cross-check.md` + CI `--expect` baselines. On report: verify (suite; conforming_full 101/106 PASS;
-  cross-check summary OK), merge, push, cleanup. Then final state/plan rewrite + user summary; merging
-  `v2-support` → `main` is the user's decision.
+## Done log (newest first)
 
 **Done (2026-09-22): slice V2-7** (`9151515`) — cross-check v2 legs (`testy` dual build in separate
 `--target-dir`; repo-authored `scripts/cross-check/python_v2_agent.py` on rc2), N-report summary with
@@ -166,10 +212,6 @@ prose/skip message. Programmer tip: clear `__pycache__` after `git mv` of direct
 - Deferred v1 nits (not scheduled): N12/N20 from `review-slices-5-6.md`, N9 from `review-slices-7.md`.
 
 ## Next actions
-1. Merge slice V2-0 when the programmer reports (see "In flight" for the checklist).
-2. After V2-0 merges: spawn slice V2-0b (v1 INIT-003 probe carries `info` + router fixture; plan.md part 2).
-3. Spawn slice V2-1 (v2 skeleton + initialize, plan.md "v2 effort — slices") in parallel with V2-0b, both
-   off the post-V2-0 tip; merge in the order they report. Then V2-2 … V2-7 serially (each touches
-   `v2/requirements.py`, `_helpers.py`, `_base.py`), per the fixed order in plan.md.
-4. Tell the user: v2 upstream is Draft/alpha; requirements will churn with upstream; confirm they want to
-   proceed against a moving target (proceeding meanwhile, per the mission brief).
+1. Resume V2-8 per "In flight" (fresh programmer on the existing worktree/branch), verify, squash-merge, push, cleanup.
+2. Final `state.md`/`plan.md` rewrite to "done"; user summary with the open decisions above.
+3. Merging `v2-support` → `main` only on the user's explicit decision.
