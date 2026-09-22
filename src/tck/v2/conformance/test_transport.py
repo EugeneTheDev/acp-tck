@@ -39,8 +39,7 @@ async def _drive_full_exchange(agent_launch, tmp_path):
     `session/prompt` turn to completion, and return the full RECEIVED transcript, collected only
     after the agent process has fully closed so post-response stdout garbage is included (mirrors
     v1's `_drive_full_exchange`). The initialize/version-mismatch-skip/login dance itself is
-    `v2_only_agent` (review-v2-slices-1b-6 finding 19 -- this file previously kept its own
-    hand-rolled copy)."""
+    `v2_only_agent`'s job, not this function's."""
     async with v2_only_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         await run_prompt(

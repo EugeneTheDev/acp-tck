@@ -13,7 +13,7 @@ prerequisites and how to run it). This is a manual/CI cross-check, not part of `
   empirically bypasses the script's own unpinned PEP 723 header)
 - Both run with `acp-tck --cancel-prompt wait_for_cancel`
 
-(Re-verified during slice V2-7 with the same two revisions used for the v2 legs below, to
+(Re-verified with the same two revisions used for the v2 legs below, to
 confirm the v1 baseline -- ACP-INIT-003 + ACP-INIT-004 only -- still holds unchanged; see
 "v2 cross-check" below for why the v2 leg needed an isolated Rust `--target-dir` rather than
 reusing this v1 binary.)
@@ -174,7 +174,7 @@ capability-gating machinery working as designed, not a TCK bug or an unexpected 
 
 ## v2 cross-check
 
-Added in slice V2-7. There is no upstream v2 example agent yet (unlike v1's
+There is no upstream v2 example agent yet (unlike v1's
 `examples/echo_agent.py`; see `.agents/research/reference-sdks-v2-status.md`), so the second v2
 leg is a small, repo-authored agent, `scripts/cross-check/python_v2_agent.py`, built directly on
 the upstream Python SDK's `acp.experimental.v2` runtime (not TCK code -- it lives under
@@ -205,13 +205,13 @@ under test is).
 `.agents/research/reference-sdks-v2-status.md` assumed a *dual*-feature `testy` build (v1 +
 `unstable_protocol_v2`, which routes each connection to a v1 or v2 native agent based on the
 client's own `initialize` request) "reproduces the v1 baseline unchanged," and suggested reusing
-one binary for both legs. Verified empirically in this slice, and found **no longer true**:
+one binary for both legs. Verified empirically, and found **no longer true**:
 building the dual-feature binary and running the existing v1 leg against it flips
 `ACP-INIT-003` from FAIL to **PASS** -- a different scorecard than the documented v1 baseline.
 
-Root cause: slice V2-0b (already landed, after the research above was written) strengthened the
-v1 `ACP-INIT-003` probe to send an `info: {name, version}` object alongside the unsupported
-`protocolVersion: 65535`, so a future version-routing agent could not sidestep the probe simply
+Root cause: a later strengthening of the v1 `ACP-INIT-003` probe (landed after the research
+above was written) sends an `info: {name, version}` object alongside the unsupported
+`protocolVersion: 65535`, so a future version-routing agent cannot sidestep the probe simply
 by rejecting v1-shaped params. Against a strict v1-only build this makes no difference (the
 extra field is just ignored). But against the dual-feature build's router, a `65535` request
 that also carries a valid `info` object now validates as **v2** params (v2's `InitializeRequest`
@@ -366,7 +366,7 @@ The Python SDK's v2 transport has **zero JSON-RPC batch support**: `_transport.p
 line with a bare `json.loads(line)` and never checks for a top-level array, so
 `connection.py`'s dispatch (`message.get("method")`) raises an uncaught `AttributeError` the
 moment a batch (`[...]`) arrives, crashing the whole process. This is exactly the finding
-recorded in `.agents/research/acp-v2-cancellation-and-batching.md` §B before this slice began
+recorded in `.agents/research/acp-v2-cancellation-and-batching.md` §B
 ("Python SDK confirmed to have zero batch support ... crashing the process with an uncaught
 `AttributeError`"), reproduced here against a live run: every `ACP-BATCH-2xx` test that sends a
 JSON-RPC batch array observes `AgentExited(exit_code=1)` instead of a response.
@@ -445,12 +445,12 @@ the already-decided ACP-INIT-003 strengthening); `echo_agent`'s v1 scorecard mat
 prediction except for the previously-documented ACP-JSONRPC-004 finding. On v2, `testy_v2` is
 fully CONFORMANT (zero FAILs, matching the research's prediction that testy's native v2 agent
 correctly implements the full baseline), and every one of `python_v2_agent`'s eleven FAILs is
-either (a) the already-documented, pre-slice Python SDK batch-support crash
+either (a) the already-documented Python SDK batch-support crash
 (`.agents/research/acp-v2-cancellation-and-batching.md` §B -- including `ACP-JSONRPC-001/003/005`,
 whose evidence for this id is gathered by the same crashing batch tests) or (b) the
 already-documented strict-version-rejection in the native Python v2 `Agent` (`.agents/research/
-reference-sdks-v2-status.md`) -- both genuine upstream SDK limitations discovered before this
-slice, now empirically reproduced and confirmed rather than newly found here. Zero CAPABILITY-tier
+reference-sdks-v2-status.md`) -- both genuine upstream SDK limitations documented in research,
+now empirically reproduced and confirmed rather than newly found here. Zero CAPABILITY-tier
 FAILs on either v2 agent means both fixtures/agents correctly implement whatever baseline they
 advertise. No assertion was weakened, and no `src/tck/**` change was made, to accommodate any of
 the four agents.

@@ -6,15 +6,13 @@ FAILs `ACP-EXT-001` (a `_`-prefixed custom method request MUST receive a respons
 shape). Every other, non-`_`-prefixed method is dispatched normally (via `super()`), so the
 `initialize`/`session/new` handshake and the prompt turn itself are unaffected.
 
-NOT unaffected beyond the turn, contrary to an earlier version of this docstring
-(review-v2-slices-1b-6 finding 16): `test_diagnostics.py`'s own `ACP-ERROR-001` probe sends a
+Not unaffected beyond the turn, though: `test_diagnostics.py`'s own `ACP-ERROR-001` probe sends a
 `_`-prefixed unknown-method request and expects *some* well-formed error/result back to check
 its shape -- against this fixture it gets no reply at all, so `ACP-ERROR-001` also FAILs
 whenever this fixture is run unscoped (confirmed; see `tests/v2/test_cli.py`'s corresponding
-self-test, whose `-k` scope is widened to catch this). The `ACP-BATCH-203/204/205` cascade an
-earlier version of the review suspected here does NOT reproduce -- that was fixed independently
-by finding 4 (batch requests no longer wait on a per-item basis for a response that never
-arrives).
+self-test, whose `-k` scope is widened to catch this). It does NOT cascade into
+`ACP-BATCH-203/204/205`, since batch requests do not wait on a per-item basis for a response
+that never arrives.
 """
 
 import sys

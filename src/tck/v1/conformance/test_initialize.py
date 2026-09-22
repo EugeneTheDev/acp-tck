@@ -55,12 +55,11 @@ async def test_requested_v1_is_echoed(agent_launch):
 
 @pytest.mark.requirement("ACP-INIT-003")
 async def test_unsupported_version_still_succeeds(agent_launch):
-    """ACP-INIT-003, strengthened per `.agents/research/testy-cross-check.md` finding 1: the
-    previous version of this test only asserted "a successful result with an integer
-    protocolVersion", which both `testy` and `examples/echo_agent.py` PASS despite echoing the
-    client's unsupported requested version (65535) verbatim -- a false negative. The
-    requirement text says the agent returns "its latest supported version", so this needs a
-    reference point: whatever the same agent returns for a plain v1 request (ACP-INIT-002).
+    """ACP-INIT-003: a successful result with an integer protocolVersion is not sufficient,
+    since both `testy` and `examples/echo_agent.py` echo the client's unsupported requested
+    version (65535) verbatim, which the requirement text ("its latest supported version")
+    forbids. This needs a reference point: whatever the same agent returns for a plain v1
+    request (ACP-INIT-002).
 
     The rule is `!= 65535 and >= latest_supported`, NOT equality: an agent legitimately
     supporting more than one version may answer `1` for a v1 request but

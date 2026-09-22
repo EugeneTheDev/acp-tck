@@ -209,10 +209,10 @@ def test_conforming_agent_passes_everything():
     assert result.returncode == 0, result.stdout + result.stderr
 
     statuses = _table_statuses(result.stdout)
-    # N13's regex-based `_table_statuses` fix now actually parses INFORMATIONAL-tier rows too
-    # (they carry a trailing `(note)` suffix that used to make them silently vanish, coincidentally
-    # matching `_ALL_IDS`, which was never meant to include them) -- so compare against the union
-    # explicitly rather than let that omission look intentional.
+    # `_table_statuses` must parse INFORMATIONAL-tier rows too -- they carry a trailing `(note)`
+    # suffix that would otherwise make them silently vanish, coincidentally matching `_ALL_IDS`,
+    # which was never meant to include them -- so compare against the union explicitly rather
+    # than let that omission look intentional.
     assert set(statuses) == _ALL_IDS | _INFORMATIONAL_IDS, (
         f"requirement table missing/extra ids: {result.stdout}"
     )

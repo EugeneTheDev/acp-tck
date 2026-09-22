@@ -66,9 +66,9 @@ async def test_meta_field_on_prompt_is_accepted(agent_launch, tmp_path):
     `traceparent` key is still accepted (a normal acceptance receipt arrives) and the turn still
     reaches a terminating idle `state_update` (v2's response is only an acceptance receipt, so
     this checks the *turn*, not the response, unlike v1's version of this test). Does not also
-    check the stopReason's *validity* (review-v2-slices-1b-6 finding 10): that is
-    `ACP-STATE-203`'s own concern, checked unconditionally for every turn regardless of `_meta`;
-    duplicating it here would only obscure which id actually caught a bad stopReason."""
+    check the stopReason's *validity*: that is `ACP-STATE-203`'s own concern, checked
+    unconditionally for every turn regardless of `_meta`; duplicating it here would only obscure
+    which id actually caught a bad stopReason."""
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         turn = await run_prompt(
@@ -156,10 +156,10 @@ async def test_extensions_are_advertised_under_capabilities_meta(agent_launch):
     `find_unknown_root_keys` against the `AgentCapabilities` `$def`, rather than the
     whole-response root-level check `ACP-SCHEMA-002` already performs.
 
-    Manual `initialize` (no session follows, so no `login_if_needed` call either -- review-v2-
-    slices-1b-6 finding 14: the removed call was dead code, nothing session-dependent came after
-    it) plus `skip_if_version_mismatch`: `AgentCapabilities`' own shape is v2-specific, so a v1-
-    only agent forced under `--protocol-version 2` cannot be honestly judged against it."""
+    Manual `initialize` (no session follows, so no `login_if_needed` call either -- nothing
+    session-dependent comes after it) plus `skip_if_version_mismatch`: `AgentCapabilities`' own
+    shape is v2-specific, so a v1-only agent forced under `--protocol-version 2` cannot be
+    honestly judged against it."""
     async with connected_agent(agent_launch, handshake=False) as agent:
         req_id = await agent.send_request("initialize", SPEC.initialize_params())
         entry = await agent.wait_for_response(req_id, timeout=agent_launch.startup_timeout)
@@ -210,8 +210,8 @@ async def test_full_exchange_has_no_unknown_root_keys(agent_launch, tmp_path):
     initialize -> session/new -> session/prompt exchange, same trick as v1's version of this
     test: derive `method_by_id` from the SENT transcript to resolve each response's own method.
     Unwraps every transcript line via `iter_messages` rather than requiring
-    `isinstance(entry.parsed, dict)` (review-v2-slices-1b-6 finding 5): a message delivered inside
-    a batch-array line must not silently escape this scan."""
+    `isinstance(entry.parsed, dict)`: a message delivered inside a batch-array line must not
+    silently escape this scan."""
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         await run_prompt(

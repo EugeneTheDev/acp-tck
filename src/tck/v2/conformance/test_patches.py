@@ -16,9 +16,9 @@ Per the report's own testability notes (A12-A15/`ACP-PATCH-204/205/206/207`), mo
 pure shape checks over whatever the agent happens to emit during one driven turn: SKIP "no
 <variant> observed" whenever the relevant update kind never appears at all, rather than either a
 vacuous PASS or an unjustified FAIL -- judging only what was actually observed. Neither reference
-SDK exercises tool calls/plans/terminals over v2 yet (report
-D5), so these rows SKIP against `testy`/`echo_agent` and only PASS for real against the repo's own
-`conforming_full.py` (opted in via `emit_rich_turn_updates=True`) and its defect fixtures.
+SDK exercises tool calls/plans/terminals over v2 yet, so these rows SKIP against
+`testy`/`echo_agent` and only PASS for real against the repo's own `conforming_full.py` (opted in
+via `emit_rich_turn_updates=True`) and its defect fixtures.
 """
 
 from __future__ import annotations

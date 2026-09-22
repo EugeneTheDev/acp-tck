@@ -8,8 +8,7 @@ passages bind the *emitter* anyway: a value must be a defined constant OR begin 
 (the schema itself would happily accept `"kind": "sorcery"` via its own `other`-branch
 fallback). The defined-constant sets themselves (`TOOL_KIND`, `TOOL_CALL_STATUS`,
 `PLAN_ENTRY_PRIORITY`, `PLAN_ENTRY_STATUS`, `SESSION_UPDATE_KIND`, `STATE_UPDATE_STATE`,
-`TOOL_CALL_CONTENT_TYPE`) live in `tck.v2.protocol` next to `STOP_REASONS`, not here -- promoted
-out of this module's former local copies (review-v2-slices-1b-6 finding 20); see
+`TOOL_CALL_CONTENT_TYPE`) live in `tck.v2.protocol` next to `STOP_REASONS`, not here -- see
 `tests/v2/test_validation.py::test_enum_sets_match_the_schema` for the meta-test that keeps them
 honest against `schema.json`.
 
@@ -253,11 +252,10 @@ async def test_agent_tolerates_underscore_prefixed_permission_outcome(agent_laun
                     }
                 )
 
-        # `deadline` bounds the *whole* loop below, not each individual read (review-v2-slices-
-        # 1b-6 finding 21): an agent that keeps streaming updates, each safely within
-        # `agent_launch.default_timeout` of the last, but never actually reaches a terminating
-        # idle, would otherwise let this loop run arbitrarily long since a fresh per-read
-        # deadline never itself expires.
+        # `deadline` bounds the *whole* loop below, not each individual read: an agent that keeps
+        # streaming updates, each safely within `agent_launch.default_timeout` of the last, but
+        # never actually reaches a terminating idle, would otherwise let this loop run
+        # arbitrarily long since a fresh per-read deadline never itself expires.
         loop = asyncio.get_running_loop()
         deadline = loop.time() + agent_launch.default_timeout
         try:

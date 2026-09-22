@@ -3,8 +3,8 @@
 `session/resume` always errors with a non-`-32601` code, regardless of the sessionId or route
 used to obtain it.
 
-Self-test for the `ACP-RESUME-201..205` BLOCKER fix (`.agents/research/review-v2-slices-1b-6.md`
-finding 1): `obtain_resumable_session`'s three routes (create-then-resume, list-then-resume,
+Self-test for `obtain_resumable_session`'s all-three-routes-exhausted SKIP behavior:
+`obtain_resumable_session`'s three routes (create-then-resume, list-then-resume,
 close-then-resume) all end in the same `session/resume` call, so all three fail identically here
 -- with a plain `-32603`, never `-32601` (Method not found, which would instead be a hard
 `pytest.fail` per B3). `obtain_resumable_session` must exhaust all three routes and then

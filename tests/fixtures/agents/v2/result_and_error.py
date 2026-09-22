@@ -2,7 +2,7 @@
 """Non-conforming fixture: the `initialize` response carries both `result` and `error`.
 Violates ACP-JSONRPC-002 (a response must have exactly one of `result`/`error`) and, since
 `validate_response_envelope` is also part of the full-exchange schema check, ACP-SCHEMA-001 too.
-Mirrors v1's `result_and_error.py` on top of v2's `_base.py` (D6).
+Mirrors v1's `result_and_error.py` on top of v2's `_base.py`.
 
 Note this does NOT fail ACP-INIT-001: that check only asserts `"result" in msg`, which is still
 true even though `error` is illegally present too -- the narrower envelope/schema checks above

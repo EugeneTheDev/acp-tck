@@ -101,10 +101,10 @@ def _skip_if_turn_end_race_not_exercised(
 ) -> None:
     """Shared v2 race gate behind `_skip_if_cancel_not_exercised` (`session/cancel` trigger,
     `ACP-CANCEL-201/203/206/207`) and `_skip_if_close_cancel_not_exercised` (`session/close`
-    trigger, `ACP-CANCEL-208`) -- both were previously byte-for-byte copies of this same
-    skeleton apart from which trigger index/wire method/property-name prefix they used. See the
-    module docstring's "The race, and the honest-SKIP pattern" section. Only ever raises
-    `pytest.skip.Exception` (situations 1/2) or returns; never asserts anything itself."""
+    trigger, `ACP-CANCEL-208`), differing only in trigger index/wire method/property-name
+    prefix. See the module docstring's "The race, and the honest-SKIP pattern" section. Only
+    ever raises `pytest.skip.Exception` (situations 1/2) or returns; never asserts anything
+    itself."""
     if trigger_at_index is None:
         pytest.skip(f"{verb} not exercised: the turn ended before {trigger_method} could be sent")
     if turn.idle_update is None:

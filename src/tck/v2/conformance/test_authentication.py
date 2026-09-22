@@ -68,8 +68,7 @@ async def test_auth_methods_have_unique_method_ids(agent_initialize_result):
     skip_if_version_mismatch(outcome.result)
     auth_methods = outcome.result.get("authMethods")
     if not auth_methods:
-        # review-v2-slices-1b-6 finding 23: nothing to check here -- record it as a SKIP, not a
-        # vacuous PASS.
+        # Nothing to check here -- record it as a SKIP, not a vacuous PASS.
         pytest.skip("agent advertises no authMethods")
     assert isinstance(auth_methods, list)
     method_ids = [method.get("methodId") for method in auth_methods if isinstance(method, dict)]
@@ -86,9 +85,9 @@ async def test_auth_method_type_is_a_defined_or_prefixed_value(agent_initialize_
     skip_if_version_mismatch(outcome.result)
     auth_methods = outcome.result.get("authMethods") or []
     if not auth_methods:
-        # review-v2-slices-1b-6 finding 23: a vacuous PASS on an agent with no auth surface at
-        # all is the more misleading outcome for a MANDATORY row -- SKIP instead (MANDATORY
-        # SKIPPED does not block the conformant verdict; only FAIL/NOT_TESTED do).
+        # A vacuous PASS on an agent with no auth surface at all is the more misleading outcome
+        # for a MANDATORY row -- SKIP instead (MANDATORY SKIPPED does not block the conformant
+        # verdict; only FAIL/NOT_TESTED do).
         pytest.skip("agent advertises no authMethods")
     defined = frozenset({"agent", "terminal"})
     for method in auth_methods:
