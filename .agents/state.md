@@ -1,8 +1,7 @@
 # State
 
-**Last updated:** 2026-09-22 (comment trimming landed; stderr-assert fix in flight; V2-8 still paused)
-**Last commit pushed:** `176a056` on `v2-support` (three comment-trimming squash commits `52a7bd1`, `2337d1c`,
-`176a056`; suite 245 passed + 1 pre-existing self-test failure, see below). V2-8 branch `v2-review-fixes`
+**Last updated:** 2026-09-22 (comment trimming + stderr fix landed; V2-8 resumed)
+**Last commit pushed:** `70d9669` on `v2-support` (comment trimming `52a7bd1`/`2337d1c`/`176a056` + stderr fix; 246 passed). V2-8 branch `v2-review-fixes`
 pushed at WIP tip `a517657` (based on `f030d71`).
 
 ## Standing user decisions (2026-09-22, this session)
@@ -19,18 +18,19 @@ bookkeeping and history narration; research citations, footguns, maintenance not
 `tests/v2/test_registry.py::test_registry_has_exactly_the_v2_6_requirements` →
 `test_registry_has_exactly_the_expected_requirements`. No logic change.
 
-## In flight — `fix-stderr-assert` (one programmer, worktree `../acp-tck-2-fix-stderr-assert`, off `176a056`)
-Pre-existing latent bug surfaced by all three trimmers: `tests/v1/test_cli.py::
-test_noisy_stderr_and_parse_error_reply_agent_informational_notes` asserts `"0 stderr byte(s)" not in line`; the
-fixture emits 350 bytes here so the substring matches `350`. Fix = anchor/parse the count. On report: verify,
-squash-merge, suite (expect 246 passed), push, remove worktree/branch. THEN resume V2-8 (next section).
+## Done (2026-09-22): `fix-stderr-assert` (`70d9669`)
+`tests/v1/test_cli.py` stderr byte-count assertion parses the count instead of a substring check that matched
+`350`. Suite fully green (246 passed) at `70d9669`.
 
-## Resuming V2-8 after that
-Spawn one programmer on the EXISTING worktree `../acp-tck-2-v2-review-fixes` (branch `v2-review-fixes`; do not
-`git worktree add`). Its branch predates the trimming commits: have it `git merge v2-support` (one conflict pass;
-conflicts will be comment-vs-code in `src/tck/v2/**`, `tests/v2/**`, fixtures) rather than rebase 14 commits.
-Its own new/extended comments must follow the trimmed style (no slice numbers). Task list = "V2-8 remaining work"
-below.
+## In flight — slice V2-8 `v2-review-fixes` (RESUMED 2026-09-22, one programmer, existing worktree)
+Programmer was told to `git merge origin/v2-support` (`70d9669`) into the branch first (comment-vs-code
+conflicts expected), then finish the WIP (NIT 26 + `test_cli.py` AUTH-201/206 SKIP fallout incl.
+`test_terminal_env_duplicate_names_fails_auth_207_only`), then the remaining list below. Orchestrator decisions
+handed down: NIT 29 = keep both `ACP-CANCEL-208`/`ACP-CLOSE-202`, add a "counted twice by design" clause to
+CANCEL-208's text; NIT 36 = leave deferred; NIT 37 = attempt, drop with a note if fallout exceeds
+INFO-UNKNOWNSESSION-001 expectations; NIT 41 already done by the trim pass. New comments must follow the
+trimmed style (no slice numbers). On report: run the merge checklist below, squash-merge, suite, push, remove
+worktree + branch (local + remote).
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
