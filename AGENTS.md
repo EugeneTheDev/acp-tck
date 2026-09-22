@@ -1327,9 +1327,24 @@ uv run pytest
 ```
 
 The whole suite (harness unit tests + registry meta-tests + end-to-end CLI tests against every
-fixture) runs in well under a minute. Harness unit tests use short (≤2s) per-call timeouts and
-`asyncio.run(...)` directly -- there is no `pytest-asyncio` dependency. The conformance suite's
-own async tests are run the same way, via `tck.common.plugin`'s `pytest_pyfunc_call` hook.
+fixture, for both the v1 and v2 conformance suites) takes a bit under 5 minutes (~293s measured
+across three consecutive runs). Most of that time is `tests/v2/test_cli.py`'s end-to-end CLI
+invocations, each of which spawns a real `python -m tck` subprocess (itself spawning a fixture
+agent subprocess) and, for the fixtures with the broadest defect cascades, waits out one or more
+`--tck-timeout`-bounded hangs; most of those self-tests scope their run with `-k` to just the
+conformance-suite module(s) that own the id(s) they assert on (mirroring `tests/v1/test_cli.py`'s
+existing precedent), deselecting everything else (`NOT_TESTED`) rather than re-verifying it --
+`-k`-scoped runs necessarily flip the printed/JSON verdict to NOT CONFORMANT (see
+`tests/v1/test_cli.py::test_hangs_until_cancel_agent_passes_cancel_requirements`'s docstring), so
+those self-tests check only the specific per-id statuses they care about, not the overall
+verdict/exit code. A handful of positive controls (`conforming.py`, `conforming_full.py` with
+`--cancel-prompt __hang__`, `emits_batch_updates.py`, the version-mismatch scenario, and one
+crash-style fixture) and defect fixtures whose own assertions require every id to have actually
+run (e.g. checking the full registry's status table, or a `--report-json` verdict) are
+deliberately left as full, unscoped runs. Harness unit tests use short (≤2s) per-call timeouts
+and `asyncio.run(...)` directly -- there is no `pytest-asyncio` dependency. The conformance
+suite's own async tests are run the same way, via `tck.common.plugin`'s `pytest_pyfunc_call`
+hook.
 
 ## CI
 
