@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """A defect fixture for ACP-AUTH-201 (ADVISORY): advertises two `authMethods` entries sharing
-the same `methodId`. No v1 analogue -- new fixture for this slice.
+the same `methodId`. No v1 analogue.
 """
 
 import sys

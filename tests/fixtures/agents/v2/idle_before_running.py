@@ -6,12 +6,12 @@ is ever issued for it -- the legal initial-ready-idle pattern
 v2 reference agent). Every subsequent `session/prompt` turn on that session behaves exactly like
 `ConformingAgent`'s baseline.
 
-Must PASS every V2-2a requirement: `run_prompt` never drains `agent.pending()` before sending
-`session/prompt`, so this pre-prompt idle is either consumed by the test's own `new_session()`
-read (and left unread in `agent.pending()`, never seen by `run_prompt` at all) or -- if it
-arrives after that read -- picked up as the first line `run_prompt` itself reads, where it fails
-the turn-end predicate (`running_seen` is `False` and it carries no `stopReason`) and is simply
-recorded as an ordinary update, never mistaken for *this* turn's terminator.
+`run_prompt` never drains `agent.pending()` before sending `session/prompt`, so this pre-prompt
+idle is either consumed by the test's own `new_session()` read (and left unread in
+`agent.pending()`, never seen by `run_prompt` at all) or -- if it arrives after that read --
+picked up as the first line `run_prompt` itself reads, where it fails the turn-end predicate
+(`running_seen` is `False` and it carries no `stopReason`) and is simply recorded as an ordinary
+update, never mistaken for *this* turn's terminator.
 """
 
 import sys

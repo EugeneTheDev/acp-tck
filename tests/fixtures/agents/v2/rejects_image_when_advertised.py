@@ -5,7 +5,7 @@ content block with a JSON-RPC error, instead of accepting it as advertised.
 
 FAILs exactly `ACP-PROMPTCAP-001`. `ACP-PROMPTCAP-002`/`003` PASS -- audio/resource blocks are
 still accepted normally, and both capabilities are advertised so those tests actually run
-(rather than SKIPping). Every other V2-2b/V2-2a id is unaffected.
+(rather than SKIPping).
 """
 
 import sys

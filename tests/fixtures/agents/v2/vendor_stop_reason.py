@@ -3,9 +3,8 @@
 `_`-prefixed, implementation-specific extension value, legal per the open-enum extensibility
 rule (`tck.v2.protocol.is_valid_open_enum_value`).
 
-Must PASS every V2-2a requirement, including `ACP-STATE-203` -- this is the positive control
-proving the `_`-prefix rule itself, paired with `bad_stop_reason.py`'s negative control (a
-non-`_`-prefixed, non-defined value, which FAILs).
+Positive control for `ACP-STATE-203`'s `_`-prefix rule, paired with `bad_stop_reason.py`'s
+negative control (a non-`_`-prefixed, non-defined value, which FAILs).
 """
 
 import sys

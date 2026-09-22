@@ -11,82 +11,51 @@ Wire shapes are taken from the vendored `src/tck/v2/schema/schema.json` (`Initia
 not memory, before changing a field name. Two v2-specific renames vs. v1: the agent's own identity
 is `info` (not `agentInfo`) and its capabilities are `capabilities` (not `agentCapabilities`).
 
-Slice V2-1b adds the rest of the `capabilities.session` baseline (`.agents/research/
+Implements the full `capabilities.session` baseline (`.agents/research/
 acp-v2-session-management.md` B1: advertising `session` even as `{}` commits the agent to
 `session/new`, `session/list`, `session/resume`, `session/close`, `session/prompt`,
-`session/cancel`, `session/update`) -- `session/list`, `session/resume`, `session/close`, and a
-minimal but wire-correct `session/prompt` turn. None of this is exercised by any test *this*
-slice (only `session/new` is, via `ACP-SESSION-001/002`); it exists so a follow-up slice's
-prompt-lifecycle/session-capability tests have a conforming baseline to run against from day one,
-per the exact shapes cited on each handler below.
-
-Slice V2-2b adds three `_handle_prompt` hooks (`_prompt_rejection`, `_mid_turn_action`,
-`_finish_turn` -- see their docstrings) and two shared subclasses built on top of them:
-`AsksPermissionAgent` (sends `session/request_permission` mid-turn, defers finishing the turn
-until the client answers -- `ACP-PERM-201`'s self-test) and `SendsClientRequestAgent` (fires an
-arbitrary agent -> client request mid-turn and continues immediately, not waiting for a reply --
-`ACP-CLIENTCAP-201`/`202`'s defect fixtures and the `_`-prefixed positive control). All three
-hooks default to a no-op/pass-through, so every V2-2a fixture above is unaffected.
-
-Slice V2-3 adds two independent things, both opt-in/no-op by default so every earlier fixture is
-unaffected:
+`session/cancel`, `session/update`), plus:
 
 - A `__hang__` cancel sentinel, mirroring v1's `conforming.py`: a prompt whose content is a
   single `{"type": "text", "text": "__hang__"}` block withholds its terminating idle update
-  (`_finish_turn`) until `session/cancel` actually arrives for that session (`_handle_cancel`),
-  making `ACP-CANCEL-201..20*` testable end to end. `session/close` on a still-hanging session
-  cancels it the same way first (`_handle_close_session`, `ACP-CANCEL-208`). The hang check runs
-  right after the running update and *before* `_mid_turn_action`, so it preempts (rather than
-  combines with) a subclass's own mid-turn behavior for that one sentinel prompt -- irrelevant
-  for every non-hang prompt, which is unaffected.
+  (`_finish_turn`) until `session/cancel` arrives for that session (`_handle_cancel`), or
+  `session/close` cancels it first (`_handle_close_session`, `ACP-CANCEL-208`). The hang check
+  runs right after the running update and *before* `_mid_turn_action`, preempting a subclass's
+  own mid-turn behavior for that one sentinel prompt only.
 - JSON-RPC batch dispatch (`.agents/research/acp-v2-cancellation-and-batching.md` §6): `run()`
-  now also accepts a top-level JSON array line. `_write` is split into an instance method that
-  buffers a *response* object into `self._batch_collector` while one is active (never a
-  request/notification the agent itself originates -- those always stream out immediately, same
-  as outside a batch) and a `_write_line` staticmethod that actually emits a line; this makes
-  `_handle_batch`/`_handle_batch_entry` able to reuse every existing `_handle_request`/
-  `_handle_cancel` method unchanged, just redirecting where their replies land.
-
-Slice V2-4 adds session management (`.agents/research/acp-v2-session-management.md`):
-
-- `session/resume` now actually replays: every `session/update` is recorded into a per-session
-  history (`_record_history`, called from `_send_update`) as it is sent, and
-  `_handle_resume_session` replays that history verbatim (via `_notify` directly, bypassing
-  `_record_history` so a replay is never itself re-recorded) when `replayFrom` is
-  `{"type": "start"}`; `replayFrom` omitted/`null` replays nothing (R2/R3). A `*_chunk` update is
-  preceded, the first time its `messageId` is seen, by a synthesized whole-message primer
-  (`content: []`) for the same id (R9's "chunks build on a preceding whole message" shape) --
-  this fixture itself only ever sends whole (non-chunked) updates, but the primer logic exists so
-  a chunk-emitting subclass/defect-fixture still produces schema-correct history.
-  `_handle_resume_session` accepts *any* `sessionId`, even one this process never created --
-  deliberately, so every route `_helpers.obtain_resumable_session` tries succeeds against this
-  fixture and `ACP-RESUME-201` never SKIPs here for lack of a resumable id.
-- `session/delete` (`_handle_delete_session`) removes the session the same way `session/close`
-  does, but is *not* itself gated on any hanging-prompt cancellation (D-series carries no such
-  side effect); deleting an unknown/already-deleted id still succeeds silently (`ACP-DELETE-203`).
-- `session/set_config_option` (`_handle_set_config_option`) looks up `configId` among whatever
-  `config_options` the constructor was given, updates its `currentValue`, and replies with the
-  complete, updated list (`ACP-CONFIG-202`). `session/new`/`session/resume` both include
-  `configOptions` in their result whenever any are configured (`ACP-CONFIG-201`/`203`).
-  `additionalDirectories`/`mcpServers` need no new handling at all: `_handle_new_session`/
-  `_handle_resume_session` already only ever read `cwd`/`sessionId` out of `params` and ignore
-  every other key, so both are already "accepted" in the sense `ACP-ADDDIRS-201/202`/
-  `ACP-MCP-201/202` check (never rejected) -- there is nothing to actively support beyond not
-  erroring.
-
-Slice V2-6 adds one opt-in hook, `_send_rich_turn_updates` (constructor flag
-`emit_rich_turn_updates`, default `False` so every earlier fixture is unaffected), fired once per
-turn right after the running update: a two-chunk `agent_message_chunk` pair sharing one
-`messageId` (`ACP-PATCH-201`), a `tool_call_update` create (with `title`/`kind`, `ACP-PATCH-208`)
-followed by a second `tool_call_update` patch carrying `content` for the same `toolCallId`
-(`ACP-PATCH-204`), and a `plan_update` with one entry (`ACP-PATCH-205`) -- so `conforming_full.py`
-(the only fixture that sets the flag) gives every new PATCH/ENUM row in
-`.agents/research/acp-v2-patches-enums-extensibility.md` something to observe instead of
-vacuously SKIPping "no <variant> observed". `AsksPermissionAgent` additionally brackets its
-`session/request_permission` with a `state_update {state: "requires_action"}` before sending it
-and `state_update {state: "running"}` once the answer resumes the turn, so `ACP-PATCH-209`
-(requires_action/running reporting around a permission block) has something to observe too --
-no-op for every fixture that never asks for permission at all.
+  also accepts a top-level JSON array line. `_write` buffers a *response* object into
+  `self._batch_collector` while one is active (never a request/notification the agent itself
+  originates -- those stream out immediately, batch or not); `_write_line` emits an actual line.
+  This lets `_handle_batch`/`_handle_batch_entry` reuse every `_handle_request`/`_handle_cancel`
+  method unchanged, just redirecting where their replies land.
+- `session/resume` replay (`.agents/research/acp-v2-session-management.md`): every
+  `session/update` is recorded into a per-session history (`_record_history`, from
+  `_send_update`), and `_handle_resume_session` replays it verbatim (via `_notify` directly,
+  bypassing `_record_history` so a replay is never re-recorded) when `replayFrom` is
+  `{"type": "start"}`; omitted/`null` replays nothing (R2/R3). A `*_chunk` update is preceded,
+  the first time its `messageId` is seen, by a synthesized whole-message primer (`content: []`)
+  for the same id (R9's "chunks build on a preceding whole message" shape) -- this fixture only
+  ever sends whole updates itself, but the primer keeps a chunk-emitting subclass's history
+  schema-correct too. `_handle_resume_session` accepts *any* `sessionId`, even an unknown one,
+  registering it as live -- so every route `_helpers.obtain_resumable_session` tries succeeds.
+- `session/delete` (`_handle_delete_session`) removes a session like `session/close` does, but
+  with no cancellation side effect (deleting an unknown/already-deleted id succeeds silently,
+  `ACP-DELETE-203`).
+- `session/set_config_option` (`_handle_set_config_option`) looks up `configId` among the
+  constructor's `config_options`, updates its `currentValue`, and replies with the complete
+  updated list (`ACP-CONFIG-202`). `session/new`/`session/resume` include `configOptions` in
+  their result whenever any are configured (`ACP-CONFIG-201`/`203`). `additionalDirectories`/
+  `mcpServers` need no handling: the session handlers already ignore unknown `params` keys, which
+  is all `ACP-ADDDIRS-201/202`/`ACP-MCP-201/202` require (accepted, never rejected).
+- `_send_rich_turn_updates`, an opt-in hook (`emit_rich_turn_updates` constructor flag, default
+  `False`) fired once per turn right after the running update: a two-chunk `agent_message_chunk`
+  pair sharing one `messageId` (`ACP-PATCH-201`), a `tool_call_update` create (`ACP-PATCH-208`)
+  followed by a patch carrying `content` for the same `toolCallId` (`ACP-PATCH-204`), and a
+  `plan_update` with one entry (`ACP-PATCH-205`) -- gives every PATCH/ENUM row in
+  `.agents/research/acp-v2-patches-enums-extensibility.md` something real to observe instead of
+  vacuously SKIPping. Only `conforming_full.py` sets the flag. `AsksPermissionAgent` additionally
+  brackets its `session/request_permission` with `state_update {state: "requires_action"}` before
+  and `state_update {state: "running"}` after, so `ACP-PATCH-209` has something to observe too.
 """
 
 from __future__ import annotations
@@ -116,8 +85,8 @@ class ConformingAgent:
     vendored schema's own description text on `AgentCapabilities.session`).
     """
 
-    # Session-history bookkeeping (V2-4): `sessionUpdate` kinds that belong to the replayable
-    # conversation history, split into whole-message and their `_chunk` counterparts.
+    # `sessionUpdate` kinds that belong to the replayable conversation history, split into
+    # whole-message and their `_chunk` counterparts.
     _WHOLE_MESSAGE_KINDS = {"user_message", "agent_message", "agent_thought"}
     _CHUNK_MESSAGE_KINDS = {"user_message_chunk", "agent_message_chunk", "agent_thought_chunk"}
 
@@ -147,8 +116,8 @@ class ConformingAgent:
         self._config_options: list[dict[str, Any]] = [dict(opt) for opt in (config_options or [])]
         self._history: dict[str, list[dict[str, Any]]] = {}  # sessionId -> replayable updates
         self._primed_message_ids: dict[str, set[Any]] = {}  # sessionId -> messageIds already primed
-        # `initialize`'s `authMethods` (V2-5) -- `auth/login`/`auth/logout` keyed by `methodId`
-        # (v1 keyed the equivalent field `id`; v2 renamed it, see `schema/v2/schema.json`
+        # `initialize`'s `authMethods` -- `auth/login`/`auth/logout` keyed by `methodId` (v1
+        # keyed the equivalent field `id`; v2 renamed it, see `schema/v2/schema.json`
         # `$defs/AuthMethodId`). `require_auth` mirrors v1's `_base.py`: `session/new` errors
         # with `-32000` until a successful `auth/login` flips `self._authenticated`.
         self._auth_methods = auth_methods
@@ -364,17 +333,14 @@ class ConformingAgent:
         # state_update{idle, stopReason:"end_turn"}. The response is an acceptance receipt only
         # (no `stopReason`) -- P7/§2.
         #
-        # Slice V2-2a splits this into small overridable steps (`_reply_to_prompt`,
-        # `_send_user_message_update`, `_send_running_update`, `_stop_reason`,
-        # `_send_idle_update`) purely so single-defect fixtures under `tests/fixtures/agents/v2/`
-        # can override exactly one step -- `ConformingAgent`'s own behavior here is unchanged.
-        #
-        # Slice V2-2b adds three more hooks, all no-ops/pass-through by default so every
-        # existing fixture above is unaffected: `_prompt_rejection` (reject the prompt outright,
-        # e.g. `rejects_image_when_advertised.py`) and `_mid_turn_action` (fire something -- a
-        # permission request, an arbitrary agent -> client probe -- after the running update;
-        # returning `True` defers the rest of the turn to a later `_handle_response` call
-        # instead of finishing it immediately, for `AsksPermissionAgent`).
+        # Split into small overridable steps (`_reply_to_prompt`, `_send_user_message_update`,
+        # `_send_running_update`, `_stop_reason`, `_send_idle_update`) so single-defect fixtures
+        # under `tests/fixtures/agents/v2/` can override exactly one step. `_prompt_rejection`
+        # (reject the prompt outright, e.g. `rejects_image_when_advertised.py`) and
+        # `_mid_turn_action` (fire something -- a permission request, an arbitrary agent->client
+        # probe -- after the running update; returning `True` defers the rest of the turn to a
+        # later `_handle_response` call instead of finishing it immediately, for
+        # `AsksPermissionAgent`) both no-op/pass-through by default.
         session_id = params.get("sessionId")
         prompt = params.get("prompt") or []
         rejection = self._prompt_rejection(prompt)
@@ -389,10 +355,9 @@ class ConformingAgent:
         self._send_running_update(session_id)
         self._send_rich_turn_updates(session_id)
         if self._is_hang_prompt(prompt):
-            # Slice V2-3's cancel sentinel: withhold the terminating idle until `session/cancel`
-            # (or `session/close`) actually arrives for this session -- see `_handle_cancel`/
-            # `_handle_close_session`. Preempts `_mid_turn_action` for this one prompt only;
-            # every other prompt is unaffected.
+            # Cancel sentinel: withhold the terminating idle until `session/cancel` (or
+            # `session/close`) arrives for this session -- see `_handle_cancel`/
+            # `_handle_close_session`. Preempts `_mid_turn_action` for this one prompt only.
             self._hanging_sessions[session_id] = True
             return
         if self._mid_turn_action(session_id):
@@ -409,8 +374,8 @@ class ConformingAgent:
         )
 
     def _send_rich_turn_updates(self, session_id: Any) -> None:
-        """Slice V2-6: opt-in (`emit_rich_turn_updates=True`) emission of a two-chunk agent
-        message, a tool_call create + follow-up patch, and a plan update -- so the ACP-PATCH-2xx/
+        """Opt-in (`emit_rich_turn_updates=True`) emission of a two-chunk agent message, a
+        tool_call create + follow-up patch, and a plan update -- so the ACP-PATCH-2xx/
         ACP-ENUM-2xx rows have something real to scan instead of vacuously SKIPping. No-op
         (default) for every fixture that doesn't opt in."""
         if not self._emit_rich_turn_updates:
@@ -528,10 +493,10 @@ class ConformingAgent:
         self._send_update(session_id, update)
 
     def _record_history(self, session_id: Any, update: dict[str, Any]) -> None:
-        """Append `update` to `session_id`'s replayable history (V2-4, R9), primed with a
-        synthetic whole-message entry (`content: []`) the first time a `*_chunk` update's
-        `messageId` is seen -- so a replay of chunk-built history is itself schema-shaped, even
-        though this fixture never actually emits a chunk itself."""
+        """Append `update` to `session_id`'s replayable history (R9), primed with a synthetic
+        whole-message entry (`content: []`) the first time a `*_chunk` update's `messageId` is
+        seen -- so a replay of chunk-built history is itself schema-shaped, even though this
+        fixture never actually emits a chunk itself."""
         kind = update.get("sessionUpdate")
         if kind not in self._WHOLE_MESSAGE_KINDS and kind not in self._CHUNK_MESSAGE_KINDS:
             return

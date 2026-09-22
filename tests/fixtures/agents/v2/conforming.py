@@ -3,8 +3,8 @@
 
 See `_base.ConformingAgent` for the behavior. Mirrors `tests/fixtures/agents/v1/conforming.py`'s
 role as the harness's known-good baseline, for the v2 conformance suite. Advertises
-`capabilities: {"session": {}}` so every `capabilities.session`-gated test (`ACP-SESSION-001/002`
-this slice) actually runs and PASSes, rather than SKIPping.
+`capabilities: {"session": {}}` so every `capabilities.session`-gated test (e.g.
+`ACP-SESSION-001/002`) actually runs and PASSes, rather than SKIPping.
 """
 
 import sys
