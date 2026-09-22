@@ -121,6 +121,7 @@ def _run_cli(
     startup_timeout: str = "1",
     cancel_prompt: str | None = None,
     auth_method: str | None = None,
+    allow_logout: bool = False,
     close_grace: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     cmd = [
@@ -144,6 +145,8 @@ def _run_cli(
         cmd += ["--cancel-prompt", cancel_prompt]
     if auth_method is not None:
         cmd += ["--auth-method", auth_method]
+    if allow_logout:
+        cmd += ["--allow-logout"]
     if close_grace is not None:
         cmd += ["--close-grace", close_grace]
     cmd += [
@@ -652,13 +655,18 @@ def test_conforming_full_agent_passes_everything_with_cancel_prompt_hang():
     `_handle_prompt` withholds a response for, so it's what lets ACP-CANCEL-001/002 and
     ACP-CLOSE-002 actually exercise their cancellation/close-race logic instead of SKIPPING as
     "not exercised". `--auth-method tck` is required for ACP-AUTH-003 to PASS instead of SKIP,
-    since `conforming_full.py` advertises an `authMethods` entry with that id.
+    since `conforming_full.py` advertises an `authMethods` entry with that id. `--allow-logout`
+    is required for ACP-AUTH-004 to PASS instead of SKIP -- calling `logout` for real is opt-in
+    (see `test_conforming_full_agent_without_allow_logout_only_skips_auth_004` below for the
+    default-off behaviour).
 
     `ACP-AUTH-005` (AUTH-A1) is the one ADVISORY id that legitimately SKIPs here rather than
     PASSing: it only concerns an agent that advertises *no* `authMethods`, and
     `conforming_full.py` deliberately advertises one -- that is inapplicability, not a
     conformance gap, exactly like `ACP-AUTH-003` SKIPping without `--auth-method`."""
-    result = _run_cli("conforming_full.py", cancel_prompt="__hang__", auth_method="tck")
+    result = _run_cli(
+        "conforming_full.py", cancel_prompt="__hang__", auth_method="tck", allow_logout=True
+    )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
 
@@ -675,6 +683,30 @@ def test_conforming_full_agent_passes_everything_with_cancel_prompt_hang():
     assert all(
         status != "SKIPPED" for req_id, status in statuses.items() if req_id != "ACP-AUTH-005"
     ), result.stdout
+
+
+def test_conforming_full_agent_without_allow_logout_only_skips_auth_004():
+    """Acceptance criterion: the same `conforming_full.py --auth-method tck` run, but WITHOUT
+    `--allow-logout`, must SKIP ONLY `ACP-AUTH-004` in addition to the baseline's own SKIP
+    (`ACP-AUTH-005`, per `test_conforming_full_agent_passes_everything_with_cancel_prompt_hang`
+    above) -- every other id keeps the exact same status. Calling `logout` for real is opt-in
+    (mirrors v2's `ACP-AUTH-203` gating); a SKIPPED CAPABILITY does not affect the verdict."""
+    result = _run_cli(
+        "conforming_full.py", cancel_prompt="__hang__", auth_method="tck", allow_logout=False
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
+
+    statuses = _table_statuses(result.stdout)
+    assert set(statuses) == _ALL_IDS | _INFORMATIONAL_IDS, (
+        f"requirement table missing/extra ids: {result.stdout}"
+    )
+    expected_skips = {"ACP-AUTH-004", "ACP-AUTH-005"}
+    for req_id, status in statuses.items():
+        if req_id in expected_skips:
+            assert status == "SKIPPED", f"{req_id} is {status}, expected SKIPPED:\n{result.stdout}"
+        else:
+            assert status == "PASS", f"{req_id} is {status}, expected PASS without --allow-logout:\n{result.stdout}"
 
 
 def test_load_replays_after_response_fails_load_002_only():
