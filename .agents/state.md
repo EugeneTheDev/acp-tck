@@ -1,7 +1,7 @@
 # State
 
-**Last updated:** 2026-09-22 (v2 effort — V2-0…V2-4b merged+pushed; V2-5 authentication in flight)
-**Last commit pushed:** `7183441` on `v2-support` (V2-4b perf; 220 tests, 76 v2 ids, suite ≈293 s) — plus workbench commits on top
+**Last updated:** 2026-09-22 (v2 effort — V2-0…V2-5 merged+pushed; V2-6 hygiene in flight)
+**Last commit pushed:** `fac2649` on `v2-support` (V2-5 auth; 229 tests, 83 v2 ids, suite ≈310 s) — plus workbench commits on top
 
 ## How to resume (fresh orchestrator)
 1. Read `prompt.md` (the mission brief — v2 support, `common`/`v1`/`v2` layout, orchestrator-only role,
@@ -38,15 +38,17 @@ against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude
 `testy-cross-check.md`, `upstream-issues.md` (internal drafts only, do not file).
 
 ## In flight
-- **V2-5 `v2-auth`** (worktree `../acp-tck-2-v2-auth`, off `7183441`+): AUTH rows per plan.md "v2 authentication
-  — decisions" (201 ADVISORY methodId unique; terminal-unadvertised MANDATORY — reuse AUTH-002 per D3 if same;
-  203 logout CAPABILITY `inferred:authMethods` behind new opt-in `--allow-logout`/`--tck-allow-logout`;
-  204 `auth/login` CAPABILITY needing `--auth-method`; 205 ADVISORY no `-32000` when `authMethods` empty;
-  206 custom `type` `_`-prefix MANDATORY; 207 terminal descriptor + unique `env` names on a second connection
-  advertising `capabilities.auth.terminal`); `AUTH-GATED:`/`blocked_by_auth` unchanged; fixtures incl. v2
-  `gated_by_auth.py`; `conforming_full.py` gains an `authMethods` entry (id `tck`). On report: verify
-  (suite; `conforming_full.py --auth-method tck --allow-logout --cancel-prompt __hang__`; `gated_by_auth.py`
-  without `--auth-method` → blocked_by_auth), merge, push, cleanup. Then **V2-6**, **V2-7**, review pass.
+- **V2-6 `v2-hygiene`** (worktree `../acp-tck-2-v2-hygiene`, off `fac2649`+): PATCH-201..209 (keyed upserts:
+  messageId/toolCallId/planId MUSTs), ENUM-201..203 (`_`-prefix emitter rule), META-201, EXT-201..203, re-cited
+  EXT-001/META-001/ERROR-001/SHUTDOWN-001/SCHEMA-002, STDERR-001, INFO-PARSE-001/INVALIDREQ-001 v2 twins;
+  `conforming_full.py` emits a tool call + multi-chunk message + plan; defect fixtures. On report: verify,
+  merge, push, cleanup. Then **V2-7** (cross-check + CI + docs), then the **review pass** (items listed in
+  plan.md "Deferred nits": AUTH-202→AUTH-002 id, MCP tier, record-only ADVISORY→INFORMATIONAL, conforming_full
+  terminal method, VersionSpec dead fields).
+
+**Done (2026-09-22): slice V2-5** (`fac2649`) — AUTH-201..207, `--allow-logout`/`--tck-allow-logout`
+(opt-in logout probe), `login_if_needed` helper fixing an auth-gate bypass in self-initializing v2 tests,
+6 fixtures incl. v2 `gated_by_auth.py`. 229 passed (≈310 s).
 
 **Done (2026-09-22): slice V2-4b** (`7183441`) — `-k` scoping in `tests/v2/test_cli.py`; suite 540 s → 293 s
 (3 consecutive runs), no `src/tck/**` change, no xdist needed. Per-test subprocess spawn (~90 ms × ~73 tests)

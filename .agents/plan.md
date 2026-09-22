@@ -244,6 +244,13 @@ Turn-end predicate (driver): an idle `state_update` ends the turn iff it carries
   any `$def` lookup (already implied by D6; the v1 validator's dict-only assumption is not reused).
 
 ### Deferred nits (do not lose)
+- Review-pass item (V2-5): `conforming_full.py` (v2) should also advertise a `terminal` auth method when the
+  client advertised `capabilities.auth.terminal`, so MANDATORY `ACP-AUTH-207` PASSes instead of SKIPping on
+  the all-PASS fixture.
+- Review-pass item (V2-5): `ACP-AUTH-202` (terminal method advertised without client `capabilities.auth.
+  terminal`) is the same requirement as v1 `ACP-AUTH-002` with renamed paths → per D3 it should keep the v1
+  id. Also confirm `ACP-MCP-201/202` INFORMATIONAL tier (plan intended CAPABILITY; "use unobservable" is
+  a fair reason — decide and document once).
 - Review-pass item (V2-3): `ACP-BATCH-206/207/208` and `ACP-CANCEL-204` are ADVISORY but record-only and
   always SKIP ("cannot force"/"unobservable"). A row that can never be judged should be INFORMATIONAL (or
   omitted, as v1 did for Req 10). Re-tier in the final review pass.
