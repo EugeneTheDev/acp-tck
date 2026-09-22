@@ -44,13 +44,12 @@ against `claude-agent-acp` and `codex-acp` in `.agents/reports/` (notes: `claude
   `agent-client-protocol==1.0.0rc2` under `scripts/cross-check/`, `cross-check-summary.py` version-aware,
   `docs/cross-check.md` v2 table + explanations, CI job v2 leg (informational), README/AGENTS.md. Any
   unexpected FAIL is escalated as a possible TCK bug, not papered over.
-- **Reviewer** (researcher role) writing `research/review-v2-slices-1b-6.md` (read-only review of
-  `1d795cc..26bf0f2` against plan.md decisions/research; decides the plan.md "Deferred nits" review-pass
-  items) and `research/upstream-issues-v2.md` (drafts: stale `schema.json:3128` 4-method comment, stale
-  `migration.mdx:191/224`, Python SDK batch crash, SDK strict-v2 negotiation errors, Python v2 bindings from
-  unstable schema — internal notes only, do not file).
-- After both: **V2-8 review-fix slice** (BLOCKER/SHOULD-FIX + review-pass items), then final state/plan
-  update and a summary for the user (merge to `main` is the user's decision).
+- **Review landed:** `research/review-v2-slices-1b-6.md` — 1 BLOCKER (RESUME-202..205 bypass the three-route
+  helper → false FAILs), 20 SHOULD-FIX, 22 NIT; decisions recorded in plan.md "Review decisions … → slice
+  V2-8". `research/upstream-issues-v2.md` drafted (13 items; internal only).
+- After V2-7 merges: **V2-8 review-fix slice** (all items in plan.md "Review decisions"; includes re-running
+  `scripts/cross-check.sh` and refreshing the v2 baseline/CI expectations), then final state/plan update and
+  a summary for the user (merge to `main` is the user's decision).
 
 **Done (2026-09-22): slice V2-6** (`26bf0f2`) — PATCH-201..209, ENUM-201..203, META-201, EXT-201..203, re-cited
 EXT-001/META-001/ERROR-001/SHUTDOWN-001/SCHEMA-002/STDERR-001/INFO-PARSE-001/INFO-INVALIDREQ-001; rich turn in
