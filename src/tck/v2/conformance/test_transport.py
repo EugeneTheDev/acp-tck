@@ -30,8 +30,7 @@ import pytest
 
 from tck.common.harness import Direction
 
-from ._helpers import connected_agent, login_if_needed, new_session, run_prompt, skip_if_version_mismatch
-from ..protocol import PROTOCOL_VERSION
+from ._helpers import new_session, run_prompt, v2_only_agent
 
 
 async def _drive_full_exchange(agent_launch, tmp_path):
@@ -39,20 +38,10 @@ async def _drive_full_exchange(agent_launch, tmp_path):
     agent actually negotiated v2 -- see module docstring) -> `session/new` -> one ordinary
     `session/prompt` turn to completion, and return the full RECEIVED transcript, collected only
     after the agent process has fully closed so post-response stdout garbage is included (mirrors
-    v1's `_drive_full_exchange`)."""
-    async with connected_agent(agent_launch, handshake=False) as agent:
-        req_id = await agent.send_request(
-            "initialize",
-            {"protocolVersion": PROTOCOL_VERSION, "info": {"name": "acp-tck", "version": "0"}},
-        )
-        entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
-        msg = entry.parsed
-        assert isinstance(msg, dict) and isinstance(msg.get("result"), dict), (
-            f"initialize did not return a result object: {entry.text!r}"
-        )
-        skip_if_version_mismatch(msg["result"])
-
-        await login_if_needed(agent, timeout=agent_launch.default_timeout)
+    v1's `_drive_full_exchange`). The initialize/version-mismatch-skip/login dance itself is
+    `v2_only_agent` (review-v2-slices-1b-6 finding 19 -- this file previously kept its own
+    hand-rolled copy)."""
+    async with v2_only_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         await run_prompt(
             agent,

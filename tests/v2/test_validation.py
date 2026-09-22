@@ -144,3 +144,51 @@ def test_is_valid_open_enum_value_never_raises_on_a_dict_value():
 
 def test_is_valid_open_enum_value_never_raises_on_a_none_value():
     assert protocol.is_valid_open_enum_value(None, protocol.STOP_REASONS) is False
+
+
+# --- ACP-ENUM-201/202's defined-constant sets, cross-checked against the schema itself ---
+
+
+def _consts_from_schema(def_name: str, *, discriminator: str | None = None) -> frozenset[str]:
+    """Independently derive the set of defined `const` values an `anyOf`-shaped `$def` permits,
+    straight from `schema.json` -- deliberately not calling any of `tck.v2.protocol`'s own code,
+    so this is a real cross-check rather than the module re-affirming itself.
+
+    Each `anyOf` branch is either a bare scalar with its own top-level `const` (e.g. `ToolKind`),
+    or an object branch whose discriminator field carries the `const` under
+    `properties.<discriminator>.const` (e.g. `SessionUpdate.sessionUpdate`,
+    `StateUpdate.state`, `ToolCallContent.type`) -- `discriminator` selects which shape to read.
+    The catch-all "custom or future ..." branch has no `const` at all and is silently skipped.
+    """
+    defs = protocol.load_schema()["$defs"]
+    consts: set[str] = set()
+    for branch in defs[def_name]["anyOf"]:
+        const = (
+            branch.get("properties", {}).get(discriminator, {}).get("const")
+            if discriminator is not None
+            else branch.get("const")
+        )
+        if isinstance(const, str):
+            consts.add(const)
+    return frozenset(consts)
+
+
+def test_enum_sets_match_the_schema():
+    """review-v2-slices-1b-6 finding 20: `tck.v2.protocol`'s hand-copied `TOOL_KIND`/
+    `TOOL_CALL_STATUS`/`PLAN_ENTRY_PRIORITY`/`PLAN_ENTRY_STATUS`/`SESSION_UPDATE_KIND`/
+    `STATE_UPDATE_STATE`/`TOOL_CALL_CONTENT_TYPE` sets must exactly match the defined `const`
+    branches `schema.json` itself declares for `ToolKind`/`ToolCallStatus`/`PlanEntryPriority`/
+    `PlanEntryStatus`/`SessionUpdate.sessionUpdate`/`StateUpdate.state`/`ToolCallContent.type` --
+    so a schema refresh that adds, removes, or renames a branch fails this test instead of
+    silently drifting out of sync with `test_enums.py`'s ACP-ENUM-201/202 checks."""
+    assert protocol.TOOL_KIND == _consts_from_schema("ToolKind")
+    assert protocol.TOOL_CALL_STATUS == _consts_from_schema("ToolCallStatus")
+    assert protocol.PLAN_ENTRY_PRIORITY == _consts_from_schema("PlanEntryPriority")
+    assert protocol.PLAN_ENTRY_STATUS == _consts_from_schema("PlanEntryStatus")
+    assert protocol.SESSION_UPDATE_KIND == _consts_from_schema(
+        "SessionUpdate", discriminator="sessionUpdate"
+    )
+    assert protocol.STATE_UPDATE_STATE == _consts_from_schema("StateUpdate", discriminator="state")
+    assert protocol.TOOL_CALL_CONTENT_TYPE == _consts_from_schema(
+        "ToolCallContent", discriminator="type"
+    )

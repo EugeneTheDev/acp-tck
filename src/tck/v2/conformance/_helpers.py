@@ -33,7 +33,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable
 
 import pytest
 
-from tck.common.harness import AgentLaunch, AgentProcess, AgentTimeout, TranscriptEntry
+from tck.common.harness import AgentExited, AgentLaunch, AgentProcess, AgentTimeout, TranscriptEntry
 from tck.common.plugin import current_auth_method_id, current_initialize_auth_methods, register_active_process
 
 from .. import SPEC
@@ -73,6 +73,36 @@ async def connected_agent(
         yield agent
 
 
+def validate_login_method_id(auth_methods: list[Any], method_id: str) -> dict[str, Any]:
+    """Return the `authMethods` entry matching `method_id`, or `pytest.skip(...)` with an
+    `AUTH-GATED:` reason if the id is not among `auth_methods` at all, or names a
+    `type: "terminal"` entry -- two client MUST NOTs the TCK holds itself to just as strictly as
+    it holds the agent under test to its own (review-v2-slices-1b-6 finding 7;
+    `acp-v2-authentication.md` must-NOT #12: "Sending `auth/login` with a `terminal` `methodId`,
+    or with a `methodId` the agent did not advertise. Both are client MUST-NOTs (V13)."). Callers
+    that already know `auth_methods` is non-empty (see `login_if_needed`'s own empty-list no-op,
+    must-NOT #7) call this right before actually sending `auth/login`.
+    """
+    matching = next(
+        (m for m in auth_methods if isinstance(m, dict) and m.get("methodId") == method_id),
+        None,
+    )
+    if matching is None:
+        advertised = [m.get("methodId") for m in auth_methods if isinstance(m, dict)]
+        pytest.skip(
+            f"AUTH-GATED: --auth-method {method_id!r} is not among this agent's advertised "
+            f"authMethods {advertised!r} -- the TCK will not send auth/login with an "
+            "unadvertised methodId (client MUST NOT, V13)"
+        )
+    if matching.get("type") == "terminal":
+        pytest.skip(
+            f"AUTH-GATED: --auth-method {method_id!r} names a type: 'terminal' authMethods "
+            "entry -- the TCK will not send auth/login for it (client MUST NOT, V13); terminal "
+            "auth is an out-of-band, client-side relaunch flow the TCK cannot drive"
+        )
+    return matching
+
+
 async def login_if_needed(agent: AgentProcess, *, timeout: float | None = None) -> None:
     """Send `auth/login` for `current_auth_method_id()` (`--auth-method`) if one was configured,
     on a connection that is past its own `initialize` response.
@@ -88,14 +118,27 @@ async def login_if_needed(agent: AgentProcess, *, timeout: float | None = None) 
     `-32000` only applies when `current_auth_method_id() is None` -- so the test would fail for
     real instead of either succeeding or SKIPping with a clear reason.
 
-    No-op when no `--auth-method` was given (`current_auth_method_id() is None`). SKIPs -- not
-    fails -- if `auth/login` itself does not succeed, mirroring `connected_agent`'s own embedded
-    login: a failing login means the TCK cannot exercise anything session-dependent against this
-    agent with the given `--auth-method`, not that the caller's own requirement failed.
+    No-op when no `--auth-method` was given (`current_auth_method_id() is None`), and also when
+    the agent's own `initialize` advertised no `authMethods` at all -- the TCK must not send
+    `auth/login` in that situation regardless of what `--auth-method` says (review-v2-slices-1b-6
+    finding 7, must-NOT #7). SKIPs -- with an `AUTH-GATED:` reason, via `validate_login_method_id`
+    -- if the configured id is not among the advertised `authMethods`, or names a `type:
+    "terminal"` entry (must-NOT #12/#13); also SKIPs -- not fails -- if `auth/login` itself does
+    not succeed, mirroring `connected_agent`'s own embedded login: a failing login means the TCK
+    cannot exercise anything session-dependent against this agent with the given `--auth-method`,
+    not that the caller's own requirement failed.
     """
     method_id = current_auth_method_id()
     if method_id is None:
         return
+    auth_methods = current_initialize_auth_methods()
+    if not auth_methods:
+        # V9 (`acp-v2-authentication.md` must-NOT #7): the client MUST NOT call `auth/login` (or
+        # `auth/logout`) at all when `authMethods` is empty -- the agent's response to a call the
+        # spec forbids is undefined. Proceed unauthenticated rather than violate that MUST NOT
+        # just because a (now-irrelevant) `--auth-method` id was supplied on the command line.
+        return
+    validate_login_method_id(auth_methods, method_id)
     auth_id = await agent.send_request("auth/login", {"methodId": method_id})
     auth_entry = await agent.wait_for_response(auth_id, timeout=timeout)
     auth_msg = auth_entry.parsed
@@ -224,11 +267,12 @@ async def resume_session(
                 stderr=agent.stderr_text(),
             )
         entry = await agent.read_line(timeout=remaining)
-        msg = entry.parsed
-        if isinstance(msg, dict) and entry.matches_id(req_id):
-            return entry, updates
-        if isinstance(msg, dict) and msg.get("method") == "session/update":
-            updates.append((agent.transcript.index(entry), entry))
+        line_index = agent.transcript.index(entry)
+        for msg in iter_messages(entry):
+            if "method" not in msg and msg.get("id") == req_id:
+                return entry, updates
+            if msg.get("method") == "session/update":
+                updates.append((line_index, entry))
         # Anything else observed on the wire while waiting (an unrelated notification, a
         # malformed line) is not this helper's concern; keep waiting for the response.
 
@@ -426,6 +470,109 @@ async def obtain_resumable_session(
         await stack.aclose()
 
 
+@contextlib.asynccontextmanager
+async def v2_only_agent(
+    agent_launch: AgentLaunch,
+    *,
+    capabilities: dict[str, Any] | None = None,
+    yield_result: bool = False,
+) -> AsyncIterator[Any]:
+    """Shared "fresh connection, manual `initialize` routed through `SPEC.initialize_params()`,
+    `VERSION-MISMATCH:` skip unless the agent actually negotiated v2, then `login_if_needed`"
+    pattern (review-v2-slices-1b-6 finding 19) used by every module that must control its own
+    `initialize`/`skip_if_version_mismatch` call instead of `connected_agent`'s default
+    v2-negotiating handshake -- `test_batch.py`, `test_session_config.py`,
+    `test_authentication.py`, `test_transport.py` each previously kept a byte-for-byte copy of
+    this, two of which hand-copied the `initialize` params literally (with no `capabilities` key
+    and a fake `version: "0"` -- now routed through `SPEC.initialize_params()`, the same params
+    `connected_agent` itself sends).
+
+    Yields the connected `AgentProcess`, or `(agent, init_result)` when `yield_result=True` (for
+    callers that need to inspect the negotiated result, e.g. a capabilities marker)."""
+    async with connected_agent(agent_launch, handshake=False) as agent:
+        params = SPEC.initialize_params()
+        if capabilities is not None:
+            params = {**params, "capabilities": capabilities}
+        req_id = await agent.send_request("initialize", params)
+        entry = await agent.wait_for_response(req_id, timeout=agent_launch.startup_timeout)
+        msg = entry.parsed
+        assert isinstance(msg, dict) and isinstance(msg.get("result"), dict), (
+            f"initialize did not return a result object: {entry.text!r}"
+        )
+        skip_if_version_mismatch(msg["result"])
+        await login_if_needed(agent, timeout=agent_launch.startup_timeout)
+        if yield_result:
+            yield agent, msg["result"]
+        else:
+            yield agent
+
+
+def iter_messages(entry: TranscriptEntry) -> list[dict[str, Any]]:
+    """Flatten one transcript entry into the list of dict-shaped JSON-RPC messages it carries:
+    `[entry.parsed]` for an ordinary object line, every dict element of a batch array line (a
+    non-dict element, e.g. a stray scalar in a malformed batch, is dropped -- nothing meaningful
+    to dispatch), or `[]` for anything else (a parse failure, a bare scalar line, ...).
+
+    Review-v2-slices-1b-6 finding 5: several transcript scans matched only
+    `isinstance(entry.parsed, dict)` and so were blind to a message delivered inside a JSON-RPC
+    batch array (`emits_batch_updates.py` proves this is a real scenario an agent may choose) --
+    `run_prompt`/`test_transport.py`/`test_enums.py`/`test_initialize.py`/parts of `test_cancel.py`
+    already unwrapped a batch line by hand; this is the one shared helper every such site (and
+    `ACP-JSONRPC-003`, `ACP-CANCEL-202`, `ACP-SCHEMA-002`, `resume_session`, which did not) should
+    use instead of re-deriving the same six-line flattening."""
+    parsed = entry.parsed
+    if isinstance(parsed, dict):
+        return [parsed]
+    if isinstance(parsed, list):
+        return [item for item in parsed if isinstance(item, dict)]
+    return []
+
+
+async def probe_behaviour(
+    read: Awaitable[TranscriptEntry],
+    on_reply: Callable[[TranscriptEntry], str],
+    *,
+    on_silent: Callable[[], str] | None = None,
+) -> str:
+    """Run one already-started read `read` and classify the outcome as "silent" / "agent exited
+    (exit_code=...)" / whatever `on_reply` returns for a reply that did arrive.
+
+    Shared by the seven near-identical "did the agent stay silent, exit, or reply" INFORMATIONAL
+    probes across `test_informational.py`, `test_batch.py`, and `test_cancel.py`
+    (review-v2-slices-1b-6 finding 19) -- only the common `AgentTimeout`/`AgentExited` ladder is
+    identical between all seven; each site still supplies its own read call (a specific
+    `wait_for_response`/`wait_for_message`/`read_line`, each with its own predicate/timeout) and
+    its own `on_reply` classifier, since what counts as "a reply" differs (a JSON-RPC
+    error/result split vs. a raw-text dump). `on_silent`, if given, overrides the default
+    `"silent"` string for the `AgentTimeout` branch -- used by
+    `test_informational.test_unknown_session_id_behaviour`, whose silent case additionally
+    reports any outstanding agent->client requests."""
+    try:
+        entry = await read
+    except AgentTimeout:
+        return on_silent() if on_silent is not None else "silent"
+    except AgentExited as exc:
+        return f"agent exited (exit_code={exc.exit_code!r})"
+    else:
+        return on_reply(entry)
+
+
+def update_of(entry: TranscriptEntry) -> dict[str, Any] | None:
+    """Extract the `update` payload from a `session/update` transcript entry, or `None` if the
+    entry is not a well-formed `session/update` notification.
+
+    Promoted out of `test_session_capabilities.py`/`test_session_config.py`, which previously
+    kept byte-identical local copies (review-v2-slices-1b-6 finding 19)."""
+    msg = entry.parsed
+    if not isinstance(msg, dict) or msg.get("method") != "session/update":
+        return None
+    params = msg.get("params")
+    if not isinstance(params, dict):
+        return None
+    update = params.get("update")
+    return update if isinstance(update, dict) else None
+
+
 def skip_if_version_mismatch(init_result: dict[str, Any]) -> None:
     """Skip with the `VERSION-MISMATCH: ` marker (`tck.common.plugin`'s `_VERSION_MISMATCH_MARKER`
     substring, scanned by `_build_report()` to set `Verdict.blocked_by_version_mismatch`) unless
@@ -515,7 +662,13 @@ class PromptTurn:
     and anything v1-shaped like `fs/*`/`terminal/*`, which do not exist as client methods in v2
     at all), which gets `-32601` since our mock client advertises `capabilities: {}` -- used by
     the negative tests asserting "the agent called an unadvertised/nonexistent method"
-    (`ACP-CLIENTCAP-201`/`202`)."""
+    (`ACP-CLIENTCAP-201`/`202`).
+
+    Also carries every agent -> client *notification* other than `session/update` (e.g.
+    `elicitation/complete`, or an undefined/misspelled method name), since `ACP-CLIENTCAP-202`
+    covers requests and notifications alike and the driver must not go blind to a notification
+    just because it needs no reply. Callers that only care about requests (e.g.
+    `session/request_permission`) filter this list by `.parsed.get("method")` themselves."""
     cancelled_at_index: int | None = None
     """The transcript index at which `run_prompt` sent `session/cancel`, or `None` if
     `on_cancel` was false or the prompt turn ended before a cancel was ever sent."""
@@ -585,7 +738,8 @@ async def run_prompt(
       `session/cancel` has actually been sent for this turn (`tool-calls.mdx:304`) -- defensively
       tolerates `options: []` (no indexing crash) rather than assuming a conforming agent.
     - any other agent -> client request gets `-32601` (the mock client advertises
-      `capabilities: {}`), and is recorded on `PromptTurn.client_requests_seen`.
+      `capabilities: {}`), and is recorded on `PromptTurn.client_requests_seen`; any other
+      agent -> client *notification* (needs no reply) is recorded there too, unacted-on.
 
     `cancel_meta`, if given, is merged into the `session/cancel` notification's params as `_meta`
     (`ACP-CANCEL-206`'s "accepts a cancel that additionally carries `_meta`" check) -- `None`
@@ -738,8 +892,11 @@ async def run_prompt(
             )
             return
 
-        # Any other agent-authored notification (e.g. `elicitation/complete`) -- not our concern
-        # here, ignore and keep waiting for the turn to end.
+        # Any other agent-authored notification (e.g. `elicitation/complete`, or an
+        # undefined/misspelled method name) -- not our concern to act on, but still recorded so
+        # `ACP-CLIENTCAP-202` can check it (review-v2-slices-1b-6 finding 6).
+        if method is not None:
+            client_requests_seen.append(entry)
         return
 
     while not _turn_ended():
@@ -774,8 +931,16 @@ async def run_prompt(
         just_started_running = running_seen and not was_running
 
         if not _turn_ended() and trigger_armed and not trigger_sent and just_started_running:
+            # Clamped to whatever of `overall_deadline` remains (review-v2-slices-1b-6 finding
+            # 22) -- `peek_timeout` alone could otherwise push this call past `timeout` by up to
+            # ~1s, contradicting this function's own "every wait below is bounded by `timeout`"
+            # docstring claim. A non-positive remainder still resolves immediately: `read_line`
+            # forwards it to `asyncio.wait_for`, which treats `timeout <= 0` as "check once,
+            # don't block" rather than raising.
             try:
-                peek_entry = await agent.read_line(timeout=peek_timeout)
+                peek_entry = await agent.read_line(
+                    timeout=min(peek_timeout, overall_deadline - loop.time())
+                )
             except AgentTimeout:
                 await _fire_trigger()
             else:
@@ -790,8 +955,11 @@ async def run_prompt(
         # ended (mirrors v1's same peek right before returning) -- never for the error case,
         # where no further obligations exist at all (P6).
         if action_id is not None and action_response is None:
+            # Same clamp as the peek above, and for the same reason (finding 22).
             try:
-                peek_entry = await agent.read_line(timeout=peek_timeout)
+                peek_entry = await agent.read_line(
+                    timeout=min(peek_timeout, overall_deadline - loop.time())
+                )
             except AgentTimeout:
                 pass
             else:

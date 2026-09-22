@@ -182,9 +182,14 @@ from the (now purely an acceptance receipt) `session/prompt` response to a later
 - `ACP-CANCEL-201..203`, `205..208` are `Tier.CAPABILITY`, `capability="capabilities.session"`
   (session-baseline rule) -- v1's closest analogues (`ACP-CANCEL-001`/`002`) were MANDATORY.
 - `ACP-CANCEL-204` ("stop LLM requests / abort tool calls as soon as possible") is
-  `Tier.ADVISORY`, `capability=None` -- a real SHOULD, but unobservable from a client-only TCK
-  (nothing on the wire distinguishes "as soon as possible" from "eventually"). Its test records
-  the observation and always SKIPs rather than asserting.
+  `Tier.INFORMATIONAL`, `capability=None` -- not because the wording is weaker (it is a real
+  SHOULD), but because it is **unobservable** from a client-only TCK: nothing on the wire
+  distinguishes "stopped as soon as possible" from "stopped eventually". Its test unconditionally
+  records the observation and skips -- never asserts. The id itself keeps the `ACP-CANCEL-`
+  prefix rather than moving to `ACP-INFO-` (renumbering it would contradict "never renumber" once
+  assigned), but its *tier* is `Tier.INFORMATIONAL` rather than `Tier.ADVISORY`: a row that can
+  never be judged -- always SKIPped, never PASS/FAIL -- belongs in the record-only tier, not the
+  SHOULD tier.
 - `ACP-CANCEL-208` (`session/close` on a session with foreground work MUST cancel it first) is
   the cancel-side-effect of `session/close`; `ACP-CLOSE-202` below is a deliberate re-mint of the
   exact same evidence via a second `@pytest.mark.requirement(...)` id on the same test, not a
@@ -207,25 +212,47 @@ Connection-level, not session-scoped, so `Tier.MANDATORY`/`Tier.ADVISORY` direct
   had no id for this at all.
 - `ACP-JSONRPC-001..005` (id echo, result-xor-error, notification silence, unknown-method code,
   connection survives an error) are each reused bare, unchanged in meaning from their v1
-  counterparts -- only the evidence-gathering probe widens to also exercise a batch.
+  counterparts -- only the evidence-gathering probe widens to also exercise a batch. The batch
+  half of that widened evidence for `-001`/`-003`/`-005` is gathered in `test_batch.py`, not
+  `test_jsonrpc.py`: the two files jointly bind each id via separate
+  `@pytest.mark.requirement(...)` markers -- `test_jsonrpc.py`'s own probes stay single-message.
+  `-002`/`-004` have no batch-specific angle (the disjoint-result/error shape and the
+  unknown-method code do not change inside a batch entry), so their evidence stays entirely in
+  `test_jsonrpc.py`.
 
 ## Batching (`ACP-BATCH-201..208`, `ACP-INFO-BATCH-201/202`)
 
 - `ACP-BATCH-201`/`202` (empty-array -> single `-32600` object; notification-only batch -> no
-  output) are `Tier.MANDATORY` -- real MUSTs, kept MANDATORY despite the Python SDK's reference
-  agent crashing on any array line at all (a known, already-documented cross-check deviation,
-  not a reason to weaken the tier).
+  output) are `Tier.MANDATORY` -- real MUSTs, kept MANDATORY even knowing the Python SDK's
+  reference agent crashes on any array line at all (an expected, already-documented cross-check
+  baseline deviation, not a reason to weaken the tier). `ACP-BATCH-201`'s own text notes the
+  RFC-2119 force it cites is on the *sender* side of `transports.mdx`'s prose; the *receiver*
+  rule tested here is still MANDATORY because it is JSON-RPC 2.0 §6's own base envelope rule
+  (see `ACP-BATCH-201`'s `text=` for the full rationale), unlike `203` below which is ACP's own
+  unqualified prose and stays ADVISORY.
 - `ACP-BATCH-203` (per-entry `-32600` for an invalid batch entry) is `Tier.ADVISORY` -- the
-  report's own text carries no RFC-2119 keyword ("produces"), same precedent as v1's
-  `ACP-JSONRPC-005`.
-- `ACP-BATCH-204` (one reply array, SHOULD) and `ACP-BATCH-205` (order-independent, id-matched)
-  share one test via a multi-id marker: both are evidenced by the same two-request-batch probe
-  and both ADVISORY, so a shared PASS/FAIL can't misrepresent either.
+  report's own text carries no RFC-2119 keyword ("produces"), consistent with the v1
+  `ACP-JSONRPC-005` precedent that unhedged-but-keyword-free ACP prose does not get MANDATORY.
+  Its probe uses three non-object entries (`[17, true, null]`), never a batched unknown-method
+  call: relying on `_tck/does_not_exist` getting an error reply would make this test depend on
+  `ACP-JSONRPC-004`'s own SHOULD, not the per-entry rule.
+- `ACP-BATCH-204` (one reply array, SHOULD) is `Tier.ADVISORY`. `ACP-BATCH-205` (order-
+  independent, id-matched) is folded into the *same test* as `204` via a multi-id
+  `@pytest.mark.requirement(...)` marker rather than a separate test function: both are evidenced
+  by the exact same two-request-batch probe, and both are `Tier.ADVISORY` (never the sole cause
+  of a failing verdict), so a single shared PASS/FAIL cannot misrepresent either id's own status
+  the way it would for a MANDATORY/CAPABILITY pairing. The probe batches two `session/list`
+  calls, never `session/new`: `session/new` is exactly the lifecycle-sensitive kind of call
+  `ACP-BATCH-208` says SHOULD NOT be batched, so using it here would make `204`/`205`'s own
+  evidence-gathering contradict `208`'s rule.
 - `ACP-BATCH-206`/`207`/`208` (receiver MAY process concurrently; agent MAY spontaneously batch;
-  clients/agents SHOULD NOT batch lifecycle messages) are `Tier.ADVISORY`, `capability=None`,
-  each an always-skip record-only test -- `206` has no legitimate ordering assertion, `207`
-  can't be forced (the TCK can't make an agent choose to batch), and `208` is about what the TCK
-  itself would do as a sender, not a property of the agent under test.
+  clients/agents SHOULD NOT batch lifecycle messages) are `Tier.INFORMATIONAL`, `capability=None`,
+  each with an always-skip, record-only test -- same unobservable-from-a-client-TCK reasoning as
+  `ACP-CANCEL-204` above: `206` has no legitimate ordering assertion (the report says so
+  directly), `207` cannot be forced (the TCK cannot make an agent choose to batch), and `208` is
+  about what the *TCK itself* would do as a sender, not a property of the agent under test at
+  all. Retiered from `Tier.ADVISORY`: a row that can never be judged -- always SKIPped, never
+  PASS/FAIL -- belongs in the record-only tier, not the SHOULD tier.
 - `ACP-INFO-BATCH-201`/`202` are `Tier.INFORMATIONAL`, `capability=None` (invalid-JSON-batch-line
   error code, and call/response batch-kind mixing) -- both SDK-disagreement/schema-only rows.
 
@@ -860,13 +887,15 @@ _DECLARATIONS: tuple[Requirement, ...] = (
     ),
     Requirement(
         id="ACP-CANCEL-204",
-        tier=Tier.ADVISORY,
+        tier=Tier.INFORMATIONAL,
         capability=None,
         text=(
             "On receiving `session/cancel`, the agent SHOULD stop all language model requests "
             "and abort all in-progress tool call invocations as soon as possible. Unobservable "
             "from a client-only TCK (module docstring, 'Slice V2-3' section) -- the test "
-            "records the observation and always SKIPs, never asserting on timing."
+            "records the observation and always SKIPs, never asserting on timing. INFORMATIONAL, "
+            "not ADVISORY (review-v2-slices-1b-6 finding: a row that can never be judged, only "
+            "ever SKIPped, belongs in the record-only tier, not the SHOULD tier)."
         ),
         citation=_cite(
             "docs/protocol/v2/prompt-lifecycle.mdx:517; docs/protocol/v2/schema.mdx:234-237"
@@ -925,7 +954,9 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "`session/close` on a session with foreground work in flight MUST cancel that work "
             "as if `session/cancel` had been sent (same idle `cancelled` state_update), then "
             "free resources. Distinct from V2-4's future `CLOSE-201/202` -- see module "
-            "docstring."
+            "docstring. Shares its test and citation with `ACP-CLOSE-202` (the same wire "
+            "evidence, bound to both ids via a second `@pytest.mark.requirement(...)` marker) "
+            "-- deliberately counted twice, once under each id."
         ),
         citation=_cite("docs/protocol/v2/session-setup.mdx:258"),
         source_report="acp-v2-cancellation-and-batching.md",
@@ -998,9 +1029,10 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "including for responses delivered inside a batch response array."
         ),
         citation=_cite(
-            "docs/protocol/v2/overview.mdx:189; schema/v2/schema.json:125-288 "
+            "docs/protocol/v2/transports.mdx:68-69; schema/v2/schema.json:125-288 "
             "(AgentBatchResponse.items -> Result/Error, both required id); "
-            "docs/protocol/v2/transports.mdx:68-69"
+            "docs/protocol/v2/overview.mdx:189 (JSON-RPC envelope fields, including `id`, "
+            "follow the base JSON-RPC 2.0 spec, where id-echo is itself normative)"
         ),
         source_report="acp-v2-cancellation-and-batching.md",
     ),
@@ -1058,7 +1090,13 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "An empty array (`[]`) receives a single Invalid Request (`-32600`) response "
-            "object with `id: null` -- never a response array."
+            "object with `id: null` -- never a response array. The RFC-2119 force of "
+            "`transports.mdx`'s own prose is on the *sender* ('a Batch rpc call SHOULD be "
+            "an Array containing at least one item') -- the *receiver* rule tested here is "
+            "still treated as MUST because it is JSON-RPC 2.0 §6's own base envelope rule "
+            "(adopted wholesale by `overview.mdx`'s 'ACP messages follow JSON-RPC 2.0'), not "
+            "a new SHOULD ACP invented -- unlike `ACP-BATCH-203`'s per-entry rule below, which "
+            "*is* ACP's own unqualified prose and stays ADVISORY."
         ),
         citation=_cite(
             "docs/protocol/v2/transports.mdx:57-59; schema/v2/schema.json:82,125,289,332 "
@@ -1115,23 +1153,26 @@ _DECLARATIONS: tuple[Requirement, ...] = (
     ),
     Requirement(
         id="ACP-BATCH-206",
-        tier=Tier.ADVISORY,
+        tier=Tier.INFORMATIONAL,
         capability=None,
         text=(
             "The receiver MAY process batch entries concurrently, in any order, with any "
-            "parallelism. No ordering assertion is legitimate -- record-only, always SKIPped."
+            "parallelism. No ordering assertion is legitimate -- record-only, always SKIPped. "
+            "INFORMATIONAL, not ADVISORY (review-v2-slices-1b-6: a row that can never be judged "
+            "belongs in the record-only tier)."
         ),
         citation=_cite("docs/protocol/v2/transports.mdx:60-61"),
         source_report="acp-v2-cancellation-and-batching.md",
     ),
     Requirement(
         id="ACP-BATCH-207",
-        tier=Tier.ADVISORY,
+        tier=Tier.INFORMATIONAL,
         capability=None,
         text=(
             "A client or agent MAY send a batch; an agent MAY therefore spontaneously emit a "
             "batch of `session/update` notifications. Cannot be forced by a client-only TCK -- "
-            "record-only, always SKIPped."
+            "record-only, always SKIPped. INFORMATIONAL, not ADVISORY (review-v2-slices-1b-6: a "
+            "row that can never be judged belongs in the record-only tier)."
         ),
         citation=_cite(
             "docs/protocol/v2/transports.mdx:47-51; schema/v2/schema.json:289-331 "
@@ -1141,12 +1182,14 @@ _DECLARATIONS: tuple[Requirement, ...] = (
     ),
     Requirement(
         id="ACP-BATCH-208",
-        tier=Tier.ADVISORY,
+        tier=Tier.INFORMATIONAL,
         capability=None,
         text=(
             "Clients and agents SHOULD NOT batch lifecycle-sensitive messages (`initialize`, "
             "`auth/login`, `session/new`, `session/resume`, `session/prompt`). A property of "
-            "the sender, not the agent under test as a receiver -- record-only, always SKIPped."
+            "the sender, not the agent under test as a receiver -- record-only, always SKIPped. "
+            "INFORMATIONAL, not ADVISORY (review-v2-slices-1b-6: a row that can never be judged "
+            "belongs in the record-only tier)."
         ),
         citation=_cite(
             "docs/protocol/v2/transports.mdx:77-80; docs/protocol/v2/migration.mdx:722"
@@ -1740,7 +1783,10 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "individually is disproportionate for this slice). Promoted from the report's "
             "MANDATORY."
         ),
-        citation=_cite("docs/protocol/v2/extensibility.mdx:111-118"),
+        citation=_cite(
+            "docs/protocol/v2/extensibility.mdx:111-118; "
+            "docs/protocol/v2/tool-calls.mdx:75,373; docs/protocol/v2/agent-plan.mdx:88,100"
+        ),
         source_report="acp-v2-patches-enums-extensibility.md",
     ),
     Requirement(

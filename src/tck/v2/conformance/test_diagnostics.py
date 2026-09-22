@@ -7,8 +7,6 @@ turn."""
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from tck.v2 import SPEC
@@ -42,9 +40,8 @@ async def test_error_messages_are_non_empty_single_line(agent_launch):
             continue
         assert message != "", f"{what}: error.message must not be empty"
         assert "\n" not in message, f"{what}: error.message must not contain a newline: {message!r}"
-        data = error.get("data")
-        if data is not None:
-            json.dumps(data)  # already parsed as part of the outer JSON; structure unasserted
+        # error.data's structure is genuinely unspecified (JSON-RPC 2.0 leaves it to the
+        # implementation) -- nothing to assert on it.
 
 
 @pytest.mark.requirement("ACP-SHUTDOWN-001")

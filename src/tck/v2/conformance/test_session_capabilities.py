@@ -14,6 +14,7 @@ same independence used throughout this registry (e.g. `ACP-CANCEL-204`).
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import pytest
@@ -31,23 +32,11 @@ from ._helpers import (
     quiet_period,
     resume_session,
     run_prompt,
+    update_of,
 )
 
 _HISTORY_KINDS = {"user_message", "agent_message", "agent_thought"}
 _CHUNK_KINDS = {"user_message_chunk", "agent_message_chunk", "agent_thought_chunk"}
-
-
-def _update_of(entry: Any) -> dict[str, Any] | None:
-    """Extract the `update` payload from a `session/update` transcript entry, or `None` if the
-    entry is not a well-formed `session/update` notification."""
-    msg = entry.parsed
-    if not isinstance(msg, dict) or msg.get("method") != "session/update":
-        return None
-    params = msg.get("params")
-    if not isinstance(params, dict):
-        return None
-    update = params.get("update")
-    return update if isinstance(update, dict) else None
 
 
 # --- session/new / session/resume (ACP-SESSION-203, ACP-RESUME-201..205) ---
@@ -85,14 +74,21 @@ async def test_resume_a_resumable_session_succeeds(agent_launch, tmp_path):
         assert not issues, f"session/resume result failed schema validation: {issues!r}"
 
 
-async def _session_with_history(agent, cwd, *, timeout):
-    """Create a session and run one ordinary prompt turn on it, so the fixture/agent under test
-    has something to (optionally) replay. Returns `(session_id, prompt_turn)`."""
-    session_id = await new_session(agent, cwd, timeout=timeout)
-    turn = await run_prompt(
+async def _add_history(agent, session_id, *, timeout):
+    """Run one ordinary prompt turn on an *already-obtained* session (see
+    `obtain_resumable_session`), so there is something to (optionally) replay on the resume call
+    that follows. `ACP-RESUME-202..205` (finding 1 -- the BLOCKER, `.agents/research/
+    review-v2-slices-1b-6.md`) must not obtain their session via a hand-rolled `connected_agent` +
+    `session/new` that bypasses `obtain_resumable_session`'s three-route strategy: doing so
+    hard-asserts that a direct `session/resume` of a just-created session succeeds, which is
+    exactly the route the session-management report says is not guaranteed. Instead, obtain the
+    session the same way `ACP-RESUME-201` does (SKIPping where it SKIPs, hard-FAILing only on
+    `-32601`), then add history to *that* session and issue a second, fresh `session/resume` call
+    against it for the replay assertions -- `obtain_resumable_session`'s own docstring notes the
+    yielded connection/session is free to be reused for exactly this."""
+    return await run_prompt(
         agent, session_id, [{"type": "text", "text": "remember this"}], timeout=timeout
     )
-    return session_id, turn
 
 
 @pytest.mark.requirement("ACP-RESUME-202")
@@ -101,11 +97,13 @@ async def test_resume_with_replay_from_start_replays_before_responding(
     agent_launch, tmp_path, record_property
 ):
     """ACP-RESUME-202. Zero replayed updates is itself conforming (R5's retention escape
-    hatch) -- recorded, never FAILed."""
-    async with connected_agent(agent_launch) as agent:
-        session_id, _turn = await _session_with_history(
-            agent, tmp_path, timeout=agent_launch.default_timeout
-        )
+    hatch) -- recorded, never FAILed. The trailing-update check is filtered to this session's
+    own `sessionId`, so an unrelated `session/update` for another session obtained earlier by
+    `obtain_resumable_session`'s own probing does not falsely FAIL this row."""
+    async with obtain_resumable_session(
+        agent_launch, tmp_path, timeout=agent_launch.default_timeout
+    ) as (agent, session_id, _entry):
+        await _add_history(agent, session_id, timeout=agent_launch.default_timeout)
         response_entry, updates = await resume_session(
             agent,
             session_id,
@@ -119,10 +117,14 @@ async def test_resume_with_replay_from_start_replays_before_responding(
         )
         record_property("acp_tck_resume_replayed_update_count", len(updates))
         trailing = await drain_quiet(agent, quiet_period(agent_launch.default_timeout))
-        trailing_updates = [e for e in trailing if _update_of(e) is not None]
+        trailing_updates = [
+            e
+            for e in trailing
+            if update_of(e) is not None and e.parsed["params"].get("sessionId") == session_id
+        ]
         assert not trailing_updates, (
-            "a session/update arrived after session/resume's response instead of before it: "
-            f"{[e.text for e in trailing_updates]!r}"
+            "a session/update for this session arrived after session/resume's response instead "
+            f"of before it: {[e.text for e in trailing_updates]!r}"
         )
 
 
@@ -131,10 +133,10 @@ async def test_resume_with_replay_from_start_replays_before_responding(
 async def test_resume_without_replay_from_replays_no_history(agent_launch, tmp_path, record_property):
     """ACP-RESUME-203. Vacuous -- and recorded, never FAILed on that account -- for an agent
     that retains no history to replay."""
-    async with connected_agent(agent_launch) as agent:
-        session_id, _turn = await _session_with_history(
-            agent, tmp_path, timeout=agent_launch.default_timeout
-        )
+    async with obtain_resumable_session(
+        agent_launch, tmp_path, timeout=agent_launch.default_timeout
+    ) as (agent, session_id, _entry):
+        await _add_history(agent, session_id, timeout=agent_launch.default_timeout)
         response_entry, updates = await resume_session(
             agent, session_id, tmp_path, timeout=agent_launch.default_timeout
         )
@@ -145,7 +147,7 @@ async def test_resume_without_replay_from_replays_no_history(agent_launch, tmp_p
         history_updates = [
             update
             for _, entry in updates
-            if (update := _update_of(entry)) is not None
+            if (update := update_of(entry)) is not None
             and update.get("sessionUpdate") in (_HISTORY_KINDS | _CHUNK_KINDS)
         ]
         record_property("acp_tck_resume_no_replay_history_update_count", len(history_updates))
@@ -159,11 +161,15 @@ async def test_resume_without_replay_from_replays_no_history(agent_launch, tmp_p
 @pytest.mark.capability("capabilities.session")
 async def test_resume_replays_retained_user_message_with_same_message_id(agent_launch, tmp_path):
     """ACP-RESUME-204. Absence of the message from replay is itself conforming (R5) -- SKIPs
-    this check rather than FAILing it."""
-    async with connected_agent(agent_launch) as agent:
-        session_id, turn = await _session_with_history(
-            agent, tmp_path, timeout=agent_launch.default_timeout
-        )
+    this check rather than FAILing it. Per `acp-v2-session-management.md:490` (R7), a replayed
+    message only violates the requirement if its *content* matches the original prompt but its
+    `messageId` differs -- matching whichever entry replays (whole or chunked) is not itself
+    evidence of a violation, so this only FAILs on that specific mismatch."""
+    prompt_text = "remember this"
+    async with obtain_resumable_session(
+        agent_launch, tmp_path, timeout=agent_launch.default_timeout
+    ) as (agent, session_id, _entry):
+        turn = await _add_history(agent, session_id, timeout=agent_launch.default_timeout)
         if turn.message_id is None:
             pytest.skip(
                 "session/prompt response carried no usable messageId -- see ACP-PROMPT-201"
@@ -175,20 +181,35 @@ async def test_resume_replays_retained_user_message_with_same_message_id(agent_l
             replay_from={"type": "start"},
             timeout=agent_launch.default_timeout,
         )
-        user_message_updates = [
+        matching_updates = [
             update
             for _, entry in updates
-            if (update := _update_of(entry)) is not None and update.get("sessionUpdate") == "user_message"
+            if (update := update_of(entry)) is not None
+            and update.get("sessionUpdate") in ("user_message", "user_message_chunk")
         ]
-        if not user_message_updates:
+        if not matching_updates:
             pytest.skip(
                 "the retained user message was not replayed at all -- conforming per R5, "
                 "nothing to check"
             )
-        replayed_ids = {update.get("messageId") for update in user_message_updates}
-        assert turn.message_id in replayed_ids, (
-            f"replayed user_message messageId(s) {replayed_ids!r} do not include the original "
-            f"prompt response's messageId {turn.message_id!r}"
+
+        def _content_matches(update: dict[str, Any]) -> bool:
+            content = update.get("content")
+            if isinstance(content, list):
+                return any(
+                    isinstance(block, dict) and block.get("text") == prompt_text
+                    for block in content
+                )
+            return isinstance(content, dict) and content.get("text") == prompt_text
+
+        violations = [
+            update
+            for update in matching_updates
+            if _content_matches(update) and update.get("messageId") != turn.message_id
+        ]
+        assert not violations, (
+            f"replayed message(s) with content matching the original prompt carry a different "
+            f"messageId than the original response's {turn.message_id!r}: {violations!r}"
         )
 
 
@@ -200,10 +221,10 @@ async def test_resume_chunk_replay_preceded_by_whole_message_primer(
     """ACP-RESUME-205. Vacuous -- recorded, never FAILed -- for an agent whose replay uses only
     whole-message updates (this fixture's own case: `_base.ConformingAgent` never emits a
     `*_chunk` update)."""
-    async with connected_agent(agent_launch) as agent:
-        session_id, _turn = await _session_with_history(
-            agent, tmp_path, timeout=agent_launch.default_timeout
-        )
+    async with obtain_resumable_session(
+        agent_launch, tmp_path, timeout=agent_launch.default_timeout
+    ) as (agent, session_id, _entry):
+        await _add_history(agent, session_id, timeout=agent_launch.default_timeout)
         _response_entry, updates = await resume_session(
             agent,
             session_id,
@@ -211,7 +232,7 @@ async def test_resume_chunk_replay_preceded_by_whole_message_primer(
             replay_from={"type": "start"},
             timeout=agent_launch.default_timeout,
         )
-        replayed = [update for _, entry in updates if (update := _update_of(entry)) is not None]
+        replayed = [update for _, entry in updates if (update := update_of(entry)) is not None]
         chunk_count = 0
         for index, update in enumerate(replayed):
             kind = update.get("sessionUpdate")
@@ -271,9 +292,11 @@ async def test_list_sessions_filtered_to_no_match_returns_empty_array(agent_laun
 
 @pytest.mark.requirement("ACP-LIST-203")
 @pytest.mark.capability("capabilities.session")
-async def test_list_sessions_filtered_by_cwd_matches_requested_cwd(agent_launch, tmp_path):
+async def test_list_sessions_filtered_by_cwd_matches_requested_cwd(agent_launch, tmp_path, record_property):
     """ACP-LIST-203. A per-entry check only -- the reverse direction (a session at that `cwd`
-    is guaranteed to be returned) is not asserted."""
+    is guaranteed to be returned) is not asserted. Records the entry count so a PASS on an
+    empty `sessions` array is visibly vacuous in the report, not silently indistinguishable
+    from one that actually checked entries."""
     async with connected_agent(agent_launch) as agent:
         await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         entry = await list_sessions(agent, cwd=tmp_path, timeout=agent_launch.default_timeout)
@@ -282,6 +305,7 @@ async def test_list_sessions_filtered_by_cwd_matches_requested_cwd(agent_launch,
             f"session/list filtered by cwd did not succeed: {entry.text!r}"
         )
         sessions = msg["result"].get("sessions") or []
+        record_property("acp_tck_list_filtered_by_cwd_entry_count", len(sessions))
         for session in sessions:
             assert isinstance(session, dict) and session.get("cwd") == str(tmp_path), (
                 f"session/list filtered by cwd={tmp_path!r} returned a session with a "
@@ -291,8 +315,10 @@ async def test_list_sessions_filtered_by_cwd_matches_requested_cwd(agent_launch,
 
 @pytest.mark.requirement("ACP-LIST-204")
 @pytest.mark.capability("capabilities.session")
-async def test_list_sessions_cwds_are_absolute(agent_launch, tmp_path):
-    """ACP-LIST-204."""
+async def test_list_sessions_cwds_are_absolute(agent_launch, tmp_path, record_property):
+    """ACP-LIST-204. Records the entry count so a PASS on an empty `sessions` array is
+    visibly vacuous in the report, not silently indistinguishable from one that actually
+    checked entries."""
     async with connected_agent(agent_launch) as agent:
         await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         entry = await list_sessions(agent, timeout=agent_launch.default_timeout)
@@ -301,9 +327,10 @@ async def test_list_sessions_cwds_are_absolute(agent_launch, tmp_path):
             f"session/list did not succeed: {entry.text!r}"
         )
         sessions = msg["result"].get("sessions") or []
+        record_property("acp_tck_list_cwds_absolute_entry_count", len(sessions))
         for session in sessions:
             cwd = session.get("cwd") if isinstance(session, dict) else None
-            assert isinstance(cwd, str) and cwd.startswith("/"), (
+            assert isinstance(cwd, str) and os.path.isabs(cwd), (
                 f"SessionInfo.cwd must be an absolute path, got {cwd!r}"
             )
 
@@ -352,11 +379,17 @@ async def test_deleted_session_no_longer_listed(agent_launch, tmp_path):
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         before_entry = await list_sessions(agent, timeout=agent_launch.default_timeout)
         before_msg = before_entry.parsed
-        before_ids = {
-            s.get("sessionId")
-            for s in ((before_msg.get("result") or {}).get("sessions") or [])
-            if isinstance(before_msg, dict) and isinstance(s, dict)
-        }
+        # review-v2-slices-1b-6 finding 31: guard `isinstance(before_msg, dict)` *before*
+        # calling `.get("result")` on it -- a malformed (non-dict) response used to raise
+        # `AttributeError` (an opaque FAIL) instead of being handled by the SKIP below, since a
+        # comprehension's own `if` clause filters items, it does not guard the iterable
+        # expression evaluated to produce them.
+        before_sessions = (
+            (before_msg.get("result") or {}).get("sessions") or []
+            if isinstance(before_msg, dict)
+            else []
+        )
+        before_ids = {s.get("sessionId") for s in before_sessions if isinstance(s, dict)}
         if session_id not in before_ids:
             pytest.skip("session/list never reported this session in the first place")
 
@@ -368,11 +401,12 @@ async def test_deleted_session_no_longer_listed(agent_launch, tmp_path):
 
         after_entry = await list_sessions(agent, timeout=agent_launch.default_timeout)
         after_msg = after_entry.parsed
-        after_ids = {
-            s.get("sessionId")
-            for s in ((after_msg.get("result") or {}).get("sessions") or [])
-            if isinstance(after_msg, dict) and isinstance(s, dict)
-        }
+        after_sessions = (
+            (after_msg.get("result") or {}).get("sessions") or []
+            if isinstance(after_msg, dict)
+            else []
+        )
+        after_ids = {s.get("sessionId") for s in after_sessions if isinstance(s, dict)}
         assert session_id not in after_ids, (
             f"deleted session {session_id!r} still appears in session/list: {after_ids!r}"
         )
@@ -442,14 +476,24 @@ async def test_resume_session_with_additional_directory_accepted(agent_launch, t
 @pytest.mark.capability("capabilities.session.mcp.stdio")
 async def test_new_session_with_stdio_mcp_server_recorded(agent_launch, tmp_path, record_property):
     """ACP-MCP-201 (INFORMATIONAL). Never asserts on the outcome -- see the requirements module
-    docstring's judgment-call note."""
+    docstring's judgment-call note.
+
+    Includes the `type: "stdio"` discriminator `$defs/McpServer`'s `anyOf` requires
+    (review-v2-slices-1b-6 finding 8): without it, a conforming agent answers `-32602` for a
+    request the TCK itself malformed, recording a misleading `accepted=False` that looks like a
+    finding about the agent under test."""
     async with connected_agent(agent_launch) as agent:
         req_id = await agent.send_request(
             "session/new",
             {
                 "cwd": str(tmp_path),
                 "mcpServers": [
-                    {"name": "tck-stdio", "command": "/bin/nonexistent-tck-mcp-server", "args": []}
+                    {
+                        "type": "stdio",
+                        "name": "tck-stdio",
+                        "command": "/bin/nonexistent-tck-mcp-server",
+                        "args": [],
+                    }
                 ],
             },
         )
@@ -462,14 +506,22 @@ async def test_new_session_with_stdio_mcp_server_recorded(agent_launch, tmp_path
 @pytest.mark.requirement("ACP-MCP-202")
 @pytest.mark.capability("capabilities.session.mcp.http")
 async def test_new_session_with_http_mcp_server_recorded(agent_launch, tmp_path, record_property):
-    """ACP-MCP-202 (INFORMATIONAL). Never asserts on the outcome."""
+    """ACP-MCP-202 (INFORMATIONAL). Never asserts on the outcome.
+
+    Includes the `type: "http"` discriminator `$defs/McpServer`'s `anyOf` requires
+    (review-v2-slices-1b-6 finding 8) -- see `test_new_session_with_stdio_mcp_server_recorded`'s
+    docstring for why this matters."""
     async with connected_agent(agent_launch) as agent:
         req_id = await agent.send_request(
             "session/new",
             {
                 "cwd": str(tmp_path),
                 "mcpServers": [
-                    {"name": "tck-http", "url": "http://127.0.0.1:1/tck-nonexistent"}
+                    {
+                        "type": "http",
+                        "name": "tck-http",
+                        "url": "http://127.0.0.1:1/tck-nonexistent",
+                    }
                 ],
             },
         )

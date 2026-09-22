@@ -8,7 +8,7 @@ FAILs `ACP-PROMPT-201` (the response must be an object with a non-empty string `
 `turn.message_id` actually being a valid non-empty string before asserting the echo, since a
 response with no `messageId` gives the driver nothing to check the echo *against* -- asserting
 against `None` here would be a different, less precise diagnostic than `ACP-PROMPT-201`'s own.
-`ACP-STATE-201/202/203` and the sessionId portion of `ACP-PROMPT-002` are unaffected.
+`ACP-STATE-201/202/203` and the sessionId portion of `ACP-PROMPT-205` are unaffected.
 """
 
 import sys

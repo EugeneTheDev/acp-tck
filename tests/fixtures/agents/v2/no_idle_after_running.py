@@ -3,7 +3,7 @@
 and a content chunk, then goes silent forever -- no turn-ending idle ever arrives.
 
 Cascades into every test that calls `run_prompt` (`ACP-PROMPT-201`, `ACP-PROMPT-203`,
-`ACP-STATE-201`, `ACP-STATE-202`, `ACP-STATE-203`, `ACP-PROMPT-002`, and the prompt-turn
+`ACP-STATE-201`, `ACP-STATE-202`, `ACP-STATE-203`, `ACP-PROMPT-205`, and the prompt-turn
 extension of `ACP-SCHEMA-001`): each independently hits `AgentTimeout` waiting for the idle that
 never comes, and is recorded as its own `FAIL` -- `run_prompt`'s turn-end predicate has no other
 way to end a turn short of a JSON-RPC error, which this fixture also never sends. Each affected

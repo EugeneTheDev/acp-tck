@@ -23,7 +23,17 @@ when either flag is omitted). ACP-AUTH-207 SKIPs regardless of flags: this fixtu
 `emit_rich_turn_updates=True` makes every turn also emit a two-chunk agent message (one
 `messageId`), a `tool_call_update` create+patch pair (one `toolCallId`), and a `plan_update` (one
 `planId`) -- see `_base.ConformingAgent._send_rich_turn_updates`. This is what lets the
-PATCH-20x/ENUM-201 rows PASS on this fixture instead of SKIPping "no <variant> observed".
+PATCH-20x/ENUM-201 rows PASS on this fixture instead of SKIPping "no <variant> observed". It also
+emits one `terminal_update` + one `terminal_output_chunk` per turn, so `ACP-PATCH-206`/
+`ACP-PATCH-207` PASS too instead of SKIPping.
+
+`terminal_auth_method` gives `ACP-AUTH-207`'s dedicated `capabilities.auth.terminal: {}`
+connection a well-formed `type: "terminal"` descriptor to see (`ACP-AUTH-202` still PASSes: the
+default connection this fixture also answers under advertises no `auth.terminal` capability, so
+the descriptor never appears there). Together these bring this fixture to 101/106 PASS (5 SKIP:
+`ACP-CANCEL-204`, `ACP-BATCH-206/207/208` -- never exercised by a single driven turn -- and
+`ACP-AUTH-205`, which only applies to a connection with *no* `authMethods` at all, the opposite
+of this fixture's own).
 """
 
 import sys
@@ -60,6 +70,13 @@ def main() -> None:
         auth_methods=[
             {"methodId": "tck", "type": "agent", "name": "TCK"},
         ],
+        terminal_auth_method={
+            "methodId": "term",
+            "type": "terminal",
+            "name": "Terminal Login",
+            "args": ["--login"],
+            "env": [{"name": "TCK_TERMINAL_AUTH", "value": "1"}],
+        },
         emit_rich_turn_updates=True,
     ).run()
 

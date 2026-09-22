@@ -25,7 +25,7 @@ from tck.common.plugin import current_allow_logout, current_auth_method_id
 
 from .. import SPEC
 from ..protocol import is_valid_open_enum_value
-from ._helpers import connected_agent, new_session, skip_if_version_mismatch
+from ._helpers import connected_agent, new_session, skip_if_version_mismatch, validate_login_method_id
 
 
 @contextlib.asynccontextmanager
@@ -33,9 +33,12 @@ async def _initialized_agent(agent_launch, *, capabilities=None):
     """A fresh connection, one manual `initialize` (with an optional `capabilities` override),
     and a `VERSION-MISMATCH:` skip unless the agent actually negotiated v2 -- mirrors
     `test_session_config.py`'s local `_v2_only_agent` helper, kept local here too (honest
-    duplication over shared machinery for these small, test-module-specific connection helpers).
-    Yields `(agent, init_result)` since every test in this module needs to inspect the
-    `initialize` result itself (`authMethods`), not just get a connected agent.
+    duplication over shared machinery for these small, test-module-specific connection helpers);
+    this module's tests need `handshake=False` so they can control the `auth/login` step
+    themselves, in an order relative to their own SKIP checks that `connected_agent`'s own
+    auto-login can't give them. Yields `(agent, init_result)` since every test in this module
+    needs to inspect the `initialize` result itself (`authMethods`), not just get a connected
+    agent.
     """
     async with connected_agent(agent_launch, handshake=False) as agent:
         params = SPEC.initialize_params()
@@ -65,7 +68,9 @@ async def test_auth_methods_have_unique_method_ids(agent_initialize_result):
     skip_if_version_mismatch(outcome.result)
     auth_methods = outcome.result.get("authMethods")
     if not auth_methods:
-        return  # nothing to check -- vacuously true, per "authMethods (if present)"
+        # review-v2-slices-1b-6 finding 23: nothing to check here -- record it as a SKIP, not a
+        # vacuous PASS.
+        pytest.skip("agent advertises no authMethods")
     assert isinstance(auth_methods, list)
     method_ids = [method.get("methodId") for method in auth_methods if isinstance(method, dict)]
     assert len(method_ids) == len(set(method_ids)), f"authMethods methodIds are not unique: {method_ids!r}"
@@ -80,6 +85,11 @@ async def test_auth_method_type_is_a_defined_or_prefixed_value(agent_initialize_
     assert outcome.result is not None, f"initialize did not succeed: {outcome.error_message}"
     skip_if_version_mismatch(outcome.result)
     auth_methods = outcome.result.get("authMethods") or []
+    if not auth_methods:
+        # review-v2-slices-1b-6 finding 23: a vacuous PASS on an agent with no auth surface at
+        # all is the more misleading outcome for a MANDATORY row -- SKIP instead (MANDATORY
+        # SKIPPED does not block the conformant verdict; only FAIL/NOT_TESTED do).
+        pytest.skip("agent advertises no authMethods")
     defined = frozenset({"agent", "terminal"})
     for method in auth_methods:
         if not isinstance(method, dict):
@@ -154,6 +164,11 @@ async def test_login_then_session_new_succeeds(agent_launch, tmp_path):
     the one hard assertion is that a subsequent `session/new` on the same connection does not
     fail with `-32000`.
 
+    Before ever sending `auth/login`, `validate_login_method_id` SKIPs with an `AUTH-GATED:`
+    reason if `--tck-auth-method`'s id is not among the advertised `authMethods`, or names a
+    `type: "terminal"` entry -- the TCK itself must not send `auth/login` with an unadvertised
+    or terminal `methodId`.
+
     The `--tck-auth-method` presence check happens *inside* `_initialized_agent`, after
     `skip_if_version_mismatch` has already had a chance to fire (mirrors
     `test_logout_succeeds`'s ordering) -- a version-mismatched agent must SKIP with the
@@ -167,6 +182,7 @@ async def test_login_then_session_new_succeeds(agent_launch, tmp_path):
         auth_methods = init_result.get("authMethods") or []
         if not auth_methods:
             pytest.skip("agent advertises no authMethods; nothing to authenticate against")
+        validate_login_method_id(auth_methods, method_id)
 
         login_id = await agent.send_request("auth/login", {"methodId": method_id})
         login_entry = await agent.wait_for_response(login_id, timeout=agent_launch.default_timeout)
@@ -204,8 +220,11 @@ async def test_logout_succeeds(agent_launch):
 
     If `--tck-auth-method` was given, this test logs in itself first (mirroring
     `connected_agent`'s own auto-login step, done manually here since `_initialized_agent`
-    connects with `handshake=False`) before calling `auth/logout`. Only `auth/logout`'s own
-    success (a schema-valid object result) is checked -- nothing about session state after
+    connects with `handshake=False`) before calling `auth/logout` -- gated by the same
+    `validate_login_method_id` check as `test_login_then_session_new_succeeds`, so an
+    unadvertised or terminal `--tck-auth-method` id SKIPs instead of sending a spec-forbidden
+    `auth/login`. Otherwise `auth/logout` is called standalone; only its own success (a
+    schema-valid object result) is checked -- nothing about session state after
     logout."""
     async with _initialized_agent(agent_launch) as (agent, init_result):
         auth_methods = init_result.get("authMethods") or []
@@ -219,6 +238,7 @@ async def test_logout_succeeds(agent_launch):
 
         method_id = current_auth_method_id()
         if method_id is not None:
+            validate_login_method_id(auth_methods, method_id)
             login_id = await agent.send_request("auth/login", {"methodId": method_id})
             login_entry = await agent.wait_for_response(login_id, timeout=agent_launch.default_timeout)
             login_msg = login_entry.parsed
