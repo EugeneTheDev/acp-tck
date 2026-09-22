@@ -71,6 +71,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "hint and the verdict cannot be CONFORMANT.",
     )
     parser.add_argument(
+        "--allow-logout",
+        action="store_true",
+        help="Opt in to actually calling v2's auth/logout against the agent under test "
+        "(ACP-AUTH-203), passed through as --tck-allow-logout. Off by default because it may "
+        "revoke the operator's own credentials for whatever account the agent is authenticated "
+        "as -- without it, ACP-AUTH-203 SKIPs instead of exercising the method. Has no effect "
+        "on v1 (--protocol-version 1): its logout test (ACP-AUTH-004) is gated purely by the "
+        "agentCapabilities.auth.logout marker.",
+    )
+    parser.add_argument(
         "--close-grace",
         type=float,
         default=None,
@@ -148,6 +158,8 @@ def main(argv: list[str] | None = None) -> int:
         pytest_args += ["--tck-cancel-prompt", args.cancel_prompt]
     if args.auth_method is not None:
         pytest_args += ["--tck-auth-method", args.auth_method]
+    if args.allow_logout:
+        pytest_args.append("--tck-allow-logout")
     if args.report_json is not None:
         pytest_args += ["--tck-report-json", args.report_json]
     if args.close_grace is not None:

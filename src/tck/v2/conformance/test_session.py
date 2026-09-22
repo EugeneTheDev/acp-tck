@@ -9,7 +9,7 @@ from tck.v2.validation import validate_agent_response
 
 import pytest
 
-from ._helpers import connected_agent, new_session
+from ._helpers import connected_agent, new_session, skip_if_auth_gated
 
 
 @pytest.mark.requirement("ACP-SESSION-001")
@@ -21,6 +21,7 @@ async def test_session_new_returns_unique_string_id(agent_launch, tmp_path):
     async with connected_agent(agent_launch) as agent:
         req_id = await agent.send_request("session/new", {"cwd": str(tmp_path)})
         entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
+        skip_if_auth_gated(entry)
         msg = entry.parsed
         assert isinstance(msg, dict) and isinstance(msg.get("result"), dict), (
             f"session/new did not return a result object: {entry.text!r}"

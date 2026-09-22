@@ -8,7 +8,8 @@ far covers the `initialize` handshake, `session/new`, the core `session/prompt`
 turn/`state_update` lifecycle, prompt content capabilities, the permission flow, the
 agent -> client method rules, cancellation/stdio-transport/JSON-RPC-envelope/batching, and
 session management (`session/resume`/`list`/`close`/`delete`, `additionalDirectories`, MCP
-server config, config options) -- still well short of v1 parity. It launches an agent
+server config, config options), and authentication (`authMethods`, `auth/login`/`auth/logout`)
+-- still well short of v1 parity. It launches an agent
 implementation as a stdio subprocess, drives it through the protocol
 -- initialize, session lifecycle, prompt turns, cancellation, error handling, transport hygiene --
 and reports which requirements pass, fail, don't apply, or were never exercised.
@@ -33,9 +34,10 @@ process per test, so one crash can't cascade into unrelated failures.
   `2` runs the ACP v2 (Draft) suite, which so far covers the `initialize` handshake, the
   `session/new` baseline, the core `session/prompt` turn/`state_update` lifecycle, prompt
   content capabilities, the permission flow, the agent -> client method rules,
-  cancellation/stdio transport/the JSON-RPC envelope/batching, and session management
+  cancellation/stdio transport/the JSON-RPC envelope/batching, session management
   (`session/resume`/`list`/`close`/`delete`, `additionalDirectories`, MCP server config, config
-  options) -- see `AGENTS.md`'s `src/tck/v2/` layout entry. If the agent under
+  options), and authentication (`authMethods`, `auth/login`/`auth/logout`) -- see `AGENTS.md`'s
+  `src/tck/v2/` layout entry. If the agent under
   test never actually negotiates the requested version, version-dependent tests are `SKIPPED`
   with a `VERSION-MISMATCH` hint and the run is forced `NOT CONFORMANT`.
 - `--agent-cwd DIR` -- working directory for the agent (default: inherit).
@@ -55,6 +57,11 @@ process per test, so one crash can't cascade into unrelated failures.
   any agent that gates `session/new` behind authentication -- without it, session-dependent
   tests report `SKIPPED` with an "AUTH-GATED" hint and the run is forced `NOT CONFORMANT`, since
   those requirements were never actually exercised.
+- `--allow-logout` -- (v2 only) opt in to actually calling `auth/logout` against the agent under
+  test. Off by default because it may revoke the operator's own credentials for whatever account
+  the agent is authenticated as; without it, the logout requirement reports `SKIPPED` instead of
+  exercising the method (never affects conformance either way, since it's a `CAPABILITY`-tier
+  check).
 - `--close-grace S` -- grace period in seconds budgeted at each stage of the shutdown ladder
   (close stdin, then SIGTERM, then SIGKILL) when tearing down the agent process after a test
   (default 2.0). Each stage stops early as soon as the agent actually exits, rather than always

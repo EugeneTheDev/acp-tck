@@ -35,13 +35,24 @@ import pytest
 from tck.v2.protocol import PROTOCOL_VERSION
 from tck.v2.validation import validate_agent_response
 
-from ._helpers import connected_agent, drain_quiet, quiet_period, resume_session, set_config_option, skip_if_version_mismatch
+from ._helpers import (
+    connected_agent,
+    drain_quiet,
+    login_if_needed,
+    quiet_period,
+    resume_session,
+    set_config_option,
+    skip_if_auth_gated,
+    skip_if_version_mismatch,
+)
 
 
 @contextlib.asynccontextmanager
 async def _v2_only_agent(agent_launch):
     """A fresh connection, one manual `initialize`, and a `VERSION-MISMATCH:` skip unless the
-    agent actually negotiated v2 -- see the module docstring."""
+    agent actually negotiated v2 -- see the module docstring. Also logs in (`login_if_needed`)
+    when `--auth-method` was given, since every caller goes on to call `session/new` and this
+    manual `initialize` bypasses `connected_agent`'s own auto-login step."""
     async with connected_agent(agent_launch, handshake=False) as agent:
         req_id = await agent.send_request(
             "initialize",
@@ -53,14 +64,21 @@ async def _v2_only_agent(agent_launch):
             f"initialize did not return a result object: {entry.text!r}"
         )
         skip_if_version_mismatch(msg["result"])
+        await login_if_needed(agent, timeout=agent_launch.default_timeout)
         yield agent
 
 
 async def _new_session_full_result(agent, cwd, *, timeout):
     """Like `_helpers.new_session`, but returns the whole result dict (not just `sessionId`) so
-    callers can inspect `configOptions`."""
+    callers can inspect `configOptions`.
+
+    SKIPs (via `skip_if_auth_gated`, same as `_helpers.new_session()`) rather than failing when
+    the agent requires authentication and no `--auth-method` was configured -- `_v2_only_agent`
+    now also performs `login_if_needed` itself, so this remaining `skip_if_auth_gated` call only
+    matters when no `--auth-method` was given at all (the ordinary auth-gate SKIP)."""
     req_id = await agent.send_request("session/new", {"cwd": str(cwd)})
     entry = await agent.wait_for_response(req_id, timeout=timeout)
+    skip_if_auth_gated(entry)
     msg = entry.parsed
     assert isinstance(msg, dict) and isinstance(msg.get("result"), dict), (
         f"session/new did not return a result object: {entry.text!r}"

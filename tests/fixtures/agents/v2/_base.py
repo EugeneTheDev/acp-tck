@@ -113,6 +113,8 @@ class ConformingAgent:
         capabilities: dict[str, Any] | None = None,
         agent_name: str = "tck-fixture-conforming-v2",
         config_options: list[dict[str, Any]] | None = None,
+        auth_methods: list[dict[str, Any]] | None = None,
+        require_auth: bool = False,
     ) -> None:
         self._session_count = 0
         self._message_count = 0
@@ -127,6 +129,13 @@ class ConformingAgent:
         self._config_options: list[dict[str, Any]] = [dict(opt) for opt in (config_options or [])]
         self._history: dict[str, list[dict[str, Any]]] = {}  # sessionId -> replayable updates
         self._primed_message_ids: dict[str, set[Any]] = {}  # sessionId -> messageIds already primed
+        # `initialize`'s `authMethods` (V2-5) -- `auth/login`/`auth/logout` keyed by `methodId`
+        # (v1 keyed the equivalent field `id`; v2 renamed it, see `schema/v2/schema.json`
+        # `$defs/AuthMethodId`). `require_auth` mirrors v1's `_base.py`: `session/new` errors
+        # with `-32000` until a successful `auth/login` flips `self._authenticated`.
+        self._auth_methods = auth_methods
+        self._require_auth = require_auth
+        self._authenticated = False
 
     def run(self) -> None:
         for raw_line in sys.stdin:
@@ -218,19 +227,42 @@ class ConformingAgent:
             self._handle_set_config_option(msg_id, params)
         elif method == "session/prompt":
             self._handle_prompt(msg_id, params)
+        elif method == "auth/login":
+            self._handle_login(msg_id, params)
+        elif method == "auth/logout":
+            self._handle_logout(msg_id, params)
         else:
             self._error(msg_id, -32601, "Method not found")
 
     def _initialize_result(self, params: dict[str, Any]) -> dict[str, Any]:
         requested = params.get("protocolVersion")
         negotiated = requested if requested in _SUPPORTED_VERSIONS else PROTOCOL_VERSION
-        return {
+        result: dict[str, Any] = {
             "protocolVersion": negotiated,
             "capabilities": dict(self._capabilities),
             "info": {"name": self._agent_name, "version": "0.0.0"},
         }
+        if self._auth_methods is not None:
+            result["authMethods"] = self._auth_methods
+        return result
+
+    def _handle_login(self, msg_id: Any, params: dict[str, Any]) -> None:
+        method_id = params.get("methodId")
+        valid_ids = {m.get("methodId") for m in (self._auth_methods or [])}
+        if not isinstance(method_id, str) or method_id not in valid_ids:
+            self._error(msg_id, -32602, "Invalid params: unknown or missing methodId")
+            return
+        self._authenticated = True
+        self._reply(msg_id, {})
+
+    def _handle_logout(self, msg_id: Any, params: dict[str, Any]) -> None:
+        self._authenticated = False
+        self._reply(msg_id, {})
 
     def _handle_new_session(self, msg_id: Any, params: dict[str, Any]) -> None:
+        if self._require_auth and not self._authenticated:
+            self._error(msg_id, -32000, "Authentication required")
+            return
         self._session_count += 1
         session_id = f"sess-{self._session_count:04d}"
         self._sessions[session_id] = params.get("cwd", "")

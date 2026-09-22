@@ -130,6 +130,17 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "(ACP-AUTH-003 and every test that otherwise relies on `new_session()`/`connected_agent`).",
     )
     group.addoption(
+        "--tck-allow-logout",
+        action="store_true",
+        default=False,
+        help="Opt in to actually calling v2's `auth/logout` against the agent under test "
+        "(ACP-AUTH-203). Off by default because it may revoke the operator's own credentials "
+        "for whatever account the agent is authenticated as -- without this flag, ACP-AUTH-203 "
+        "SKIPs instead of exercising it. v1 has no equivalent option: its logout test "
+        "(ACP-AUTH-004) is gated purely by the `agentCapabilities.auth.logout` marker and is "
+        "unaffected by this flag.",
+    )
+    group.addoption(
         "--tck-close-grace",
         action="store",
         type=float,
@@ -296,9 +307,22 @@ def current_initialize_auth_methods() -> list[Any] | None:
     return _INIT_AUTH_METHODS.get()
 
 
+_ALLOW_LOGOUT: contextvars.ContextVar[bool] = contextvars.ContextVar("_ALLOW_LOGOUT", default=False)
+
+
+def current_allow_logout() -> bool:
+    """Whether `--tck-allow-logout` was given for this run. Read by the v2 logout requirement
+    (`ACP-AUTH-203`) to decide whether to actually call the destructive `auth/logout` method --
+    mirrors the `current_auth_method_id()` contextvar pattern above. v1's own logout test
+    (`ACP-AUTH-004`) does not read this; it is unaffected by the flag (see
+    `--tck-allow-logout`'s help text)."""
+    return _ALLOW_LOGOUT.get()
+
+
 @pytest.fixture(autouse=True)
 def _tck_auth_method_context(request: pytest.FixtureRequest) -> Any:
     token = _AUTH_METHOD.set(request.config.getoption("tck_auth_method"))
+    allow_logout_token = _ALLOW_LOGOUT.set(bool(request.config.getoption("tck_allow_logout")))
     init_outcome: InitializeOutcome = request.getfixturevalue("agent_initialize_result")
     auth_methods = None
     if init_outcome.result is not None:
@@ -312,6 +336,7 @@ def _tck_auth_method_context(request: pytest.FixtureRequest) -> Any:
     yield
     _AUTH_METHOD.reset(token)
     _INIT_AUTH_METHODS.reset(methods_token)
+    _ALLOW_LOGOUT.reset(allow_logout_token)
 
 
 @dataclass(frozen=True)

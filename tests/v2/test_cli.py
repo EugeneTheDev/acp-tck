@@ -58,6 +58,9 @@ _MANDATORY_IDS = {
     "ACP-JSONRPC-003",
     "ACP-BATCH-201",
     "ACP-BATCH-202",
+    "ACP-AUTH-202",
+    "ACP-AUTH-206",
+    "ACP-AUTH-207",
 }
 _CAPABILITY_IDS = {
     "ACP-SESSION-001",
@@ -102,6 +105,8 @@ _CAPABILITY_IDS = {
     "ACP-CONFIG-203",
     "ACP-CONFIG-204",
     "ACP-CONFIG-206",
+    "ACP-AUTH-203",
+    "ACP-AUTH-204",
 }
 _ADVISORY_IDS = {
     "ACP-PROMPT-003",
@@ -115,6 +120,8 @@ _ADVISORY_IDS = {
     "ACP-BATCH-207",
     "ACP-BATCH-208",
     "ACP-DELETE-203",
+    "ACP-AUTH-201",
+    "ACP-AUTH-205",
 }
 _INFORMATIONAL_IDS = {
     "ACP-INFO-CONCURRENT-201",
@@ -187,6 +194,20 @@ _SESSION_MGMT_EXTRAS_SKIP_IDS = {
     "ACP-CONFIG-206",
 }
 
+# Slice V2-5: any fixture that advertises no `authMethods` at all, run with no `--auth-method`/
+# `--allow-logout` -- true of every pre-V2-5 fixture (`conforming.py`, `vendor_stop_reason.py`,
+# `idle_before_running.py`, `emits_batch_updates.py`, ...), none of which were updated this slice
+# to advertise `authMethods`. `ACP-AUTH-203`/`204` both need `authMethods` non-empty (`203`
+# additionally needs `--allow-logout`); `ACP-AUTH-207` needs a `type: "terminal"` entry to appear
+# on a dedicated connection advertising `capabilities.auth.terminal`. All three legitimately SKIP.
+# `ACP-AUTH-201`/`202`/`205`/`206` are NOT in this set: each holds vacuously true (or is judged
+# against the empty-`authMethods` case, `ACP-AUTH-205`) and PASSes.
+_NO_AUTH_SKIP_IDS = {
+    "ACP-AUTH-203",
+    "ACP-AUTH-204",
+    "ACP-AUTH-207",
+}
+
 _TABLE_ROW_RE = re.compile(r"^\s*(ACP-\S+)\s+(PASS|FAIL|SKIPPED|NOT TESTED)\b")
 
 
@@ -209,6 +230,8 @@ def _run_cli(
     startup_timeout: str = "1",
     report_json: str | None = None,
     cancel_prompt: str | None = None,
+    auth_method: str | None = None,
+    allow_logout: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     cmd = [sys.executable, "-m", "tck", "--timeout", timeout, "--startup-timeout", startup_timeout]
     if protocol_version is not None:
@@ -219,6 +242,10 @@ def _run_cli(
         cmd += ["--report-json", report_json]
     if cancel_prompt is not None:
         cmd += ["--cancel-prompt", cancel_prompt]
+    if auth_method is not None:
+        cmd += ["--auth-method", auth_method]
+    if allow_logout:
+        cmd += ["--allow-logout"]
     cmd += ["--", sys.executable, str(fixture_dir / fixture)]
     return subprocess.run(cmd, capture_output=True, text=True, timeout=CLI_SUBPROCESS_TIMEOUT)
 
@@ -251,7 +278,13 @@ def test_v2_conforming_agent_passes_everything():
     support, not an `initialize`-result marker) all SKIP too. `ACP-SESSION-203`/`ACP-RESUME-
     201..205`/`ACP-LIST-201..204`/`ACP-CLOSE-201`/`ACP-CLOSE-202` are gated on the baseline
     `capabilities.session` marker alone (present even as `{}`), so they PASS -- except
-    `ACP-CLOSE-202`, which shares `ACP-CANCEL-208`'s exact race-prone test."""
+    `ACP-CLOSE-202`, which shares `ACP-CANCEL-208`'s exact race-prone test.
+
+    Slice V2-5: `conforming.py` advertises no `authMethods` at all and is run with no
+    `--auth-method`/`--allow-logout`, so `ACP-AUTH-203`/`204` (both need `authMethods` non-empty)
+    and `ACP-AUTH-207` (needs a `type: "terminal"` entry to actually appear) all SKIP.
+    `ACP-AUTH-201`/`202`/`205`/`206` PASS -- each holds vacuously true or is judged against the
+    absence of `authMethods`."""
     result = _run_cli(FIXTURES_DIR_V2, "conforming.py", protocol_version=2)
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -274,6 +307,9 @@ def test_v2_conforming_agent_passes_everything():
         "ACP-CONFIG-203",
         "ACP-CONFIG-204",
         "ACP-CONFIG-206",
+        "ACP-AUTH-203",
+        "ACP-AUTH-204",
+        "ACP-AUTH-207",
     } | _CANCEL_RACE_SKIP_IDS | _ALWAYS_SKIPPED_IDS
     for req_id, status in statuses.items():
         if req_id in expected_skips:
@@ -295,21 +331,70 @@ def test_v2_conforming_full_agent_passes_everything():
     turn in flight long enough for `session/cancel` to be exercised for real, so every
     CAPABILITY-tier `ACP-CANCEL-*` id PASSes too -- only `_ALWAYS_SKIPPED_IDS` (permanently
     unobservable ADVISORY record-only probes, never a function of the fixture or timing) still
-    SKIP."""
+    SKIP.
+
+    Slice V2-5: run with `--auth-method tck --allow-logout` (`conforming_full.py` advertises one
+    `type: "agent"` authMethods entry, `methodId: "tck"`) so `ACP-AUTH-203`/`204` are actually
+    exercised and PASS rather than SKIP. Two ids are left in `expected_skips` below regardless:
+    `ACP-AUTH-207` needs a `type: "terminal"` entry to appear on a connection that advertises
+    `capabilities.auth.terminal`, and `conforming_full.py` advertises no terminal method at all
+    -- so it legitimately SKIPs ("nothing to check"). `ACP-AUTH-205` only concerns the case where
+    `authMethods` is empty/absent, and `conforming_full.py` always advertises one -- so it
+    legitimately SKIPs too ("AUTH-205 only concerns the empty case"), the mirror image of
+    `ACP-AUTH-204` PASSing precisely because `authMethods` is non-empty. Both are SKIPped even for
+    this otherwise all-PASS fixture, exactly like any other CAPABILITY/ADVISORY-tier row gated on
+    a marker or precondition the fixture doesn't meet. A SKIPped MANDATORY-tier id like
+    `ACP-AUTH-207` does not affect `verdict.conformant` (only MANDATORY FAIL/NOT_TESTED and
+    CAPABILITY FAIL do), so the run is still CONFORMANT."""
     result = _run_cli(
-        FIXTURES_DIR_V2, "conforming_full.py", protocol_version=2, cancel_prompt="__hang__"
+        FIXTURES_DIR_V2,
+        "conforming_full.py",
+        protocol_version=2,
+        cancel_prompt="__hang__",
+        auth_method="tck",
+        allow_logout=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
     statuses = _table_statuses(result.stdout)
     assert set(statuses) == _ALL_IDS, f"requirement table missing/extra ids: {result.stdout}"
+    expected_skips = _ALWAYS_SKIPPED_IDS | {"ACP-AUTH-207", "ACP-AUTH-205"}
     for req_id, status in statuses.items():
-        if req_id in _ALWAYS_SKIPPED_IDS:
+        if req_id in expected_skips:
             assert status == "SKIPPED", f"{req_id} is {status}, expected SKIPPED:\n{result.stdout}"
         else:
             assert status == "PASS", f"{req_id} is {status}, expected PASS for conforming_full.py:\n{result.stdout}"
     assert statuses["ACP-INFO-CONCURRENT-201"] == "PASS", result.stdout
     assert statuses["ACP-INFO-UNKNOWNSESSION-001"] == "PASS", result.stdout
+    assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
+
+
+def test_v2_conforming_full_agent_without_allow_logout_only_skips_auth_203():
+    """Acceptance criterion: the same `conforming_full.py --auth-method tck` run, but WITHOUT
+    `--allow-logout`, must SKIP ONLY `ACP-AUTH-203` in addition to the baseline's own SKIPs
+    (`_ALWAYS_SKIPPED_IDS` plus `ACP-AUTH-207`/`ACP-AUTH-205`, per
+    `test_v2_conforming_full_agent_passes_everything` above) -- every other id keeps the exact
+    same status. `ACP-AUTH-204` still PASSes here since `--auth-method tck` alone is enough to
+    exercise `auth/login`; only `auth/logout` (`ACP-AUTH-203`) requires the separate
+    `--allow-logout` opt-in."""
+    result = _run_cli(
+        FIXTURES_DIR_V2,
+        "conforming_full.py",
+        protocol_version=2,
+        cancel_prompt="__hang__",
+        auth_method="tck",
+        allow_logout=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    assert set(statuses) == _ALL_IDS, f"requirement table missing/extra ids: {result.stdout}"
+    expected_skips = _ALWAYS_SKIPPED_IDS | {"ACP-AUTH-207", "ACP-AUTH-205", "ACP-AUTH-203"}
+    for req_id, status in statuses.items():
+        if req_id in expected_skips:
+            assert status == "SKIPPED", f"{req_id} is {status}, expected SKIPPED:\n{result.stdout}"
+        else:
+            assert status == "PASS", f"{req_id} is {status}, expected PASS without --allow-logout:\n{result.stdout}"
     assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
 
 
@@ -613,7 +698,9 @@ def test_vendor_stop_reason_passes_everything():
     records "prerequisite not met" instead of judging anything. `_ALWAYS_SKIPPED_IDS`
     (`ACP-CANCEL-204`, `ACP-BATCH-206/207/208`) SKIP unconditionally for any fixture. Slice
     V2-4: `ACP-CLOSE-202` shares `ACP-CANCEL-208`'s exact test, so it FAILs alongside it too, and
-    `_SESSION_MGMT_EXTRAS_SKIP_IDS` SKIP ("not advertised") since this fixture predates them."""
+    `_SESSION_MGMT_EXTRAS_SKIP_IDS` SKIP ("not advertised") since this fixture predates them.
+    Slice V2-5: `_NO_AUTH_SKIP_IDS` SKIP too, since this fixture advertises no `authMethods` and
+    the run passes no `--auth-method`."""
     result = _run_cli(FIXTURES_DIR_V2, "vendor_stop_reason.py", protocol_version=2)
     assert result.returncode != 0
 
@@ -629,6 +716,7 @@ def test_vendor_stop_reason_passes_everything():
         _NOT_ADVERTISED_OR_EXERCISED_SKIP_IDS
         | _ALWAYS_SKIPPED_IDS
         | _SESSION_MGMT_EXTRAS_SKIP_IDS
+        | _NO_AUTH_SKIP_IDS
         | {"ACP-CANCEL-202"}
     )
     for req_id, status in statuses.items():
@@ -742,7 +830,9 @@ def test_idle_before_running_passes_everything():
     test's single `read_line()` sees the notification instead. Both ids FAIL as a result; since
     both are ADVISORY, this does not flip the overall verdict away from CONFORMANT (only a
     MANDATORY/CAPABILITY FAIL would). Slice V2-4: `_SESSION_MGMT_EXTRAS_SKIP_IDS` SKIP too, since
-    this fixture predates them and advertises only the bare `session: {}}` baseline."""
+    this fixture predates them and advertises only the bare `session: {}}` baseline. Slice V2-5:
+    `_NO_AUTH_SKIP_IDS` SKIP too, since this fixture advertises no `authMethods` and the run
+    passes no `--auth-method`."""
     result = _run_cli(FIXTURES_DIR_V2, "idle_before_running.py", protocol_version=2)
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -752,6 +842,7 @@ def test_idle_before_running_passes_everything():
         | _CANCEL_RACE_SKIP_IDS
         | _ALWAYS_SKIPPED_IDS
         | _SESSION_MGMT_EXTRAS_SKIP_IDS
+        | _NO_AUTH_SKIP_IDS
     )
     statuses = _table_statuses(result.stdout)
     for req_id, status in statuses.items():
@@ -1247,7 +1338,8 @@ def test_v2_emits_batch_updates_passes_everything():
     so every CAPABILITY-tier `ACP-CANCEL-*` id is actually exercised, not just skipped by a race.
     Slice V2-4: this fixture predates the session-management extras and advertises only the bare
     `capabilities.session.prompt.*` baseline, so `_SESSION_MGMT_EXTRAS_SKIP_IDS` legitimately
-    SKIP too, exactly as they do for `conforming.py` itself.
+    SKIP too, exactly as they do for `conforming.py` itself. Slice V2-5: `_NO_AUTH_SKIP_IDS` SKIP
+    too, since this fixture advertises no `authMethods` and the run passes no `--auth-method`.
     """
     result = _run_cli(
         FIXTURES_DIR_V2, "emits_batch_updates.py", protocol_version=2, cancel_prompt="__hang__"
@@ -1256,7 +1348,7 @@ def test_v2_emits_batch_updates_passes_everything():
 
     statuses = _table_statuses(result.stdout)
     assert set(statuses) == _ALL_IDS, f"requirement table missing/extra ids: {result.stdout}"
-    expected_skips = _ALWAYS_SKIPPED_IDS | _SESSION_MGMT_EXTRAS_SKIP_IDS
+    expected_skips = _ALWAYS_SKIPPED_IDS | _SESSION_MGMT_EXTRAS_SKIP_IDS | _NO_AUTH_SKIP_IDS
     for req_id, status in statuses.items():
         if req_id in expected_skips:
             assert status == "SKIPPED", f"{req_id} is {status}, expected SKIPPED:\n{result.stdout}"
@@ -1411,6 +1503,151 @@ def test_config_partial_list_fails_config_202_only():
     fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
     assert fails == {"ACP-CONFIG-202"}, result.stdout
     for req_id in ("ACP-CONFIG-201", "ACP-CONFIG-203", "ACP-CONFIG-204", "ACP-CONFIG-206"):
+        assert statuses.get(req_id) == "PASS", f"{req_id}: {result.stdout}"
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+# --- V2-5: authentication (`ACP-AUTH-201..207`) -- self-tests ---
+
+
+def test_gated_by_auth_without_auth_method_is_blocked_by_auth():
+    """`gated_by_auth.py` always errors `session/new` with `-32000` unless `auth/login` with
+    methodId `"tck"` has already succeeded on the connection. Without `--auth-method`, every
+    session-dependent test SKIPs with the `AUTH-GATED:` marker (via `skip_if_auth_gated()`),
+    which forces `verdict.blocked_by_auth == true` and exit code 1 -- even though zero
+    requirements actually FAILed; they were simply never exercised. Mirrors v1's
+    `gated_by_auth.py` self-test."""
+    result = _run_cli(FIXTURES_DIR_V2, "gated_by_auth.py", protocol_version=2)
+    assert result.returncode != 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == set(), f"expected zero FAILs (the agent is merely never exercised): {result.stdout}"
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+    assert "blocked by auth" in result.stdout.lower() or "auth-gated" in result.stdout.lower(), result.stdout
+
+
+def test_gated_by_auth_with_auth_method_is_conformant():
+    """The same `gated_by_auth.py` fixture, run with `--auth-method tck`: `connected_agent`'s
+    auto-login step (`_helpers.py`) authenticates before any session-dependent test ever calls
+    `session/new`, so the gate never fires and the run is fully CONFORMANT."""
+    result = _run_cli(FIXTURES_DIR_V2, "gated_by_auth.py", protocol_version=2, auth_method="tck")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == set(), result.stdout
+    assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
+
+
+def test_terminal_auth_unadvertised_fails_auth_202_only():
+    """`terminal_auth_unadvertised.py` advertises a `type: "terminal"` authMethods entry on every
+    connection, including the default one that never advertises `capabilities.auth.terminal` --
+    FAILs exactly `ACP-AUTH-202`. It has no `args`/`env` fields at all, so it cannot also trip
+    `ACP-AUTH-207` (which only runs when a terminal entry actually appears on the dedicated
+    terminal-capable connection -- and this fixture happens to also advertise it there, but with
+    a well-formed descriptor)."""
+    result = _run_cli(FIXTURES_DIR_V2, "terminal_auth_unadvertised.py", protocol_version=2, k="authentication")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-AUTH-202"}, result.stdout
+    for req_id in ("ACP-AUTH-201", "ACP-AUTH-206", "ACP-AUTH-207"):
+        assert statuses.get(req_id) == "PASS", f"{req_id}: {result.stdout}"
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_duplicate_method_id_fails_auth_201_only_and_stays_conformant():
+    """`duplicate_method_id.py` advertises two `authMethods` entries sharing the same
+    `methodId` -- FAILs exactly `ACP-AUTH-201`, which is ADVISORY (re-cites v1's `ACP-AUTH-001`).
+    An ADVISORY FAIL never affects `verdict.conformant` on its own -- unlike every other defect
+    fixture in this section, all of which trip a MANDATORY id. Scoped with `-k authentication`
+    (`tests/v2/test_cli.py`'s own `-k` convention, see `test_asks_permission_fixture_passes_
+    perm_201_but_skips_promptcap` above), so the exit code/overall verdict text are not asserted:
+    scoping necessarily leaves every other MANDATORY id `NOT_TESTED`, which flips the verdict to
+    NOT CONFORMANT by design regardless of how the exercised ids actually behave -- the "stays
+    conformant" claim in this test's name is about `ACP-AUTH-201`'s own tier, not the scoped
+    run's own verdict line."""
+    result = _run_cli(FIXTURES_DIR_V2, "duplicate_method_id.py", protocol_version=2, k="authentication")
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-AUTH-201"}, result.stdout
+    for req_id in ("ACP-AUTH-202", "ACP-AUTH-206"):
+        assert statuses.get(req_id) == "PASS", f"{req_id}: {result.stdout}"
+
+
+def test_custom_auth_type_unprefixed_fails_auth_206_only():
+    """`custom_auth_type_unprefixed.py` advertises an authMethods entry whose `type` is
+    `"sso"` -- neither a defined value nor `_`-prefixed -- FAILs exactly `ACP-AUTH-206`
+    (MANDATORY, new in v2)."""
+    result = _run_cli(FIXTURES_DIR_V2, "custom_auth_type_unprefixed.py", protocol_version=2, k="authentication")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-AUTH-206"}, result.stdout
+    for req_id in ("ACP-AUTH-201", "ACP-AUTH-202"):
+        assert statuses.get(req_id) == "PASS", f"{req_id}: {result.stdout}"
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_advertises_auth_but_logout_errors_fails_auth_203_only_with_allow_logout():
+    """`advertises_auth_but_logout_errors.py` implements `auth/login` normally but always errors
+    on `auth/logout`. Run with `--auth-method tck --allow-logout` (both required to actually
+    exercise `auth/logout` at all) -- FAILs exactly `ACP-AUTH-203`."""
+    result = _run_cli(
+        FIXTURES_DIR_V2,
+        "advertises_auth_but_logout_errors.py",
+        protocol_version=2,
+        k="authentication",
+        auth_method="tck",
+        allow_logout=True,
+    )
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-AUTH-203"}, result.stdout
+    assert statuses.get("ACP-AUTH-204") == "PASS", result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_advertises_auth_but_logout_errors_skips_auth_203_without_allow_logout():
+    """The same fixture, without `--allow-logout`: `auth/logout` is never called at all, so
+    `ACP-AUTH-203` SKIPs (its documented, diagnosable reason) rather than FAILing. Scoped with
+    `-k authentication`, so the exit code/overall verdict text are not asserted -- see
+    `test_duplicate_method_id_fails_auth_201_only_and_stays_conformant` above for why; the
+    "fully CONFORMANT" claim is about `ACP-AUTH-203` no longer being a FAIL, not the scoped run's
+    own verdict line."""
+    result = _run_cli(
+        FIXTURES_DIR_V2,
+        "advertises_auth_but_logout_errors.py",
+        protocol_version=2,
+        k="authentication",
+        auth_method="tck",
+    )
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == set(), result.stdout
+    assert statuses.get("ACP-AUTH-203") == "SKIPPED", result.stdout
+
+
+def test_terminal_env_duplicate_names_fails_auth_207_only():
+    """`terminal_env_duplicate_names.py` only advertises its `type: "terminal"` authMethods entry
+    to a connection that itself advertises `capabilities.auth.terminal` -- so it never trips
+    `ACP-AUTH-202` (the default connection sees no `authMethods` at all) -- but that entry's
+    `env` array has two entries sharing the same `name`, FAILing exactly `ACP-AUTH-207`
+    (MANDATORY, new in v2)."""
+    result = _run_cli(FIXTURES_DIR_V2, "terminal_env_duplicate_names.py", protocol_version=2, k="authentication")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-AUTH-207"}, result.stdout
+    for req_id in ("ACP-AUTH-201", "ACP-AUTH-202", "ACP-AUTH-206"):
         assert statuses.get(req_id) == "PASS", f"{req_id}: {result.stdout}"
     assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
 
