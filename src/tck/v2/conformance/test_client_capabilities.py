@@ -5,10 +5,10 @@ v2 client/protocol method, or `_`-prefixed) -- the v2 collapse of v1's three sep
 removed, not merely capability-gated), so calling either FAILs here as simply an undefined
 method, indistinguishable from any other made-up non-`_` method name.
 
-Both rows are `Tier.CAPABILITY`, `capability="capabilities.session"` per the "v2 tiering rule for
-session-baseline rows" (`.agents/plan.md`) even though the underlying rules themselves are
-unconditional MUSTs -- see `tck.v2.requirements`'s module docstring for the D3/ownership
-reasoning. The mock client (`_helpers.run_prompt`) advertises `capabilities: {}` -- no
+Both rows are `Tier.CAPABILITY`, `capability="capabilities.session"` (the session-baseline
+tiering rule -- see `tck.v2.requirements`'s module docstring) even though the underlying rules
+themselves are unconditional MUSTs. The mock client (`_helpers.run_prompt`) advertises
+`capabilities: {}` -- no
 elicitation mode -- for every prompt turn driven by `connected_agent`'s default (no explicit
 `capabilities=` override needed here, since v2's own `SPEC.initialize_params()` already sends
 `capabilities: {}`).

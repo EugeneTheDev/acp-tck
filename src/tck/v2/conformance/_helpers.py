@@ -1,29 +1,27 @@
 """Shared helpers for the v2 conformance suite.
 
-Slice V2-1b scope was `connected_agent()`, `new_session()`, and `skip_if_version_mismatch()`.
-Slice V2-2a adds the v2 mock-client prompt driver: `run_prompt()`/`PromptTurn`/
-`cancel_race_peek()`, the v2 counterpart of `tck.v1.conformance._helpers`'s same-named machinery
--- deliberately a separate, non-shared implementation (`.agents/plan.md` D6: "honest duplication,
-not shared machinery"), because the v2 turn-end contract is fundamentally different: v1's
-`session/prompt` response *is* the turn result (carries `stopReason`); v2's response is only an
-acceptance receipt (`{messageId}`) sent at insertion time, and the turn's end is learned solely
-from a `session/update` `state_update {state: "idle"}` notification
+`connected_agent()`/`new_session()`/`skip_if_version_mismatch()` are the basic connection/session
+helpers. `run_prompt()`/`PromptTurn`/`cancel_race_peek()` are the v2 mock-client prompt driver,
+the v2 counterpart of `tck.v1.conformance._helpers`'s same-named machinery -- deliberately a
+separate, non-shared implementation, because the v2 turn-end contract is fundamentally
+different: v1's `session/prompt` response *is* the turn result (carries `stopReason`); v2's
+response is only an acceptance receipt (`{messageId}`) sent at insertion time, and the turn's
+end is learned solely from a `session/update` `state_update {state: "idle"}` notification
 (`.agents/research/acp-v2-prompt-lifecycle.md` "Answer", §4).
 
-Slice V2-5 adds `skip_if_auth_gated()`, the v2 twin of v1's same-named helper, wired into
-`new_session()`.
+`skip_if_auth_gated()` is the v2 twin of v1's same-named helper, wired into `new_session()`.
 
-Slice V2-4 adds the session-management wire helpers (`resume_session`, `list_sessions`,
-`close_session`, `delete_session`, `set_config_option`) and `obtain_resumable_session`, which
-implements `.agents/research/acp-v2-session-management.md`'s "Recommended harness strategy" for
-the "hard problem" it flags: there is no spec-guaranteed way for a black-box client to obtain a
-session id it is entitled to `session/resume`. It tries, in order: (1) resuming the session just
-created on this connection; (3) `session/list` then resuming its first entry; (2)
-`session/close` then resume -- recording every route's error -- and raises `pytest.skip.Exception`
-with all three recorded errors if none succeeds, *unless* `session/resume` itself answered
-`-32601` (Method not found) on any attempt, which is instead surfaced as a hard failure (`B3`
-makes `session/resume` a baseline-mandatory method once `capabilities.session` is advertised at
-all, so `-32601` is unambiguously non-conformant, never just "this particular id didn't work").
+The session-management wire helpers (`resume_session`, `list_sessions`, `close_session`,
+`delete_session`, `set_config_option`) and `obtain_resumable_session` implement
+`.agents/research/acp-v2-session-management.md`'s "Recommended harness strategy" for the "hard
+problem" it flags: there is no spec-guaranteed way for a black-box client to obtain a session id
+it is entitled to `session/resume`. It tries, in order: (1) resuming the session just created on
+this connection; (3) `session/list` then resuming its first entry; (2) `session/close` then
+resume -- recording every route's error -- and raises `pytest.skip.Exception` with all three
+recorded errors if none succeeds, *unless* `session/resume` itself answered `-32601` (Method not
+found) on any attempt, which is instead surfaced as a hard failure (the method is
+baseline-mandatory once `capabilities.session` is advertised at all, so `-32601` is
+unambiguously non-conformant, never just "this particular id didn't work").
 """
 
 from __future__ import annotations
@@ -461,17 +459,16 @@ def skip_if_version_mismatch(init_result: dict[str, Any]) -> None:
 
 def cancel_race_peek(timeout: float) -> float:
     """Like v1's `cancel_race_peek` (same formula, deliberately re-implemented rather than
-    imported -- `.agents/plan.md` D6): a short, bounded look for a line that may already be
-    sitting in the pipe, used by `run_prompt` right after it decides the turn has ended, to give
-    a trailing/out-of-order response (e.g. `on_action`'s) one last chance to be captured before
-    returning."""
+    imported): a short, bounded look for a line that may already be sitting in the pipe, used by
+    `run_prompt` right after it decides the turn has ended, to give a trailing/out-of-order
+    response (e.g. `on_action`'s) one last chance to be captured before returning."""
     return max(0.05, min(0.5, timeout / 50))
 
 
 def quiet_period(timeout: float) -> float:
-    """V2-2b twin of v1's `quiet_period` (identical formula, deliberately re-implemented rather
-    than imported -- `.agents/plan.md` D6, "honest duplication, not shared machinery"): the
-    heuristic "nothing more is coming" wait used by INFORMATIONAL probes that conclude absence
+    """v2 twin of v1's `quiet_period` (identical formula, deliberately re-implemented rather than
+    imported -- honest duplication, not shared machinery): the heuristic "nothing more is
+    coming" wait used by INFORMATIONAL probes that conclude absence
     (e.g. `ACP-INFO-CONCURRENT-201`'s "did a second, concurrent `session/prompt` get a
     response at all") -- derived from `--tck-timeout` rather than a hard-coded sub-second
     constant, clamped to a sane range."""
@@ -516,16 +513,16 @@ class PromptTurn:
     """Every agent -> client request the mock client had to answer during the turn:
     `session/request_permission` (answered normally) plus anything else (`elicitation/create`,
     and anything v1-shaped like `fs/*`/`terminal/*`, which do not exist as client methods in v2
-    at all), which gets `-32601` since our mock client advertises `capabilities: {}` -- a later
-    slice (V2-2b) turns "the agent called an unadvertised/nonexistent method" into its own
-    negative tests using this list."""
+    at all), which gets `-32601` since our mock client advertises `capabilities: {}` -- used by
+    the negative tests asserting "the agent called an unadvertised/nonexistent method"
+    (`ACP-CLIENTCAP-201`/`202`)."""
     cancelled_at_index: int | None = None
     """The transcript index at which `run_prompt` sent `session/cancel`, or `None` if
     `on_cancel` was false or the prompt turn ended before a cancel was ever sent."""
     action_response: TranscriptEntry | None = None
     """The response to `on_action`'s request, if `on_action` was given and fired -- `None`
-    otherwise (mirrors v1's `PromptTurn.action_response`, for a future `session/close`-mid-turn
-    slice; V2-2a itself has no test that uses `on_action`)."""
+    otherwise (mirrors v1's `PromptTurn.action_response`; used by `test_cancel.py` to drive
+    `session/close` mid-turn)."""
     action_sent_at_index: int | None = None
     """The transcript index at which `on_action`'s request was sent, mirroring
     `cancelled_at_index`."""
@@ -565,8 +562,8 @@ async def run_prompt(
     is simply not treated as a terminator; it is recorded like any other update, and reading
     continues (bounded by `timeout` as always) -- this is a deliberate simplification of the
     design note's "hold as a candidate terminator, wait one `quiet_period`" refinement: no
-    requirement or fixture in this slice needs that extra nuance, and every wait already has a
-    hard, honest bound.
+    requirement or fixture needs that extra nuance, and every wait already has a hard, honest
+    bound.
 
     **Tolerating an initial ready-idle sent *before* `session/prompt`.** Unlike v1's
     `run_prompt`, this does **not** drain `agent.pending()` before sending the request: doing so
@@ -591,13 +588,12 @@ async def run_prompt(
       `capabilities: {}`), and is recorded on `PromptTurn.client_requests_seen`.
 
     `cancel_meta`, if given, is merged into the `session/cancel` notification's params as `_meta`
-    (Slice V2-3, `ACP-CANCEL-206`'s "accepts a cancel that additionally carries `_meta`" check) --
-    `None` (the default) sends the bare `{"sessionId": session_id}` params every other caller
-    relies on.
+    (`ACP-CANCEL-206`'s "accepts a cancel that additionally carries `_meta`" check) -- `None`
+    (the default) sends the bare `{"sessionId": session_id}` params every other caller relies on.
 
     `on_cancel`/`on_action`/`cancel_wait`/`extra_params` mirror v1's `run_prompt` in shape and
-    fallback timing, but **not** in trigger condition (Slice V2-3,
-    `.agents/research/acp-v2-cancellation-and-batching.md` "Testability notes" > "The v2 cancel
+    fallback timing, but **not** in trigger condition
+    (`.agents/research/acp-v2-cancellation-and-batching.md` "Testability notes" > "The v2 cancel
     driver"): v1 fires its trigger on the *first* `session/update` of any kind; v2 fires it
     specifically on the transition to `state_update {state: "running"}` for `session_id` -- the
     MUST-guaranteed turn-start marker (`prompt-lifecycle.mdx:159`) -- because v2's `user_message`
@@ -662,9 +658,9 @@ async def run_prompt(
         `entry.parsed` may itself be a JSON-RPC batch array rather than a single object --
         `ACP-BATCH-207` permits an agent to spontaneously emit a batch of `session/update`
         notifications, and this driver must not simply go blind to a turn's own updates just
-        because the agent chose to deliver them that way (`emits_batch_updates.py`'s self-test,
-        added alongside V2-3's transport/JSON-RPC negative controls, is exactly this scenario).
-        Each dict-shaped element is dispatched via `_handle_message` through a synthetic
+        because the agent chose to deliver them that way (`emits_batch_updates.py`'s self-test
+        is exactly this scenario). Each dict-shaped element is dispatched via `_handle_message`
+        through a synthetic
         per-item entry (`dataclasses.replace(entry, parsed=item)`) that shares the parent line's
         `raw`/`timestamp`/`direction` but carries just that one element as `.parsed`, so every
         downstream consumer -- this function's own id/method matching, and any test that later

@@ -1,5 +1,5 @@
 """Prompt content capabilities: `image`, `audio`, `embeddedContext`
-(ACP-PROMPTCAP-001/002/003) -- reused v1 ids (D3: same requirement text/tier, re-cited to v2
+(ACP-PROMPTCAP-001/002/003) -- reused v1 ids (same requirement text/tier, re-cited to v2
 sources with a new **object-marker** gate, `capabilities.session.prompt.{image,audio,
 embeddedContext}`, since v2 has no boolean-encoded capabilities anywhere -- see `ACP-INIT-204`).
 

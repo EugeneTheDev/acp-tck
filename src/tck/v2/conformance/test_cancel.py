@@ -1,8 +1,8 @@
-"""Cancellation conformance: ACP-CANCEL-201..208, ACP-INFO-CANCEL-201/202 (Slice V2-3).
+"""Cancellation conformance: ACP-CANCEL-201..208, ACP-INFO-CANCEL-201/202.
 
-Slice V2-4 additionally binds `ACP-CLOSE-202` to `test_close_cancels_foreground_work` below, via
-a second `@pytest.mark.requirement(...)` id on the same test -- see `tck.v2.requirements`'s
-module docstring, "V2-4: session management", for why this is a deliberate reuse rather than a
+`ACP-CLOSE-202` is additionally bound to `test_close_cancels_foreground_work` below, via a
+second `@pytest.mark.requirement(...)` id on the same test -- see `tck.v2.requirements`'s
+module docstring, "Session management", for why this is a deliberate reuse rather than a
 duplicate probe (precedent: `ACP-CANCEL-201`/`ACP-CANCEL-207`).
 
 v2 moves cancellation's confirmation off the `session/prompt` response (which is only ever an
@@ -10,8 +10,8 @@ acceptance receipt, `{messageId}`) onto a *separate*, terminating `session/updat
 `state_update {state: "idle", stopReason: "cancelled"}` notification
 (`.agents/research/acp-v2-cancellation-and-batching.md` "Answer" / prompt-lifecycle.mdx:519,526).
 `ACP-CANCEL-201/202/203/205/206/207/208` are `Tier.CAPABILITY`, `capability="capabilities.session"`
--- `session/cancel` is named directly in the seven-method session baseline (the V2-2a "session-
-baseline rows" rule), exactly like `ACP-SESSION-001/002`/`ACP-PROMPT-201` etc. `ACP-CANCEL-204`
+-- `session/cancel` is named directly in the seven-method session baseline (the session-baseline
+rows rule), exactly like `ACP-SESSION-001/002`/`ACP-PROMPT-201` etc. `ACP-CANCEL-204`
 ("as soon as possible") is `Tier.ADVISORY` on the `Requirement` itself (`capability=None`, per
 `Requirement.__post_init__`'s invariant) since a client-only TCK has no wire-observable way to
 judge promptness at all; its test still carries the `capabilities.session` marker for the SKIP
@@ -56,18 +56,17 @@ here (e.g. `stopReason: "aborted"`) genuinely violates both at once, not just on
 `ACP-CANCEL-208` ("`session/close` MUST cancel any foreground work for that session first") reuses
 `ACP-CANCEL-201`'s evidence shape (a terminating idle with `stopReason: "cancelled"`), but the
 *trigger* is `session/close`, not `session/cancel` -- driven via `run_prompt`'s `on_action`
-parameter instead of `on_cancel`. This does **not** duplicate the future `session/close`-own-
-contract rows (V2-4's planned `ACP-CLOSE-201`/`202`): those will cover `session/close`'s own
-result shape and idempotency; this row covers only the cancellation *side effect* `session/close`
-must have on in-flight work, which is this slice's (cancellation's) concern.
+parameter instead of `on_cancel`. This does **not** duplicate `session/close`'s own-contract rows
+(`ACP-CLOSE-201`/`202`): those cover `session/close`'s own result shape and idempotency; this row
+covers only the cancellation *side effect* `session/close` must have on in-flight work.
 
 `ACP-INFO-CANCEL-201`/`202` are `Tier.INFORMATIONAL`: cancelling a session with no foreground work
 in flight, and cancelling while a `session/request_permission` is pending, are both left
 unspecified by the v2 docs the report could find (`acp-v2-cancellation-and-batching.md`
 Testability notes) -- each records what the agent actually does via `record_property`, never
 asserts on it, and is gated on `capabilities.session` purely for the SKIP mechanism (same
-independence between the `Requirement`'s own `capability=None` and the test marker as elsewhere
-in this slice; see `tck.v2.requirements`'s module docstring).
+independence between the `Requirement`'s own `capability=None` and the test marker used
+throughout this registry; see `tck.v2.requirements`'s module docstring).
 """
 
 from __future__ import annotations
@@ -382,8 +381,8 @@ async def test_close_cancels_foreground_work(
     """ACP-CANCEL-208 / ACP-CLOSE-202. `session/close` for a session with an in-flight turn must
     cancel that foreground work first -- the same terminating-idle-with-`stopReason: "cancelled"`
     evidence as `ACP-CANCEL-201`, but triggered by `session/close` instead of `session/cancel`.
-    `ACP-CLOSE-202` (V2-4) is a deliberate re-mint of the exact same wire evidence, not a second
-    probe -- see the module docstring and `tck.v2.requirements`'s "V2-4: session management".
+    `ACP-CLOSE-202` is a deliberate re-mint of the exact same wire evidence, not a second probe
+    -- see the module docstring and `tck.v2.requirements`'s "Session management" section.
     Does not duplicate `ACP-CLOSE-201`, which covers `session/close`'s own result-shape contract
     on a session with no foreground work in flight."""
     async with connected_agent(agent_launch) as agent:

@@ -1,4 +1,4 @@
-"""V2-4 session `configOptions` (ACP-CONFIG-201..204, ACP-CONFIG-206).
+"""Session `configOptions` (ACP-CONFIG-201..204, ACP-CONFIG-206).
 
 `configOptions` has no `capabilities` marker of its own -- support is *inferred* from whether
 `session/new`'s response carries a non-empty `configOptions` list at all (C12,
@@ -12,7 +12,7 @@ configOptions" when the field is absent/empty.
 Must NOT assert (per the source report): that a `configId`'s value scheme means anything beyond
 schema validity, or that `session/set_config_option`'s *new* value is reflected anywhere besides
 its own response/an observed `config_option_update` (`ACP-CONFIG-205`, ADVISORY, is not
-registered this slice).
+registered).
 
 None of these tests carries a `@pytest.mark.capability(...)` marker (there is nothing for the
 autouse `_tck_capability_gate` to look up -- `capability="inferred:configOptions"` is

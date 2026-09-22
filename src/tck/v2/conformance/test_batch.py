@@ -1,10 +1,9 @@
 """JSON-RPC 2.0 batching (v2 §6, `docs/protocol/v2/transports.mdx`): ACP-BATCH-201..208,
 ACP-INFO-BATCH-201/202.
 
-New to v2 -- v1 has no batching at all, so none of these ids reuse a v1 number (D3 does not
-apply; there is nothing to reuse). Tiers follow `.agents/plan.md`'s explicit override, documented
-in full in `tck.v2.requirements`'s "Slice V2-3" module docstring; see that docstring for the
-per-id tiering rationale this file does not repeat.
+New to v2 -- v1 has no batching at all, so none of these ids reuse a v1 number; there is nothing
+to reuse. Tiers are documented in full in `tck.v2.requirements`'s "Batching" module docstring
+section; see that docstring for the per-id tiering rationale this file does not repeat.
 
 **Every test here calls `skip_if_version_mismatch` on its own manual `initialize`**, unlike
 `test_transport.py`/`test_jsonrpc.py`. Those two files' assertions hold for any agent's ordinary
@@ -142,9 +141,10 @@ async def test_invalid_batch_entries_get_per_entry_invalid_request(agent_launch)
 
 @pytest.mark.requirement("ACP-BATCH-204", "ACP-BATCH-205")
 async def test_batch_of_requests_replies_with_matching_responses(agent_launch, tmp_path):
-    """ACP-BATCH-204/205 (both ADVISORY, shared test -- see `tck.v2.requirements`'s "Slice V2-3"
-    docstring for why sharing is safe here: identical wire evidence, neither is the sole cause of
-    a failing verdict). `204`: the agent SHOULD reply to a batch containing at least one request
+    """ACP-BATCH-204/205 (both ADVISORY, shared test -- see `tck.v2.requirements`'s "Batching"
+    docstring section for why sharing is safe here: identical wire evidence, neither is the sole
+    cause of a failing verdict). `204`: the agent SHOULD reply to a batch containing at least one
+    request
     with one array of the corresponding response objects. `205`: responses MAY appear in any
     order; matching is done here by `id`, never by position -- this test's own lookup-by-id
     (rather than assuming array-index correspondence) is exactly the practice `205` calls for,
@@ -206,8 +206,8 @@ def test_lifecycle_batching_is_a_sender_property() -> None:
     """ACP-BATCH-208 (ADVISORY, record-only). "Clients and agents SHOULD NOT batch
     lifecycle-sensitive messages" is a property of whichever side sends a batch, not of the
     agent under test as a receiver -- the TCK itself never batches these, and cannot observe
-    what a would-be batching agent-as-sender would do without an inbound-message scenario this
-    slice does not otherwise exercise. Always SKIPped."""
+    what a would-be batching agent-as-sender would do without an inbound-message scenario it
+    does not otherwise exercise. Always SKIPped."""
     pytest.skip("record-only: lifecycle-batching restraint is a sender property, not a receiver one")
 
 

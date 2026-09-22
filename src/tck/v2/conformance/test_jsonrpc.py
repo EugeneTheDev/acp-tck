@@ -1,7 +1,7 @@
 """JSON-RPC envelope conformance: ACP-JSONRPC-001..005.
 
-Batch-widened v2 counterpart of `tck.v1.conformance.test_jsonrpc` (`.agents/plan.md` D6: honest
-duplication, not shared machinery). Per `tck.v2.requirements`' own "Slice V2-3" notes,
+Batch-widened v2 counterpart of `tck.v1.conformance.test_jsonrpc` (honest duplication, not
+shared machinery). Per `tck.v2.requirements`'s "Transport/JSON-RPC" notes,
 `ACP-JSONRPC-001..003` (id echo, result-xor-error shape, notification silence) reuse their v1
 numbers unchanged -- the underlying wire assertion itself did not change, only the
 evidence-gathering probes widen to also cover a batch-delivered response/notification.
@@ -16,7 +16,7 @@ exactly the same rule v1 already holds it to.
 
 The TCK's own probe method for "does this agent even reply to something it doesn't recognise" is
 `_tck/does_not_exist` -- `_`-prefixed, per the extensibility rule (custom methods must be
-`_`-prefixed) the TCK holds itself to as well (mirrors v1's `test_jsonrpc.py` review note).
+`_`-prefixed) the TCK holds itself to as well (mirrors v1's `test_jsonrpc.py`).
 """
 
 from __future__ import annotations

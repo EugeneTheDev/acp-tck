@@ -4,9 +4,8 @@ gate, the `auth/login`/`auth/logout`/`session/new` flow, and the open-enum `type
 
 v2 renames v1's `authenticate`/`logout` to `auth/login`/`auth/logout` and drops the separate
 `agentCapabilities.auth.logout` marker entirely -- see `tck.v2.requirements`'s module docstring
-"V2-5: authentication" section for the full id-namespacing rationale (which ids are re-cited
-from v1, which are genuinely new, and why `ACP-AUTH-002` is not reused verbatim as
-`ACP-AUTH-202`).
+"Authentication" section for the full id-namespacing rationale (which ids are re-cited from v1,
+which are genuinely new, and why `ACP-AUTH-002` is not reused verbatim as `ACP-AUTH-202`).
 
 See `.agents/research/acp-v2-authentication.md` for the full tiered assertion list this module
 draws from. Deliberately not asserted here (the report's "must NOT" list): that a non-empty
@@ -33,11 +32,10 @@ from ._helpers import connected_agent, new_session, skip_if_version_mismatch
 async def _initialized_agent(agent_launch, *, capabilities=None):
     """A fresh connection, one manual `initialize` (with an optional `capabilities` override),
     and a `VERSION-MISMATCH:` skip unless the agent actually negotiated v2 -- mirrors
-    `test_session_config.py`'s local `_v2_only_agent` helper, kept local here for the same
-    reason (`.agents/plan.md` D6: honest duplication over shared machinery for these small,
-    test-module-specific connection helpers). Yields `(agent, init_result)` since every test in
-    this module needs to inspect the `initialize` result itself (`authMethods`), not just get a
-    connected agent.
+    `test_session_config.py`'s local `_v2_only_agent` helper, kept local here too (honest
+    duplication over shared machinery for these small, test-module-specific connection helpers).
+    Yields `(agent, init_result)` since every test in this module needs to inspect the
+    `initialize` result itself (`authMethods`), not just get a connected agent.
     """
     async with connected_agent(agent_launch, handshake=False) as agent:
         params = SPEC.initialize_params()
@@ -156,14 +154,11 @@ async def test_login_then_session_new_succeeds(agent_launch, tmp_path):
     the one hard assertion is that a subsequent `session/new` on the same connection does not
     fail with `-32000`.
 
-    The `--tck-auth-method` presence check happens *inside* `_initialized_agent` (after
-    `skip_if_version_mismatch` has already had a chance to fire), not before opening the
-    connection -- mirrors `test_logout_succeeds`'s ordering. A version-mismatched agent (e.g. a
-    v1-only fixture forced under `--protocol-version 2`) must SKIP with the `VERSION-MISMATCH:`
-    marker regardless of whether `--auth-method` was given, per `tests/v2/test_cli.py`'s
-    `test_v1_conforming_agent_under_protocol_version_2_is_blocked_by_version_mismatch`
-    invariant -- checking `--auth-method` first (before ever connecting) would otherwise skip
-    with an unrelated reason and mask that."""
+    The `--tck-auth-method` presence check happens *inside* `_initialized_agent`, after
+    `skip_if_version_mismatch` has already had a chance to fire (mirrors
+    `test_logout_succeeds`'s ordering) -- a version-mismatched agent must SKIP with the
+    `VERSION-MISMATCH:` marker regardless of `--auth-method`, and checking that first would mask
+    it with an unrelated reason."""
     async with _initialized_agent(agent_launch) as (agent, init_result):
         method_id = current_auth_method_id()
         if method_id is None:
@@ -207,12 +202,11 @@ async def test_logout_succeeds(agent_launch):
     `--allow-logout`/`--tck-allow-logout` was given, since calling `auth/logout` for real may
     revoke the operator's own credentials for whatever account the agent is authenticated as.
 
-    If `--tck-auth-method` was given, this test logs in itself (mirroring
-    `connected_agent`'s own auto-login step, but done manually here since `_initialized_agent`
-    connects with `handshake=False` to control ordering against the `--allow-logout` skip
-    below) before calling `auth/logout` on that authenticated connection. Otherwise
-    `auth/logout` is called standalone; only its own success (a schema-valid object result) is
-    checked, nothing about session state after logout."""
+    If `--tck-auth-method` was given, this test logs in itself first (mirroring
+    `connected_agent`'s own auto-login step, done manually here since `_initialized_agent`
+    connects with `handshake=False`) before calling `auth/logout`. Only `auth/logout`'s own
+    success (a schema-valid object result) is checked -- nothing about session state after
+    logout."""
     async with _initialized_agent(agent_launch) as (agent, init_result):
         auth_methods = init_result.get("authMethods") or []
         if not auth_methods:

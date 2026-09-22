@@ -1,10 +1,10 @@
 """Transport hygiene: ACP-TRANSPORT-002, ACP-TRANSPORT-201, ACP-TRANSPORT-203.
 
-Batch-aware v2 counterpart of `tck.v1.conformance.test_transport` (`.agents/plan.md` D6: honest
-duplication, not shared machinery) -- v1's rule "every stdout line is exactly one JSON-RPC 2.0
-object" widens in v2 to "every stdout line is a JSON-RPC 2.0 object *or* a non-empty array of
-them" (`ACP-TRANSPORT-201`), which is why that id is a fresh `20x` number rather than a bare
-reuse of `ACP-TRANSPORT-001` (D3: the wording changed). `ACP-TRANSPORT-002` (UTF-8) is judged
+Batch-aware v2 counterpart of `tck.v1.conformance.test_transport` (honest duplication, not
+shared machinery) -- v1's rule "every stdout line is exactly one JSON-RPC 2.0 object" widens in
+v2 to "every stdout line is a JSON-RPC 2.0 object *or* a non-empty array of them"
+(`ACP-TRANSPORT-201`), which is why that id is a fresh `20x` number rather than a bare reuse of
+`ACP-TRANSPORT-001` -- the wording changed. `ACP-TRANSPORT-002` (UTF-8) is judged
 identically to v1 -- decoding is a byte-level property, unaffected by batching -- and
 `ACP-TRANSPORT-203` (no embedded newlines, so a batch array is itself serialised on one line) is
 new to v2.
@@ -13,15 +13,13 @@ The wire-hygiene properties these three rows check (clean NDJSON framing, valid 
 embedded newlines) are themselves version-independent -- but the *evidence-gathering exchange*
 used to collect a representative transcript is not: driving a full `session/prompt` turn through
 v2's `run_prompt` (which waits for a `state_update {state: "running"}`/`{state: "idle"}` pair that
-a version-mismatched agent, having negotiated e.g. v1, will never send) would otherwise hang until
-`--tck-timeout` and FAIL every row here for an honestly-negotiating v1 agent -- exactly the
-`AgentTimeout` this file's own first draft produced against `tests/fixtures/agents/v1/
-conforming.py` under `--protocol-version 2`, which is how this note came to be written. So
-`_drive_full_exchange` does its own manual `initialize` (mirroring `test_initialize.py`/
-`test_batch.py`'s pattern) and calls `skip_if_version_mismatch` before ever touching
-`session/new`/`run_prompt`, on the same connection -- not because the framing/UTF-8/newline rules
-themselves are v2-only, but because nothing past that point can honestly be driven without a
-confirmed v2 negotiation.
+a version-mismatched agent, having negotiated e.g. v1, will never send) would otherwise hang
+until `--tck-timeout` and FAIL every row here for an honestly-negotiating v1 agent with an
+`AgentTimeout`. So `_drive_full_exchange` does its own manual `initialize` (mirroring
+`test_initialize.py`/`test_batch.py`'s pattern) and calls `skip_if_version_mismatch` before ever
+touching `session/new`/`run_prompt` -- not because the framing/UTF-8/newline rules themselves
+are v2-only, but because nothing past that point can honestly be driven without a confirmed v2
+negotiation.
 """
 
 from __future__ import annotations
