@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tck.common.plugin import _verdict_reason, capability_is_supported
+from tck.common.plugin import _status_markup, _verdict_reason, capability_is_supported
 from tck.common.report import Status, Verdict
 from tck.common.requirements import Tier
 
@@ -143,3 +143,37 @@ def test_verdict_reason_degenerate_no_cause_is_honest_not_empty() -> None:
     # render empty parentheses if ever called with an inconsistent one.
     verdict = Verdict(conformant=False, tier_counts=_tier_counts())
     assert _verdict_reason(verdict) == "no cause recorded"
+
+
+# --- _status_markup: per-requirement rows (no `count`) get their status's own colour ---
+
+
+def test_status_markup_pass_is_green() -> None:
+    assert _status_markup(Status.PASS) == {"green": True}
+
+
+def test_status_markup_fail_is_red() -> None:
+    assert _status_markup(Status.FAIL) == {"red": True}
+
+
+def test_status_markup_skipped_is_yellow() -> None:
+    assert _status_markup(Status.SKIPPED) == {"yellow": True}
+
+
+def test_status_markup_not_tested_is_light() -> None:
+    assert _status_markup(Status.NOT_TESTED) == {"light": True}
+
+
+# --- _status_markup: tier-count summary lines (`count` given) -- zero renders plain ---
+
+
+def test_status_markup_zero_count_is_unmarked_regardless_of_status() -> None:
+    for status in Status:
+        assert _status_markup(status, count=0) == {}
+
+
+def test_status_markup_nonzero_count_keeps_status_colour() -> None:
+    assert _status_markup(Status.PASS, count=4) == {"green": True}
+    assert _status_markup(Status.FAIL, count=2) == {"red": True}
+    assert _status_markup(Status.SKIPPED, count=17) == {"yellow": True}
+    assert _status_markup(Status.NOT_TESTED, count=17) == {"light": True}

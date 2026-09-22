@@ -627,11 +627,12 @@ distinct from a SKIPPED yellow."""
 
 def _status_markup(status: Status, *, count: int | None = None) -> dict[str, bool]:
     """Markup kwargs for one status token. For the tier-count summary lines, pass the token's
-    `count`: a zero count always renders dim, regardless of status, so a clean run's `FAIL=0`
-    doesn't draw the eye with an alarming red. Non-zero counts (and per-requirement rows, which
-    don't pass `count`) get the status's own colour."""
+    `count`: a zero count gets no markup at all, so it recedes instead of competing for
+    attention -- that leaves `light` (dim) meaning only "NOT_TESTED", not also "zero of
+    something". Non-zero counts (and per-requirement rows, which don't pass `count`) get the
+    status's own colour."""
     if count == 0:
-        return {"light": True}
+        return {}
     return {_STATUS_MARKUP[status]: True}
 
 
