@@ -18,15 +18,15 @@ from typing import Any, Callable
 PROTOCOL_VERSION = 1
 
 # The five `ContentBlock` variants (`schema/v1/schema.json:601-688`, discriminated by `type`) --
-# used by `_content_block_error` below to give `session/prompt` schema-shape strictness (review-
-# slices-5-6.md S9) equivalent to `_handle_authenticate`'s `methodId` check.
+# used by `_content_block_error` below to give `session/prompt` schema-shape strictness
+# equivalent to `_handle_authenticate`'s `methodId` check.
 _VALID_CONTENT_BLOCK_TYPES = {"text", "image", "audio", "resource", "resource_link"}
 
 
 def _content_block_error(block: Any) -> str | None:
     """`None` if `block` is a structurally valid `ContentBlock`, else a short description of what
-    is wrong. Deliberately cheap (required-field presence and type only, not exhaustive schema
-    validation) per S9's "fix cheapest first" guidance."""
+    is wrong. Deliberately cheap: required-field presence and type only, not exhaustive schema
+    validation."""
     if not isinstance(block, dict):
         return f"content block must be an object, got {type(block).__name__}"
     block_type = block.get("type")
@@ -156,7 +156,7 @@ class ConformingAgent:
         elif method == "_tck/big":
             # Harness-only probe (`_`-prefixed, per Req 42): reply with a `size`-byte string so
             # tests can exercise the line-limit handling in `AgentProcess._read_raw_line`
-            # (`.agents/research/review-slices-1-4.md` B1) without needing a dedicated fixture.
+            # without needing a dedicated fixture.
             size = params.get("size", 2_000_000)
             self._reply(msg_id, {"value": "x" * size})
         else:
@@ -244,11 +244,11 @@ class ConformingAgent:
 
     def _handle_authenticate(self, msg_id: Any, params: dict[str, Any]) -> None:
         # `methodId` is schema-required (`acp-v1-authentication.md` Req 5, AUTH-C5) and must name
-        # one of the ids this agent actually advertised in `initialize`'s `authMethods` -- fixture
-        # strictness (review-slices-5-6.md S9): a lenient fixture that authenticates on any (or
-        # no) methodId hides whether the TCK's own `authenticate` request has the right shape,
-        # and lets a wrong `--tck-auth-method` silently "succeed" instead of leaving the agent
-        # gated (see `gated_by_auth.py`).
+        # one of the ids this agent actually advertised in `initialize`'s `authMethods` --
+        # fixture strictness: a lenient fixture that authenticates on any (or no) methodId hides
+        # whether the TCK's own `authenticate` request has the right shape, and lets a wrong
+        # `--tck-auth-method` silently "succeed" instead of leaving the agent gated (see
+        # `gated_by_auth.py`).
         method_id = params.get("methodId")
         valid_ids = {m.get("id") for m in (self._auth_methods or [])}
         if not isinstance(method_id, str) or method_id not in valid_ids:
@@ -263,9 +263,9 @@ class ConformingAgent:
 
     def _handle_prompt(self, msg_id: Any, params: dict[str, Any]) -> None:
         session_id = params.get("sessionId")
-        # Fixture strictness (review-slices-5-6.md S9/item 8): reject a `sessionId` this agent
-        # never created, and validate every content block's shape, instead of silently accepting
-        # anything -- this is the fixture's own outgoing-request-shape policy, scoped to
+        # Fixture strictness: reject a `sessionId` this agent never created, and validate every
+        # content block's shape, instead of silently accepting anything -- this is the
+        # fixture's own outgoing-request-shape policy, scoped to
         # `session/prompt` only (not `session/load`/`resume`/`list`/`delete`/`close`, whose
         # existing upsert/silent-success semantics are deliberately exercised elsewhere and are
         # not something the TCK asserts an error code for -- see

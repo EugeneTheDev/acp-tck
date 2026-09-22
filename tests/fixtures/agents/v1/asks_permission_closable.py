@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
 """`AsksPermissionAgent` plus `sessionCapabilities.close` support, used as the self-test for
-`ACP-CLOSE-002` against a conforming, permission-asking agent (review-slices-5-6.md S3).
-
-Before the S3 fix, `test_close_in_flight_prompt_resolves_cancelled` drove its own hand-rolled
-read loop that only understood three message shapes and silently dropped any agent -> client
-*request* it didn't recognize -- so a `session/request_permission` arriving while `session/close`
-was in flight deadlocked the test (`AgentTimeout`) instead of exercising the close-cancellation
-path. `run_prompt`'s `on_action` hook now answers everything a mock client is expected to,
-including that permission request, so this fixture should make `ACP-CLOSE-002` PASS.
+`ACP-CLOSE-002` against a conforming, permission-asking agent: `session/close` on an in-flight,
+permission-pending prompt must resolve it as cancelled, and `run_prompt`'s `on_action` hook must
+answer the outstanding `session/request_permission` instead of deadlocking. This fixture should
+make `ACP-CLOSE-002` PASS.
 
 `_handle_prompt` deliberately delays sending the permission request past `run_prompt`'s short
 post-update peek window (`cancel_race_peek`) so the mock client has already committed to firing
@@ -41,7 +37,7 @@ CAPABILITIES = {"sessionCapabilities": {"close": {}}}
 # fixture's permission request and falls through to firing `session/close`, and comfortably
 # shorter than the test's own timeout (`default_timeout`). Kept small (rather than the widest
 # possible `cancel_race_peek` value, 0.5s) since every prompt turn against this fixture pays this
-# delay and it is used by more than one self-test (review-slices-5-6.md item 10/S11 runtime).
+# delay and it is used by more than one self-test.
 _PERMISSION_REQUEST_DELAY_S = 0.3
 
 

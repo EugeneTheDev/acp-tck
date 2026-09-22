@@ -16,12 +16,11 @@ from pathlib import Path
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "agents" / "v1"
 CLI_SUBPROCESS_TIMEOUT = 60
-"""Wall-clock cap on one `_run_cli` subprocess. Slice 7 added a dozen more MANDATORY/ADVISORY/
-INFORMATIONAL requirement ids, each with their own `--timeout`-bounded wait -- against
-`wrong_id_echo.py` (every one of them fails/errors via a real timeout, since id-correlated waits
-never resolve) that pushes the full run past the old 30s cap; 60s leaves headroom without
-materially changing the overall suite's runtime budget, since every other self-test finishes in
-a small fraction of this."""
+"""Wall-clock cap on one `_run_cli` subprocess. Against `wrong_id_echo.py`, every
+`--timeout`-bounded MANDATORY/ADVISORY/INFORMATIONAL id fails/errors via a real timeout (since
+id-correlated waits never resolve), which adds up across the full registry; 60s leaves headroom
+without materially changing the overall suite's runtime budget, since every other self-test
+finishes in a small fraction of this."""
 
 _MANDATORY_IDS = {
     "ACP-TRANSPORT-001",
@@ -58,8 +57,8 @@ _ADVISORY_IDS = {
     "ACP-SHUTDOWN-001",
     "ACP-SCHEMA-002",
     "ACP-AUTH-005",
-    # ACP-AUTH-001 (review-slices-7.md tier decision): its only assertion, AUTH-A5 (auth
-    # method ids are unique), is advisory in the auth research -- moved out of _MANDATORY_IDS.
+    # ACP-AUTH-001: its only assertion, AUTH-A5 (auth method ids are unique), is advisory in
+    # the auth research -- not in _MANDATORY_IDS.
     "ACP-AUTH-001",
 }
 _INFORMATIONAL_IDS = {
@@ -87,9 +86,8 @@ _CAPABILITY_IDS = {
     "ACP-PROMPTCAP-002",
     "ACP-PROMPTCAP-003",
     "ACP-AUTH-004",
-    # ACP-AUTH-003 (review-slices-7.md tier decision): retiered CAPABILITY with
-    # capability="inferred:authMethods" -- runs only when `authMethods` is non-empty and
-    # `--tck-auth-method` was given, otherwise SKIPPED; moved out of _MANDATORY_IDS.
+    # ACP-AUTH-003: CAPABILITY with capability="inferred:authMethods" -- runs only when
+    # `authMethods` is non-empty and `--tck-auth-method` was given, otherwise SKIPPED.
     "ACP-AUTH-003",
 }
 _ALL_IDS = _MANDATORY_IDS | _ADVISORY_IDS | _CAPABILITY_IDS
@@ -99,18 +97,15 @@ _CANCEL_IDS = {"ACP-CANCEL-001", "ACP-CANCEL-002"}
 `cancel_wrong_stop_reason.py`, and `update_after_response.py` deliberately withhold their
 response until `session/cancel` arrives for arbitrary prompt text -- they resolve the turn
 immediately, same as `conforming.py`. So for all of them, `session/cancel` always loses the
-race and the cancel tests SKIP with "cancellation not exercised" rather than PASS or FAIL (see
-`.agents/plan.md` "Cancel tests and the race")."""
+race and the cancel tests SKIP with "cancellation not exercised" rather than PASS or FAIL."""
 
 _CAPABILITY_GATED_IDS = _CAPABILITY_IDS | {"ACP-LOAD-003", "ACP-DELETE-002"}
 """Every id that SKIPs (rather than PASSes) against `conforming.py`, which advertises
 `agentCapabilities: {}` and no modes/configOptions/authMethods -- every CAPABILITY-tier id
-(which as of review-slices-7.md's tier decision now includes `ACP-AUTH-003`,
-`capability="inferred:authMethods"`, itself), plus the two ADVISORY ids (`ACP-LOAD-003`,
-`ACP-DELETE-002`) that are still gated behind a `@pytest.mark.capability(...)` marker on their
-test function even though their `Requirement.tier` itself is ADVISORY, not CAPABILITY (see
-`test_session_capabilities.py` module docstring). The explicit `ACP-AUTH-003` union member was
-dropped since it is now already a member of `_CAPABILITY_IDS`."""
+(including `ACP-AUTH-003`, `capability="inferred:authMethods"`), plus the two ADVISORY ids
+(`ACP-LOAD-003`, `ACP-DELETE-002`) that are still gated behind a `@pytest.mark.capability(...)`
+marker on their test function even though their `Requirement.tier` itself is ADVISORY, not
+CAPABILITY (see `test_session_capabilities.py` module docstring)."""
 
 
 def _run_cli(
@@ -161,10 +156,9 @@ def _table_statuses(output: str) -> dict[str, str]:
     """Parse `<id> <STATUS>` pairs out of the terminal summary table. The status label is not
     always one token -- `NOT TESTED` is two words (`plugin.py:675`) -- and a row can carry a
     trailing `  (note)` suffix (`_informational_note`), so match the known status labels by
-    regex instead of assuming exactly two whitespace-split tokens (review-slices-5-6.md N13);
-    without this, `NOT TESTED` rows silently vanished from the parsed dict instead of being
-    recorded, and every `statuses.get(x) == "PASS"` check elsewhere only worked by accident
-    (`None != "PASS"`)."""
+    regex instead of assuming exactly two whitespace-split tokens; without this, `NOT TESTED`
+    rows silently vanish from the parsed dict instead of being recorded, and every
+    `statuses.get(x) == "PASS"` check elsewhere only works by accident (`None != "PASS"`)."""
     statuses: dict[str, str] = {}
     for line in output.splitlines():
         match = _TABLE_ROW_RE.match(line)
@@ -236,8 +230,8 @@ def test_exits_immediately_fails_gracefully():
     statuses = _table_statuses(result.stdout)
     for req_id in _MANDATORY_IDS:
         assert statuses.get(req_id) == "FAIL", f"{req_id} should FAIL when the agent never responds"
-    # ACP-AUTH-003 is CAPABILITY-tier now (review-slices-7.md tier decision), not MANDATORY, so
-    # it is not covered by the loop above -- assert its SKIP explicitly instead: it is
+    # ACP-AUTH-003 is CAPABILITY-tier, not MANDATORY, so it is not covered by the loop above --
+    # assert its SKIP explicitly instead: it is
     # conditional on --tck-auth-method regardless of the agent's own behavior, and SKIPs even
     # against a dead agent, since the TCK never even attempts to connect for it without a
     # configured auth method (see test_authentication.py).
@@ -245,8 +239,8 @@ def test_exits_immediately_fails_gracefully():
 
 
 def test_scoped_k_run_prints_deselection_hint_not_no_mandatory_passed_hint():
-    """S4 (review-slices-7.md): the `-k`/deselection hint must print whenever any requirement is
-    NOT_TESTED because its tests were deselected, independent of whether any MANDATORY
+    """The `-k`/deselection hint must print whenever any requirement is NOT_TESTED because its
+    tests were deselected, independent of whether any MANDATORY
     requirement PASSed -- `conforming.py -k initialize` PASSes several MANDATORY requirements
     (ACP-INIT-*, ACP-TRANSPORT-*, ...) yet is still NOT CONFORMANT overall (every other
     MANDATORY id is NOT_TESTED, which counts as a failure), so this exercises the scoped-run
@@ -267,7 +261,7 @@ def test_scoped_k_run_prints_deselection_hint_not_no_mandatory_passed_hint():
 
 def test_banner_on_stdout_fails_transport_001_but_passes_transport_002():
     """The banner is plain ASCII -- valid UTF-8 -- so it must FAIL ACP-TRANSPORT-001 (framing)
-    but PASS ACP-TRANSPORT-002 (UTF-8), not be misreported as a UTF-8 violation (review S2)."""
+    but PASS ACP-TRANSPORT-002 (UTF-8), not be misreported as a UTF-8 violation."""
     result = _run_cli("banner_on_stdout.py")
     assert result.returncode != 0
 
@@ -282,8 +276,8 @@ def test_banner_on_stdout_fails_transport_001_but_passes_transport_002():
 
 
 def test_invalid_utf8_fails_transport_002():
-    """`invalid_utf8.py` is ACP-TRANSPORT-002's real negative control (review S2): a lone
-    undecodable line makes ACP-TRANSPORT-002 FAIL."""
+    """`invalid_utf8.py` is ACP-TRANSPORT-002's real negative control: a lone undecodable line
+    makes ACP-TRANSPORT-002 FAIL."""
     result = _run_cli("invalid_utf8.py")
     assert result.returncode != 0
 
@@ -294,7 +288,7 @@ def test_invalid_utf8_fails_transport_002():
 def test_garbage_after_response_fails_transport_001():
     """`garbage_after_response.py` writes non-JSON to stdout only after stdin closes -- strictly
     after the last response any test awaits. `close()` must drain and record that line so
-    ACP-TRANSPORT-001 catches it instead of reporting a false PASS (review S8)."""
+    ACP-TRANSPORT-001 catches it instead of reporting a false PASS."""
     result = _run_cli("garbage_after_response.py")
     assert result.returncode != 0
 
@@ -305,7 +299,7 @@ def test_garbage_after_response_fails_transport_001():
 def test_asks_permission_agent_passes_everything():
     """`asks_permission.py` sends `session/request_permission` before resolving every prompt --
     the mock client (`run_prompt`) must answer it for any prompt/transport/schema test to ever
-    resolve at all (review S4/N17)."""
+    resolve at all."""
     result = _run_cli("asks_permission.py")
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -317,19 +311,19 @@ def test_asks_permission_agent_passes_everything():
 
 
 def test_asks_permission_closable_agent_passes_close_002():
-    """`asks_permission_closable.py` (review-slices-5-6.md S3 self-test) combines
-    `asks_permission.py`'s mid-turn `session/request_permission` with `sessionCapabilities.close`
-    support: `session/close` on an in-flight, permission-pending prompt must resolve it as
-    cancelled. Before S3, `ACP-CLOSE-002` drove a hand-rolled read loop that deadlocked
-    (`AgentTimeout`) against exactly this shape of agent instead of ever reaching a verdict; the
-    `run_prompt`-based rewrite makes it PASS deterministically.
+    """`asks_permission_closable.py` combines `asks_permission.py`'s mid-turn
+    `session/request_permission` with `sessionCapabilities.close` support: `session/close` on
+    an in-flight, permission-pending prompt must resolve it as cancelled. `run_prompt`'s
+    dispatcher (which answers any agent -> client request while waiting for the prompt's own
+    response) is what makes this PASS deterministically, instead of deadlocking on the
+    unanswered permission request.
 
     Uses a longer `--timeout` than this module's default (`_run_cli`'s `timeout="1"`) because the
     fixture deliberately delays its permission request past `run_prompt`'s short post-update peek
     window to keep the close-vs-permission race deterministic (see the fixture's docstring).
-    Scoped to `close` (review-slices-5-6.md item 10/S11): every prompt turn against this fixture
-    pays that same deliberate delay, so an unscoped run against the full suite costs 30+s just
-    from that, for no attribution benefit over the `session_capabilities`-only subset."""
+    Scoped to `close`: every prompt turn against this fixture pays that same deliberate delay,
+    so an unscoped run against the full suite costs 30+s just from that, for no attribution
+    benefit over the `session_capabilities`-only subset."""
     result = _run_cli(
         "asks_permission_closable.py", timeout="5", k="close", cancel_prompt="__hang__"
     )
@@ -344,9 +338,7 @@ def test_asks_permission_closable_agent_also_exercises_cancelled_outcome():
     """Same fixture as above, driven through `test_cancel.py` instead: its permission request
     also arrives after `session/cancel` fires (same post-update-peek delay), so `run_prompt`
     answers it `{"outcome": {"outcome": "cancelled"}}` -- the one branch of `run_prompt`'s
-    permission-answering logic that `asks_permission.py` alone never exercises (review-
-    slices-5-6.md S10(a): before this fixture existed, every cancel test against a
-    permission-asking agent lost the race and only SKIPPED)."""
+    permission-answering logic that `asks_permission.py` alone never exercises."""
     result = _run_cli(
         "asks_permission_closable.py", timeout="5", k="cancel", cancel_prompt="__hang__"
     )
@@ -363,10 +355,10 @@ def test_wrong_id_echo_fails_id_dependent_requirements():
     almost every test's setup, not only the id-echo test itself) -- so nearly everything times
     out and fails. This is expected: a broken id-echo genuinely makes the agent unusable.
 
-    Scoped to `jsonrpc` (review-slices-5-6.md item 10/S11): an unscoped run against this fixture
-    means *every* test in the suite times out waiting for an id-correlated response before
-    failing, which cost ~40s on its own for a fact this one id already demonstrates -- narrowing
-    to the id-echo tests themselves keeps the same assertion true in a fraction of the time."""
+    Scoped to `jsonrpc`: an unscoped run against this fixture means *every* test in the suite
+    times out waiting for an id-correlated response before failing, which costs far longer for
+    a fact this one id already demonstrates -- narrowing to the id-echo tests themselves keeps
+    the same assertion true in a fraction of the time."""
     result = _run_cli("wrong_id_echo.py", k="jsonrpc")
     assert result.returncode != 0
     statuses = _table_statuses(result.stdout)
@@ -386,8 +378,8 @@ def test_version_mismatch_errors_fails_init_003_only():
 
 
 def test_router_requires_info_passes_everything():
-    """`router_requires_info.py` models a dual-version protocol *router* (slice V2-0b): it
-    selects v2 for any requested version >= 2, including the ACP-INIT-003 probe's 65535, and
+    """`router_requires_info.py` models a dual-version protocol *router*: it selects v2 for any
+    requested version >= 2, including the ACP-INIT-003 probe's 65535, and
     validates the params as a v2 `InitializeRequest`, whose `info` is REQUIRED. Before the
     probe in `test_initialize.py` carried `info`, this fixture reproduced the spurious
     `-32602` a real dual-version router agent would give (see the fixture's own docstring) --
@@ -431,9 +423,8 @@ def test_echoes_any_version_fails_init_003_only():
 
 def test_result_and_error_fails_init_001_and_schema_001():
     """`result_and_error.py`'s `initialize` response carries both `result` and `error`, which
-    now also fails ACP-JSONRPC-002 (review S3: that requirement's evidence includes the
-    `initialize` response itself, not just a probe reply) in addition to ACP-INIT-001 and
-    ACP-SCHEMA-001."""
+    also fails ACP-JSONRPC-002 (that requirement's evidence includes the `initialize` response
+    itself, not just a probe reply) in addition to ACP-INIT-001 and ACP-SCHEMA-001."""
     result = _run_cli("result_and_error.py")
     assert result.returncode != 0
 
@@ -462,7 +453,7 @@ def test_answers_notifications_fails_jsonrpc_003_only():
 
 def test_unknown_method_no_error_only_fails_the_advisory_requirement():
     """An ADVISORY-only failure must not affect the verdict: exit code 0, `VERDICT: CONFORMANT`,
-    even though ACP-JSONRPC-004 itself FAILs (slice 5 four-status verdict model)."""
+    even though ACP-JSONRPC-004 itself FAILs."""
     result = _run_cli("unknown_method_no_error.py")
     assert result.returncode == 0, result.stdout + result.stderr
     assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
@@ -532,11 +523,10 @@ def test_hangs_until_cancel_agent_passes_cancel_requirements():
     arrives, which is deliberately incompatible with the non-cancelling prompt tests
     (ACP-PROMPT-*, ACP-SCHEMA-001, ACP-TRANSPORT-*) -- those would time out waiting for a
     response the fixture never sends unprompted. This self-test scopes the run to the cancel
-    tests with `-k`, which is the only way to exercise this fixture meaningfully; see
-    `.agents/plan.md` slice 4 notes for why an unscoped run is not a meaningful check here.
+    tests with `-k`, which is the only way to exercise this fixture meaningfully.
 
-    The overall exit code is *not* asserted here: since slice 5 the exit code reflects the
-    four-status verdict over the whole registry, and a `-k`-scoped run necessarily leaves every
+    The overall exit code is *not* asserted here: the exit code reflects the four-status
+    verdict over the whole registry, and a `-k`-scoped run necessarily leaves every
     other MANDATORY requirement NOT_TESTED (counted as a verdict failure by design) -- that says
     nothing about whether *this* fixture's cancel handling is correct, which is what this test
     checks via the per-requirement table."""
@@ -589,14 +579,13 @@ def test_update_after_response_fails_cancel_002_only():
 
 def test_per_test_watchdog_fails_a_hung_test_fast():
     """A tiny `--test-timeout` must fail a test whose own per-operation deadlines are much
-    larger, well before any individual read/write deadline would ever fire on its own (review
-    S7) -- proving the watchdog itself is what caught it, not the ordinary per-response
-    timeout. Scoped to one fast, id-echo-only test node so this stays quick even though
+    larger, well before any individual read/write deadline would ever fire on its own --
+    proving the watchdog itself is what caught it, not the ordinary per-response timeout.
+    Scoped to one fast, id-echo-only test node so this stays quick even though
     `--timeout`/`--startup-timeout` are deliberately large. `--close-grace` is also lowered:
-    `never_responds.py` never exits on its own (review S11/item 10), so teardown would otherwise
-    pay the full default 2s stdin-close wait every run just to prove the watchdog fired; this
-    self-test only cares that it fired, not about giving a real agent a generous shutdown
-    window."""
+    `never_responds.py` never exits on its own, so teardown would otherwise pay the full
+    default 2s stdin-close wait every run just to prove the watchdog fired; this self-test only
+    cares that it fired, not about giving a real agent a generous shutdown window."""
     result = _run_cli(
         "never_responds.py",
         k="test_id_is_echoed_for_integer_and_string_ids",
@@ -610,21 +599,18 @@ def test_per_test_watchdog_fails_a_hung_test_fast():
     assert "--tck-test-timeout" in result.stdout, result.stdout + result.stderr
 
 
-# --- session-capability tests (slice 6) ---
+# --- session-capability tests ---
 
 
 def test_conforming_full_agent_passes_everything_with_cancel_prompt_hang():
     """`conforming_full.py` advertises `loadSession: true`, every `sessionCapabilities` marker,
     modes, config options, every `promptCapabilities`, and the auth surface -- so every
     CAPABILITY-tier id (plus the two capability-gated ADVISORY ids) should PASS instead of
-    SKIPPING. `--cancel-prompt __hang__` is used deliberately: `conforming.py` (and hence
-    `conforming_full.py`, which shares its `_base.py` prompt handling) only ever withholds a
-    response for the literal `__hang__` prompt text, so this is the one prompt text that lets
-    *both* ACP-CANCEL-001/002 *and* ACP-CLOSE-002 actually exercise their cancellation/close-race
-    logic instead of SKIPPING as "not exercised" -- a real agent wouldn't recognize this
-    sentinel either, but this fixture's whole cancellation story is built around it (see
-    `_base.py`'s `_handle_prompt`). `--auth-method tck` is required for ACP-AUTH-003 to PASS
-    instead of SKIP, since `conforming_full.py` advertises an `authMethods` entry with that id.
+    SKIPPING. `--cancel-prompt __hang__` is required: it's the only prompt text `_base.py`'s
+    `_handle_prompt` withholds a response for, so it's what lets ACP-CANCEL-001/002 and
+    ACP-CLOSE-002 actually exercise their cancellation/close-race logic instead of SKIPPING as
+    "not exercised". `--auth-method tck` is required for ACP-AUTH-003 to PASS instead of SKIP,
+    since `conforming_full.py` advertises an `authMethods` entry with that id.
 
     `ACP-AUTH-005` (AUTH-A1) is the one ADVISORY id that legitimately SKIPs here rather than
     PASSing: it only concerns an agent that advertises *no* `authMethods`, and
@@ -836,7 +822,7 @@ def test_advertises_load_but_errors_fails_load_001_and_verdict():
     assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
 
 
-# --- --report-json (slice 5) ---
+# --- --report-json ---
 
 
 def test_report_json_for_conforming_agent_is_conformant_with_cancel_skipped(tmp_path):
@@ -904,9 +890,9 @@ def test_calls_fs_unadvertised_fails_clientcap_001():
     the clientcap tests' `run_prompt` calls do; other prompt tests would work too, but scoping
     keeps this self-test fast and focused.
 
-    Also asserts ACP-CLIENTCAP-002/003 still PASS (review-slices-5-6.md item 9): the three ids
-    are now three separate tests specifically so that a single-capability violation like this one
-    isn't mis-attributed to the other two."""
+    Also asserts ACP-CLIENTCAP-002/003 still PASS: the three ids are three separate tests
+    specifically so that a single-capability violation like this one isn't mis-attributed to
+    the other two."""
     result = _run_cli("calls_fs_unadvertised.py", k="clientcap")
     assert result.returncode != 0, result.stdout + result.stderr
 

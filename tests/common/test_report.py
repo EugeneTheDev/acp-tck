@@ -118,9 +118,8 @@ def _fake_results(overrides: dict[str, Status]) -> list[RequirementResult]:
 
 
 def _first_id_of_tier(tier: Tier) -> str | None:
-    """`None` if no registry entry has this tier yet (CAPABILITY/INFORMATIONAL land in a later
-    slice) -- callers `pytest.skip(...)` in that case rather than asserting on a tier that
-    cannot yet occur."""
+    """`None` if no registry entry has this tier -- callers `pytest.skip(...)` in that case
+    rather than asserting on a tier with nothing to sample."""
     return next((req_id for req_id, req in REGISTRY.items() if req.tier is tier), None)
 
 

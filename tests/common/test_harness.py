@@ -124,8 +124,8 @@ def test_never_responds_raises_agent_timeout_with_transcript() -> None:
     async def scenario() -> None:
         # `never_responds.py` never exits on its own (SIGTERM/SIGKILL required), so teardown
         # would otherwise pay the full default 2s stdin-close grace period every run just to
-        # prove the timeout fired; this test only cares that it fired (review-slices-5-6.md
-        # item 10/S11 runtime, same fix as test_cli.py's watchdog self-test).
+        # prove the timeout fired; this test only cares that it fired, so it lowers close_grace
+        # (same fix as test_cli.py's watchdog self-test).
         async with AgentProcess(agent_launch("never_responds.py", close_grace=0.2)) as agent:
             req_id = await agent.send_request("initialize", {"protocolVersion": 1})
             with pytest.raises(AgentTimeout) as excinfo:
@@ -148,13 +148,12 @@ def test_exits_immediately_raises_agent_exited_with_exit_code() -> None:
 
 
 def test_send_raw_translates_broken_pipe_into_agent_exited() -> None:
-    """S1 (review-slices-7.md): `dies_on_bad_json.py` answers `initialize` normally, then exits
-    the instant it reads a line that is not valid JSON at all -- without replying, without
-    draining anything further. A second write after that (here, a bare `send_raw` of another
-    line) lands on a stdin pipe whose reader is already gone, so the OS raises
-    `BrokenPipeError`/`OSError` on the write or the following `drain()`. Before the S1 fix this
-    propagated as a bare `OSError`/`BrokenPipeError` with a real traceback; `send_raw` must catch
-    it and raise `AgentExited` (carrying the exit code and captured stderr) instead."""
+    """`dies_on_bad_json.py` answers `initialize` normally, then exits the instant it reads a
+    line that is not valid JSON at all -- without replying, without draining anything further.
+    A second write after that (here, a bare `send_raw` of another line) lands on a stdin pipe
+    whose reader is already gone, so the OS raises `BrokenPipeError`/`OSError` on the write or
+    the following `drain()`; `send_raw` must catch it and raise `AgentExited` (carrying the
+    exit code and captured stderr) instead of letting the raw OSError propagate."""
 
     async def scenario() -> None:
         async with AgentProcess(agent_launch("dies_on_bad_json.py")) as agent:
@@ -191,7 +190,7 @@ def test_stderr_chatter_captures_stderr() -> None:
     run(scenario())
 
 
-# --- line-limit handling (review B1) ---
+# --- line-limit handling ---
 
 
 def test_large_line_under_generous_default_limit_is_read_whole() -> None:

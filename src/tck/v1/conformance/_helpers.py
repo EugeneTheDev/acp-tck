@@ -86,10 +86,10 @@ def skip_if_auth_gated(entry: TranscriptEntry) -> None:
     `Verdict.blocked_by_auth`.
 
     Only excuses the `-32000` when the cached `initialize` result actually advertised at least
-    one `authMethods` entry (AUTH-A1, `.agents/research/acp-v1-authentication.md` §5,
-    review-slices-5-6.md S4) -- an agent that advertises none and still returns `-32000` has no
-    defined remedy; this is left as an ordinary, un-excused failure of whatever the caller was
-    asserting (see `ACP-AUTH-005`), not something the TCK can route around.
+    one `authMethods` entry (AUTH-A1, `.agents/research/acp-v1-authentication.md` §5) -- an
+    agent that advertises none and still returns `-32000` has no defined remedy; this is left
+    as an ordinary, un-excused failure of whatever the caller was asserting (see
+    `ACP-AUTH-005`), not something the TCK can route around.
     """
     msg = entry.parsed
     if not (
@@ -114,7 +114,7 @@ async def new_session(agent: AgentProcess, cwd: Path, *, timeout: float | None =
 
     Raises `AssertionError` with a protocol-level message (not a bare `TypeError`/`KeyError`)
     if the response is not a well-formed success -- callers see a diagnosis, not a Python
-    traceback, when the agent errors or replies with a malformed shape (review N14).
+    traceback, when the agent errors or replies with a malformed shape.
 
     SKIPs (via `skip_if_auth_gated`) rather than failing when the agent requires authentication
     and no `--auth-method` was configured."""
@@ -134,9 +134,9 @@ def quiet_period(timeout: float) -> float:
     """The heuristic "nothing more is coming" wait used by tests that conclude absence (e.g. "no
     response to a notification", "no update follows the response") -- derived from the same
     `--tck-timeout` users are told to raise for a slow agent, instead of a hard-coded
-    sub-second constant that is a false negative by construction on a loaded machine (review
-    S9). Clamped to a sane range: never so short a fast local test is flaky, never so long a
-    single quiet-period check dominates the suite's runtime."""
+    sub-second constant that is a false negative by construction on a loaded machine. Clamped
+    to a sane range: never so short a fast local test is flaky, never so long a single
+    quiet-period check dominates the suite's runtime."""
     return max(0.5, min(2.0, timeout / 10))
 
 
@@ -162,8 +162,8 @@ class PromptTurn:
     """Every agent -> client request the mock client had to answer during the turn:
     `session/request_permission` (answered normally) plus anything else (`fs/*`, `terminal/*`,
     `elicitation/create`, ...), which gets `-32601` since our client advertised
-    `clientCapabilities: {}` -- slice 6 turns "the agent called an unadvertised method" into its
-    own negative tests using this list."""
+    `clientCapabilities: {}` -- `test_client_capabilities.py` turns "the agent called an
+    unadvertised method" into its own negative tests using this list."""
     cancelled_at_index: int | None = None
     """The transcript index at which `run_prompt` sent `session/cancel`, or `None` if
     `on_cancel` was false or the prompt resolved before a cancel was ever sent (a race the TCK
@@ -212,21 +212,18 @@ async def run_prompt(
     the mock client is waiting for the prompt's own response -- including that action's own
     response, and any agent -> client request the action's send provokes (e.g. resolving an
     in-flight `session/request_permission` as cancelled) -- is still handled by this same
-    dispatcher: nothing sent during an in-flight prompt turn is ever silently dropped
-    (review-slices-5-6.md S3; before this, `ACP-CLOSE-002` drove its own hand-rolled loop that
-    read past an unanswered `session/request_permission` and deadlocked against a conforming,
-    permission-asking agent). The action's response comes back as `PromptTurn.action_response`.
+    dispatcher: nothing sent during an in-flight prompt turn is ever silently dropped. The
+    action's response comes back as `PromptTurn.action_response`.
 
     A subtlety: an agent that emits an update and then *immediately* replies (e.g. a non-hanging
     fixture) may have already written its response to the pipe before we ever decide to send
-    `session/cancel` -- we just haven't read it yet. If we committed to sending cancel purely
-    because we had just read an update, we would misreport "cancel was sent while the turn was
-    still in flight" for a turn that, in reality, had already finished. To keep
-    `cancelled_at_index` an honest signal, we give a brief (`cancel_race_peek(timeout)`)
-    non-blocking-ish look for the response immediately after an update and before committing to
-    cancel; if the
-    response is already sitting there, we return it with `cancelled_at_index=None` (a race),
-    exactly as if it had arrived before we ever considered cancelling.
+    `session/cancel` -- we just haven't read it yet. Committing to cancel purely because we just
+    read an update would misreport "cancel was sent while the turn was still in flight" for a
+    turn that had, in reality, already finished. To keep `cancelled_at_index` an honest signal,
+    we give a brief (`cancel_race_peek(timeout)`), non-blocking-ish look for the response
+    immediately after an update and before committing to cancel; if it is already sitting
+    there, we return it with `cancelled_at_index=None` (a race), exactly as if it had arrived
+    before we ever considered cancelling.
 
     `extra_params`, if given, is merged into the `session/prompt` request's own params
     (e.g. `{"_meta": {...}}` for ACP-META-001) -- it never overrides `sessionId`/`prompt`.
@@ -337,8 +334,8 @@ async def run_prompt(
 
     # Lines read while waiting on `initialize`/`session/new` (or, in principle, an earlier
     # `read_line` of the caller's own) sit in `pending()` and would otherwise be invisible to
-    # ACP-PROMPT-002 / ACP-CANCEL-002 (review N15) -- process them exactly like freshly-read
-    # lines before ever blocking on the network.
+    # ACP-PROMPT-002 / ACP-CANCEL-002 -- process them exactly like freshly-read lines before
+    # ever blocking on the network.
     for pending_entry in agent.pending():
         pending_result = await _handle_one(pending_entry)
         if pending_result is not None:

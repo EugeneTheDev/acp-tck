@@ -5,8 +5,8 @@ line of plain-text garbage to stdout before exiting. Violates ACP-TRANSPORT-001 
 agent writes to stdout is a single valid JSON-RPC 2.0 message").
 
 Exists to prove `AgentProcess.close()` actually drains and records stdout written after the
-harness stops reading it (review S8) -- without that drain, this fixture's whole defect would be
-invisible to the transport test, a false negative on the TCK's own highest-value check.
+harness stops reading it -- without that drain, this fixture's whole defect would be invisible
+to the transport test, a false negative on the TCK's own highest-value check.
 """
 
 import sys

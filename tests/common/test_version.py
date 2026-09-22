@@ -1,6 +1,6 @@
 """Unit tests for `tck.common.version.VersionSpec`'s `agent_info_field`/`agent_capabilities_field`
-mechanism (review-v2-slices-0-1a.md finding 7): `tck.common.plugin._build_report` reads the
-`initialize` result's agent-identity/capabilities keys via these two field names rather than
+mechanism: `tck.common.plugin._build_report` reads the `initialize` result's
+agent-identity/capabilities keys via these two field names rather than
 hard-coding v1's `agentInfo`/`agentCapabilities`, so v2's rename (`info`/`capabilities`) is
 plumbed through without `common/` importing anything version-specific. End-to-end coverage of the
 full JSON report for a real v2 run lives in `tests/v2/test_cli.py`; this file isolates the
@@ -16,8 +16,7 @@ from tck.v2 import SPEC as V2_SPEC
 
 def test_version_spec_defaults_to_v1s_field_names() -> None:
     """A version package that doesn't pass `agent_info_field`/`agent_capabilities_field` at all
-    (as `tck.v1.SPEC`'s construction call does not) keeps behaving exactly as before this
-    mechanism was introduced."""
+    (as `tck.v1.SPEC`'s construction call does not) defaults to v1's own field names."""
     spec = VersionSpec(
         protocol_version=1,
         schema_revision="deadbeef",

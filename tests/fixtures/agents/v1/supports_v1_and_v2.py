@@ -4,8 +4,8 @@ client requests exactly `1`, and `2` for anything else (including the TCK's unsu
 probe, 65535) -- i.e. "its own latest supported version" is genuinely higher than its v1
 answer.
 
-Exists as a self-test canary for the weakened ACP-INIT-003 rule (review-slices-5-6.md B2): the
-old equality rule (`version == latest_supported`) would falsely FAIL this agent even though it
+Exists as a self-test canary for ACP-INIT-003's `!= 65535 and >= latest_supported` rule: a
+naive equality rule (`version == latest_supported`) would falsely FAIL this agent even though it
 never echoes 65535 verbatim and never answers lower than its v1 answer. Must PASS INIT-003.
 """
 

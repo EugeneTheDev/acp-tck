@@ -7,7 +7,7 @@ unit tested with synthetic data (`tests/common/test_report.py`). Version-agnosti
 registry of its own -- `build_requirement_results` takes the active version's registry as an
 explicit argument.
 
-Model (`.agents/plan.md` "Decided deliverable shape", four-status verdict model):
+Model (four-status verdict):
 
 - `Status`: `PASS` / `FAIL` / `SKIPPED` / `NOT_TESTED`. Only `PASS`/`FAIL`/`SKIPPED` are ever
   recorded for an individual test; `NOT_TESTED` only ever appears as the *aggregated* status of

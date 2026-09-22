@@ -1,10 +1,9 @@
 """Version-agnostic requirement registry machinery.
 
-`Tier` and `Requirement` carry no protocol content -- each ACP version (`tck.v1`, later
-`tck.v2`) declares its own `_DECLARATIONS`/`REGISTRY` built from these types, citing that
-version's own spec revision. `make_cite(revision)` replaces the old per-module `_cite`
-closure: each version calls `make_cite(SPEC_REVISION)` once to get its own citation helper
-bound to its own revision.
+`Tier` and `Requirement` carry no protocol content -- each ACP version (`tck.v1`, `tck.v2`)
+declares its own `_DECLARATIONS`/`REGISTRY` built from these types, citing that version's own
+spec revision. Each version calls `make_cite(SPEC_REVISION)` once to get its own citation
+helper bound to its own revision.
 """
 
 from __future__ import annotations

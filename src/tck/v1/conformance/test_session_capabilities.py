@@ -3,11 +3,8 @@
 (ACP-LOAD-001..003, ACP-RESUME-001/002, ACP-LIST-001/002, ACP-DELETE-001/002,
 ACP-CLOSE-001/002, ACP-ADDDIRS-001).
 
-See `.agents/research/acp-v1-session-capabilities.md` for the wire shapes and the exhaustive
-"must NOT be asserted" list this module deliberately stays within (no claim about which/how
-many `sessionUpdate` kinds a load replay carries, no ordering claim between a `session/close`
-response and the prompt response it triggers, no claim about error codes for unknown
-sessionIds, etc.).
+See `.agents/research/acp-v1-session-capabilities.md` for the wire shapes and the "must NOT be
+asserted" list this module deliberately stays within.
 
 Every test here is gated by `@pytest.mark.capability(...)` -- both CAPABILITY-tier and
 ADVISORY-tier tests carry this marker; per `tck.common.plugin._tck_capability_gate`, the marker's
@@ -90,7 +87,7 @@ async def test_load_replays_before_responding_and_nothing_after(agent_launch, tm
 
         # An agent that exits promptly rather than staying connected through the quiet period
         # raises AgentExited on EOF, not AgentTimeout -- still "no late update arrived," not a
-        # defect this requirement is about (review-slices-5-6.md N14).
+        # defect this requirement is about.
         with pytest.raises((AgentTimeout, AgentExited)):
             await agent.wait_for_message(
                 _is_update_for_this_session, timeout=quiet_period(agent_launch.default_timeout)
@@ -297,11 +294,9 @@ async def test_close_in_flight_prompt_resolves_cancelled(
     "must NOT assert" list) -- both are simply awaited independently, in whichever order they
     arrive.
 
-    Driven through `run_prompt`'s `on_action` hook (review-slices-5-6.md S3) instead of a
-    hand-rolled read loop: the previous version of this test only dispatched three message
-    shapes and silently dropped any agent -> client *request* (e.g. `session/request_permission`)
-    the agent sent while the close was in flight, deadlocking against a conforming,
-    permission-asking agent. `run_prompt` answers everything a mock client is expected to.
+    Driven through `run_prompt`'s `on_action` hook rather than a hand-rolled read loop, so any
+    agent -> client *request* (e.g. `session/request_permission`) the agent sends while the
+    close is in flight gets answered instead of deadlocking the test.
     """
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
@@ -329,7 +324,7 @@ async def test_close_in_flight_prompt_resolves_cancelled(
         if not (isinstance(close_msg, dict) and "result" in close_msg):
             # An error-shaped session/close response is ACP-CLOSE-001's finding to make, not
             # this test's -- asserting it here too would double-report the same defect against
-            # both requirements (review-slices-5-6.md N15).
+            # both requirements.
             pytest.skip(
                 "prerequisite not met: session/close did not succeed (see ACP-CLOSE-001): "
                 f"{close_response_entry.text!r}"

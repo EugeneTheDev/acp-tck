@@ -2,7 +2,7 @@
 """A conforming ACP v1 fixture agent that additionally advertises and correctly implements
 `loadSession` and every `sessionCapabilities` marker (`list`, `delete`, `resume`, `close`,
 `additionalDirectories`), plus modes, config options, prompt capabilities, and the
-authentication surface (slice 6b).
+authentication surface.
 
 Used to exercise the CAPABILITY-tier session-capability tests (`ACP-LOAD-*`, `ACP-RESUME-*`,
 `ACP-LIST-*`, `ACP-DELETE-*`, `ACP-CLOSE-*`, `ACP-ADDDIRS-001`), the inferred-support

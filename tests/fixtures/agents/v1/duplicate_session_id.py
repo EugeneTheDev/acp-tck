@@ -18,9 +18,8 @@ class DuplicateSessionIdAgent(ConformingAgent):
         if method == "session/new":
             # Still register the session (just under the same, reused id) so everything *other*
             # than the uniqueness violation this fixture exists to demonstrate keeps working --
-            # e.g. `_base.py`'s `_handle_prompt` now rejects an unrecognized `sessionId` (review-
-            # slices-5-6.md S9), which would otherwise turn this into an unintended
-            # ACP-PROMPT-001/META-001 FAIL too.
+            # e.g. `_base.py`'s `_handle_prompt` rejects an unrecognized `sessionId`, which
+            # would otherwise turn this into an unintended ACP-PROMPT-001/META-001 FAIL too.
             self._sessions["sess-0001"] = {"cwd": params.get("cwd"), "history": []}
             self._reply(msg_id, {"sessionId": "sess-0001"})
             return

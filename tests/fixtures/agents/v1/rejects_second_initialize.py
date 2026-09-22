@@ -3,10 +3,9 @@
 connection with `-32600` (Invalid Request) instead of a second successful result.
 
 v1 does not specify what happens on a second `initialize`, so this behaviour is not itself a
-conformance violation -- it exists specifically as a self-test canary for
-review-slices-5-6.md B1: any conformance test that sends a second `initialize` on a connection
-it already initialized must not FAIL against this otherwise-fully-conforming agent. A full run
-against this fixture must be CONFORMANT.
+conformance violation -- it exists specifically as a self-test canary: any conformance test
+that sends a second `initialize` on a connection it already initialized must not FAIL against
+this otherwise-fully-conforming agent. A full run against this fixture must be CONFORMANT.
 """
 
 import sys

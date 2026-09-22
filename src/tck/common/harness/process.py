@@ -74,17 +74,15 @@ class AgentLaunch:
     (64 KiB) is far too small for real ACP traffic -- a `session/update` tool-call diff, an
     embedded image content block, or `fs/write_text_file` params routinely exceed it -- and
     `StreamReader.readline()` discards the buffered bytes and raises a bare `ValueError` when a
-    line exceeds the limit (`.agents/research/review-slices-1-4.md` B1). This default is
-    generous enough that hitting it at all is itself informative; tests that want to exercise
-    the oversize path on purpose lower it explicitly."""
+    line exceeds the limit. This default is generous enough that hitting it at all is itself
+    informative; tests that want to exercise the oversize path on purpose lower it explicitly."""
     close_grace: float = 2.0
     """Passed as `AgentProcess.close()`'s `grace` argument on teardown (`__aexit__`). Each stage
     of the close ladder (stdin-close wait, post-SIGTERM wait, post-SIGKILL wait) budgets up to
     this many seconds, so a real agent gets a fair chance to shut down cleanly -- but a fixture
     that deliberately never exits (e.g. `never_responds.py`) pays the full amount just to prove
     that. Lowered via `--tck-close-grace` for self-tests that only care about a hang being
-    caught, not about giving a real agent a generous shutdown window (review-slices-5-6.md item
-    10/S11 runtime)."""
+    caught, not about giving a real agent a generous shutdown window."""
 
 
 class AgentProcess:
@@ -96,8 +94,8 @@ class AgentProcess:
     """
 
     _STDERR_CAP_BYTES = 64 * 1024
-    """Bounded tail kept of the agent's stderr (Rust-SDK style, `.agents/research/review-slices-1-4.md`
-    N19) -- a chatty agent under a long `--timeout` must not grow this without bound."""
+    """Bounded tail kept of the agent's stderr (Rust-SDK style) -- a chatty agent under a long
+    `--timeout` must not grow this without bound."""
 
     def __init__(self, launch: AgentLaunch) -> None:
         self._launch = launch
@@ -165,12 +163,11 @@ class AgentProcess:
         including deliberately malformed bytes -- this method never validates `line`.
 
         `drain()` is given a deadline (`default_timeout`): an agent that has stopped reading
-        stdin must not be able to hang the whole run forever (`.agents/research/
-        review-slices-1-4.md` S7). If the agent has already exited, `write()`/`drain()` raise a
-        plain `OSError` (`ConnectionResetError`/`BrokenPipeError` on POSIX) -- that is translated
-        into `AgentExited` here so every caller sees the same "the agent is gone" exception it
-        already handles for a closed stdout, instead of a raw asyncio traceback
-        (`.agents/research/review-slices-7.md` S1)."""
+        stdin must not be able to hang the whole run forever. If the agent has already exited,
+        `write()`/`drain()` raise a plain `OSError` (`ConnectionResetError`/`BrokenPipeError` on
+        POSIX) -- that is translated into `AgentExited` here so every caller sees the same "the
+        agent is gone" exception it already handles for a closed stdout, instead of a raw
+        asyncio traceback."""
         assert self._process is not None and self._process.stdin is not None
         raw = line.encode("utf-8") if isinstance(line, str) else line
         self._record(Direction.SENT, raw)
@@ -223,8 +220,8 @@ class AgentProcess:
         that overruns the stream's buffer limit.
 
         `StreamReader.readline()` itself converts a `LimitOverrunError` into a bare `ValueError`
-        and *discards* the bytes already buffered (`.agents/research/review-slices-1-4.md` B1) --
-        this harness must never lose bytes just because a line is unexpectedly large. Instead,
+        and *discards* the bytes already buffered -- this harness must never lose bytes just
+        because a line is unexpectedly large. Instead,
         when the limit is exceeded, the already-buffered bytes are recovered with `readexactly`
         and reading continues (marking the result `oversize=True`) until the real separator (or
         EOF) is found, so the full line is still captured intact.
@@ -329,19 +326,15 @@ class AgentProcess:
         """Close stdin, wait up to `grace`; if still alive, SIGTERM the process group and wait
         up to `grace` again; if still alive, SIGKILL and wait up to `grace` once more. Each rung
         checks whether the process already exited before moving to the next one -- it never
-        burns more than one `grace` budget per rung (`.agents/research/review-slices-7.md` S3:
-        the previous version drained stdout for a full `grace` *and then* waited another full
-        `grace`, so an agent that keeps stdout open after stdin EOF -- the documented npx/uvx
-        wrapper case -- paid roughly 2x`grace` before SIGTERM was even sent, and
-        `exited_on_stdin_close` really meant "exited within ~2x grace"). Records `exit_code` and
-        `exited_on_stdin_close`.
+        burns more than one `grace` budget per rung (an agent that keeps stdout open after
+        stdin EOF -- the documented npx/uvx wrapper case -- must not pay roughly 2x`grace`
+        before SIGTERM is even sent). Records `exit_code` and `exited_on_stdin_close`.
 
         Each rung's wait is preceded by a short, fixed-deadline stdout drain (not a second
         `grace` budget) so remaining/buffered stdout still lands in `transcript` -- including a
         trailing partial line with no newline, and anything the agent writes to stdout *after*
-        the last response a test ever awaited (`.agents/research/review-slices-1-4.md` S8). This
-        never fails on lateness -- it only records; judging whether that late output is
-        conforming is the caller's job."""
+        the last response a test ever awaited. This never fails on lateness -- it only records;
+        judging whether that late output is conforming is the caller's job."""
         if self._process is None or self._closed:
             return
         self._closed = True

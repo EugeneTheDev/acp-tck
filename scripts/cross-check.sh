@@ -60,12 +60,10 @@ echo "echo_agent exit code: $ECHO_EXIT" >&2
 TESTY_V2_EXIT=""
 PYTHON_V2_EXIT=""
 if [ "$CROSS_CHECK_V2" = "1" ]; then
-  # Built into an isolated --target-dir, never the checkout's own target/debug/testy: an
-  # earlier probe in this effort found that a *dual*-feature build (v1 + unstable_protocol_v2,
-  # picking the route per-connection from the client's own `initialize`) does NOT reproduce the
-  # v1-only build's ACP-INIT-003 baseline unchanged, contrary to what
-  # `.agents/research/reference-sdks-v2-status.md` assumed at the time it was written: since
-  # slice V2-0b, the v1 ACP-INIT-003 probe now sends an `info` object alongside the unsupported
+  # Built into an isolated --target-dir, never the checkout's own target/debug/testy: a
+  # *dual*-feature build (v1 + unstable_protocol_v2, picking the route per-connection from the
+  # client's own `initialize`) does NOT reproduce the v1-only build's ACP-INIT-003 baseline
+  # unchanged. The v1 ACP-INIT-003 probe sends an `info` object alongside the unsupported
   # `protocolVersion: 65535`, which a dual-feature router accepts as valid v2 params and happily
   # routes to (and correctly answers from) its v2 agent -- so the same probe that FAILs against
   # a strict v1-only build actually PASSes against the dual build, for an entirely different

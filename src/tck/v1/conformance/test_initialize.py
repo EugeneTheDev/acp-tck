@@ -49,7 +49,7 @@ async def test_requested_v1_is_echoed(agent_launch):
         version = msg["result"].get("protocolVersion")
         # Req 5: the agent echoes the requested version *only if it supports it*, otherwise it
         # returns its own latest -- for a v1-only TCK requesting v1, "not 1" means the agent
-        # does not support protocol v1, not that it violated an echo rule (review N13).
+        # does not support protocol v1, not that it violated an echo rule.
         assert version == 1, f"agent does not support protocol v1 (returned {version!r} instead)"
 
 
@@ -62,8 +62,8 @@ async def test_unsupported_version_still_succeeds(agent_launch):
     requirement text says the agent returns "its latest supported version", so this needs a
     reference point: whatever the same agent returns for a plain v1 request (ACP-INIT-002).
 
-    The rule is `!= 65535 and >= latest_supported`, NOT equality (review-slices-5-6.md B2): an
-    agent legitimately supporting more than one version may answer `1` for a v1 request but
+    The rule is `!= 65535 and >= latest_supported`, NOT equality: an agent legitimately
+    supporting more than one version may answer `1` for a v1 request but
     something higher for an unsupported/future one (e.g. `2` for anything `>= 2`) -- equality
     would falsely FAIL that agent even though it never echoed 65535 and never answered *lower*
     than its own v1 answer, which is the actual defect this requirement exists to catch.
@@ -156,7 +156,7 @@ async def test_full_exchange_validates_against_schema(agent_launch, tmp_path):
     """ACP-SCHEMA-001. Every message the agent emits during initialize -> session/new ->
     session/prompt validates against the vendored v1 schema.
 
-    Driven through `run_prompt` (review S4): a real agent that asks for permission or calls
+    Driven through `run_prompt`: a real agent that asks for permission or calls
     `fs/*`/`terminal/*` mid-turn must not deadlock this MANDATORY requirement just because
     nothing here answers it. `method_by_id` -- needed to know which method's response schema
     each reply must validate against -- is derived automatically by scanning the SENT

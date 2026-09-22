@@ -7,11 +7,11 @@ agent MUST NOT call `fs/read_text_file`, `fs/write_text_file`, any `terminal/*` 
 controls the advertisement, so they are directly observable negative tests, not something a
 real client could get wrong.
 
-Implemented as three separate tests sharing one helper (review-slices-5-6.md S/item 9: a single
-test bound to all three ids at once mis-attributes a one-capability violation to all three --
-e.g. `calls_fs_unadvertised.py` only ever calls `fs/read_text_file`, but under the old combined
-test its single FAIL outcome was recorded against `ACP-CLIENTCAP-002`/`-003` too, even though the
-agent never touched `terminal/*` or `elicitation/create`). Each test sends its own prompt turn
+Implemented as three separate tests sharing one helper -- a single test bound to all three ids
+at once would mis-attribute a one-capability violation to all three (e.g.
+`calls_fs_unadvertised.py` only ever calls `fs/read_text_file`, but a combined test's single
+FAIL outcome would be recorded against `ACP-CLIENTCAP-002`/`-003` too, even though the agent
+never touched `terminal/*` or `elicitation/create`). Each test sends its own prompt turn
 (the mock client's own `run_prompt` call) and filters `PromptTurn.client_requests_seen` -- which
 records every agent -> client request `run_prompt` had to answer, replying `-32601` to anything
 beyond `session/request_permission` since the mock client advertised no capabilities -- by method
@@ -29,9 +29,9 @@ import pytest
 from ._helpers import connected_agent, new_session, run_prompt
 
 # Each test uses its own capability-shaped prompt text rather than sharing one fs-flavoured
-# prompt across all three (review-slices-7.md S8): the shared prompt gave the terminal/
-# elicitation tests close to zero chance of ever provoking the behaviour they guard, making
-# their PASS vacuous by construction rather than by the agent's own choice not to try.
+# prompt across all three: a shared prompt would give the terminal/elicitation tests close to
+# zero chance of ever provoking the behaviour they guard, making their PASS vacuous by
+# construction rather than by the agent's own choice not to try.
 _FS_PROMPT_TEXT = "Read the file README.md in the current directory and summarize it."
 _TERMINAL_PROMPT_TEXT = "Run `ls -la` in a shell and show me the output."
 _ELICITATION_PROMPT_TEXT = "Before you continue, ask me which of two options I'd prefer."

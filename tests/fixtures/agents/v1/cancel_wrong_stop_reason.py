@@ -4,11 +4,10 @@ to the prompt with `stopReason: "end_turn"` instead of `"cancelled"`. Violates A
 (Req 25).
 
 Answering *immediately* on cancel would land inside the TCK's "was this actually exercised"
-race window (`tck.v1.conformance._helpers.quiet_period`, derived from `--tck-timeout`) -- since
+race window (`tck.v1.conformance._helpers.quiet_period`, derived from `--tck-timeout`): since
 `"end_turn"` is itself a valid `StopReason`, an instant reply would make ACP-CANCEL-001 SKIP
-instead of FAIL, hiding this fixture's whole reason for existing. Sleeping 1.2s comfortably
-clears that window for any `--tck-timeout` this fixture is run with (the self-test uses
-`--timeout 5`, giving a 0.5s window). Sleeping past the window keeps the defect detectable.
+instead of FAIL. Sleeping 1.2s clears that window for any `--tck-timeout` this fixture is run
+with (the self-test uses `--timeout 5`, a 0.5s window), keeping the defect detectable.
 """
 
 import sys
