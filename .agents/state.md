@@ -1,7 +1,7 @@
 # State
 
 **Last updated:** 2026-09-22 — v2 effort COMPLETE on `v2-support`; decisions 2 and 3 implemented.
-**Last commit pushed:** `7248354` on `v2-support`. Merged branches `port-version-mismatch-v1` and
+**Last commit pushed:** `b3f4dbe` on `v2-support`. Merged branches `port-version-mismatch-v1` and
 `v1-allow-logout` (squashed) can be deleted; their worktrees are stale.
 
 ## How to resume (fresh orchestrator)
@@ -12,7 +12,7 @@
    `/Users/eugene/Documents/JetBrains/projects/acp-tck/.agents/skills/*/.repo` (spec → `../agent-client-protocol`,
    rust → `../acp-rust-sdk`, python → `../acp-python-sdk`, a2a → `../a2a-tck`). `git pull --ff-only` in those
    checkouts fails ("multiple branches"); use `git fetch origin` and compare against `origin/main`.
-3. Verify: `uv run pytest -q` → **253 passed** (≈7 min) and
+3. Verify: `uv run pytest -q` → **269 passed** (≈7 min) and
    `uv run acp-tck --protocol-version 2 --cancel-prompt __hang__ --auth-method tck --allow-logout -- python
    tests/fixtures/agents/v2/conforming_full.py` → exit 0, CONFORMANT, 101/106 PASS
    (MANDATORY 19/19, CAPABILITY 51/51, ADVISORY 19 PASS + 1 SKIP, INFORMATIONAL 12 PASS + 4 SKIP).
@@ -53,6 +53,13 @@
   "supports v1 but echoed something else", so a non-1 answer is a mismatch, not an echo violation. Catching
   the latter would need correlating with `ACP-INIT-003`'s 65535 probe; deliberately not done (the verdict is
   already forced NOT CONFORMANT by `blocked_by_version_mismatch`, and the suite keeps tests independent).
+- **Terminal summary QoL** (`37a1ee9`, `b3f4dbe`): status tokens in the requirement table and
+  tier-count lines are coloured via pytest's `TerminalWriter` (PASS green, FAIL red, SKIPPED
+  yellow, NOT TESTED dim as its own colour; zero counts plain, so dim means only "never ran").
+  Piped/non-TTY output stays escape-free, so `_table_statuses` parsing is unaffected. The NOT
+  CONFORMANT reason now lists only actual causes and includes capability failures, which it
+  never mentioned before -- a capability-only failure used to print "0 mandatory failures".
+  `_verdict_reason`/`_status_markup` are pure helpers with unit tests in `tests/common/test_plugin.py`.
 - **v1 logout opt-in** (`7248354`): `ACP-AUTH-004` reads `current_allow_logout()` and SKIPs without
   `--allow-logout`, after the capability gate. `testy`'s cross-check row flips PASS → SKIPPED; no CI
   expectation change (those key on MANDATORY FAILs only).
