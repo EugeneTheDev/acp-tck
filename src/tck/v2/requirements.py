@@ -535,6 +535,109 @@ even when several individual ids within it are unchanged requirements (e.g. `ACP
 above supersede `ACP-CONFIG-001/002` under new numbers despite being the "same requirement,
 re-cited"). `ACP-AUTH-002` is replaced by `ACP-AUTH-202` (new id, not reused) for the reason
 detailed above -- the gate's wire encoding changed, not just its citation.
+## V2-6: patch/upsert semantics, open enums, extensibility/hygiene (`ACP-PATCH-20x`,
+## `ACP-ENUM-20x`, `ACP-META-201`, `ACP-EXT-20x`, and v1 re-cites)
+
+Source: `.agents/research/acp-v2-patches-enums-extensibility.md` (spec @
+`8f76d6c8cf379a0f8a7fe2bbee6007fb2a53a84e`), plus `.agents/plan.md`'s "v2 patches / open enums /
+extensibility -- decisions" and "v2 tiering rule for session-baseline rows".
+
+### Tiering rule applied here
+
+Per `.agents/plan.md`: every requirement about a method in the `capabilities.session` baseline
+is `Tier.CAPABILITY, capability="capabilities.session"` on the *registry* entry, never
+MANDATORY with a test-level-only gate -- this promotes the report's own MANDATORY rows below.
+Report rows the report itself already scores ADVISORY are **not** promoted to CAPABILITY;
+consistent with `ACP-AUTH-201`/`ACP-AUTH-205`/`ACP-CANCEL-204`/`ACP-DELETE-203` elsewhere in this
+file, they keep `Tier.ADVISORY, capability=None` on the registry, and the corresponding *test
+function* alone carries `@pytest.mark.capability("capabilities.session")` purely to decide the
+SKIP -- the registry's own tier/capability fields and the test marker are independent (see
+those ids' own docstrings for the precedent).
+
+### `ACP-PATCH-20x`: keyed upsert/patch semantics
+
+- `ACP-PATCH-201` (CAPABILITY, promoted from report MANDATORY): every message-kind
+  `session/update` (`*_message_chunk`/`*_message`/`*_thought_chunk`/`*_thought`) carries a
+  non-empty `messageId`.
+- `ACP-PATCH-202` is **not registered** -- it duplicates existing `ACP-PROMPT-201` (acceptance
+  receipt shape) combined with `ACP-PROMPT-203` (the response echoes the same `messageId` the
+  turn's updates used); see D3.
+- `ACP-PATCH-203` (CAPABILITY, promoted): two separate prompts on the same session receive
+  distinct `messageId` values.
+- `ACP-PATCH-204` (CAPABILITY, promoted): every `tool_call_update` and
+  `tool_call_content_chunk` carries a non-empty `toolCallId`; a content chunk additionally
+  carries `content`. No separate tool-call "create" message exists in v2 -- an update for a
+  previously-unseen `toolCallId` *is* the create, so this is not asserted separately.
+- `ACP-PATCH-205` (CAPABILITY, promoted): every `plan_update.plan` carries a non-empty
+  `planId`.
+- `ACP-PATCH-206` (CAPABILITY, promoted): `terminal_update.cwd`, when present, is an absolute
+  path, and a given `terminalId` is never observed with two different `cwd` values across the
+  run (upsert-by-key implies `cwd` is set-once, not silently re-pointed).
+- `ACP-PATCH-207` (CAPABILITY, promoted): terminal output bytes (`terminal_output_chunk.data`
+  and `terminal_update.output.data`) decode as standalone valid base64, independent of any
+  other chunk.
+- `ACP-PATCH-208` (ADVISORY, not promoted; test capability-gated): the *first* observed
+  `tool_call_update` for a given `toolCallId` carries a non-empty `title`, and `name` (if ever
+  set at all) never changes across subsequent updates for that same id.
+- `ACP-PATCH-209` (ADVISORY, not promoted; test capability-gated): when a
+  `session/request_permission` is observed mid-turn, `"requires_action"` appears among the
+  turn's `state_update.state` values before it, and `"running"` reappears after the permission
+  request is answered (the SHOULD-report-around-blocking-actions convention).
+
+### `ACP-ENUM-20x`: open-enum emitter rules
+
+v2's schema leaves every scalar enum and tagged-union discriminator open except
+`ElicitationSchemaType` and the JSON-RPC `jsonrpc` literal, but prose still binds the *emitter*:
+every emitted value must be a defined constant or begin with `_`
+(`tck.v2.protocol.is_valid_open_enum_value`).
+
+- `ACP-ENUM-201` (CAPABILITY, promoted from report MANDATORY): a curated, non-exhaustive subset
+  of sites the report calls out as carrying *dedicated* per-site MUST prose --
+  `tool_call_update.kind`/`.status` (`ToolKind`/`ToolCallStatus`) and plan entries'
+  `priority`/`status` (`PlanEntryPriority`/`PlanEntryStatus`) -- are each a defined constant or
+  `_`-prefixed. Classifying prose strength at all 30 B.1/B.2 sites individually is
+  disproportionate for one slice; this subset is the highest-value, most directly-cited one to
+  automate.
+- `ACP-ENUM-202` (ADVISORY, not promoted; test capability-gated): three of the report's own "no
+  dedicated prose" examples -- `session/update`'s own `sessionUpdate` discriminator,
+  `state_update.state`, and tool-call content blocks' `type` -- are each a defined constant or
+  `_`-prefixed.
+- `ACP-ENUM-203` (ADVISORY, not promoted; test capability-gated): receiver-tolerance direction
+  -- answering `session/request_permission` with a `_`-prefixed, non-standard `outcome` value
+  must not make the agent answer the prompt itself with `-32602` or otherwise fail to reach a
+  terminating idle. Untestable *how* the agent treats the value internally (B4/B6); only
+  survival is checked.
+
+The re-worded v1 `ACP-PROMPT-001` ("the idle's `stopReason` is a defined constant or
+`_`-prefixed") is **not** re-registered -- it duplicates existing `ACP-STATE-203`, which already
+combines "carries a `stopReason`" with exactly this value-legality check; see D3.
+
+### Extensibility/hygiene: v1 ids re-cited unchanged
+
+Per the report's own "Extensibility / hygiene" table, these are the *same* requirement in v2,
+only re-cited (the underlying `$def`s/docs are byte-identical or the rule is version-agnostic):
+`ACP-EXT-001` (MANDATORY -- a `_`-prefixed custom method still gets *some* response),
+`ACP-META-001` (ADVISORY -- `_meta` on `session/prompt` is still accepted), `ACP-ERROR-001`
+(ADVISORY -- error `message` non-empty, single-line), `ACP-SHUTDOWN-001` (ADVISORY -- prompt
+exit on stdin EOF), `ACP-SCHEMA-002` (ADVISORY -- no unknown root-level keys; the v2 "other"-
+branch carve-out is already implemented in `tck.v2.validation.find_unknown_root_keys`),
+`ACP-STDERR-001`/`ACP-INFO-PARSE-001`/`ACP-INFO-INVALIDREQ-001` (INFORMATIONAL -- report-only,
+never asserted). All connection-level, `capability=None`, tiers unchanged from v1.
+
+### New hygiene rows
+
+- `ACP-META-201` (ADVISORY, new): every `_meta` value emitted anywhere in the transcript is a
+  JSON object or `null` -- never a string/array/number.
+- `ACP-EXT-201` (ADVISORY, new): an unrecognized `_`-prefixed *notification* produces no
+  response and no crash (SHOULD-ignore).
+- `ACP-EXT-202` (ADVISORY, new): vendor extensions are advertised under
+  `initialize` result `capabilities._meta`, not as an unrecognized root key of `capabilities`
+  itself.
+- `ACP-EXT-203` (INFORMATIONAL, new): behaviour on receiving an unrecognized `$/`-prefixed
+  protocol-level notification is recorded, never asserted (the spec explicitly permits ignoring
+  it).
+
+All four new hygiene rows are connection-level, `capability=None`.
 """
 
 from __future__ import annotations
@@ -1730,6 +1833,311 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "unique\"); schema/v2/schema.json ($defs/EnvVariable)"
         ),
         source_report="acp-v2-authentication.md",
+    ),
+    Requirement(
+        id="ACP-PATCH-201",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "Every agent-emitted message update/chunk "
+            "(`user_message_chunk`/`user_message`/`agent_message_chunk`/`agent_message`/"
+            "`agent_thought_chunk`/`agent_thought`) carries a non-empty string `messageId`. "
+            "Promoted from the report's MANDATORY per the session-baseline tiering rule."
+        ),
+        citation=_cite("docs/protocol/v2/prompt-lifecycle.mdx:246; schema/v2/schema.json:4738-4856"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-PATCH-203",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "Two `session/prompt`s on the same session receive two distinct `messageId` "
+            "values -- the v2 analogue of v1's `duplicate_session_id.py` defect pattern, "
+            "applied to message ids instead of session ids. Promoted from the report's "
+            "MANDATORY."
+        ),
+        citation=_cite("docs/protocol/v2/prompt-lifecycle.mdx:151"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-PATCH-204",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "Every `tool_call_update` carries a non-empty `toolCallId`; every "
+            "`tool_call_content_chunk` carries a non-empty `toolCallId` and `content`. There "
+            "is no separate tool-call \"create\" message in v2 -- an update for a "
+            "previously-unseen `toolCallId` is itself the create, so no create-before-update "
+            "ordering is asserted. Promoted from the report's MANDATORY(obs); conditional on "
+            "at least one such update being observed during the run, else SKIP."
+        ),
+        citation=_cite("schema/v2/schema.json:674-758,5040-5110"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-PATCH-205",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "Every `plan_update.plan` -- including an unknown/`_`-prefixed `type` variant -- "
+            "carries a non-empty `planId`. Promoted from the report's MANDATORY(obs); "
+            "conditional on at least one `plan_update` being observed, else SKIP."
+        ),
+        citation=_cite("docs/protocol/v2/agent-plan.mdx:71; schema/v2/schema.json:5199-5278"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-PATCH-206",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "A supplied `terminal_update.cwd`, when present, is an absolute path; a given "
+            "`terminalId` is never observed with two different `cwd` values within a session "
+            "(upsert-by-key implies `cwd` is set-once). Promoted from the report's "
+            "MANDATORY(obs); conditional on at least one `terminal_update` being observed, "
+            "else SKIP."
+        ),
+        citation=_cite("docs/protocol/v2/tool-calls.mdx:405-411,439-440"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-PATCH-207",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "`terminal_output_chunk.data` and `terminal_update.output.data` each decode as "
+            "standalone, valid RFC 4648 base64 -- independent of any other chunk. Promoted "
+            "from the report's MANDATORY(obs); conditional on at least one such field being "
+            "observed, else SKIP."
+        ),
+        citation=_cite("docs/protocol/v2/tool-calls.mdx:441-446,466-474"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-PATCH-208",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "The first `tool_call_update` observed for a given `toolCallId` includes a "
+            "non-empty `title`; `name`, if ever set, does not change across subsequent "
+            "updates for the same id. ADVISORY per the report; not promoted -- the "
+            "corresponding test is still `@pytest.mark.capability(\"capabilities.session\")`-"
+            "gated for its own SKIP."
+        ),
+        citation=_cite("docs/protocol/v2/tool-calls.mdx:44-52"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-PATCH-209",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "While blocked on a `session/request_permission` response, the agent reports "
+            "`state_update.state == \"requires_action\"`, and reports `\"running\"` again "
+            "once it resumes. ADVISORY per the report; not promoted -- the corresponding test "
+            "is still `@pytest.mark.capability(\"capabilities.session\")`-gated for its own "
+            "SKIP."
+        ),
+        citation=_cite("docs/protocol/v2/prompt-lifecycle.mdx:371"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-ENUM-201",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "Every value the agent emits at an open-enum site carrying dedicated per-site "
+            "MUST prose -- `tool_call_update.kind`/`.status` (`ToolKind`/`ToolCallStatus`) and "
+            "plan entries' `priority`/`status` (`PlanEntryPriority`/`PlanEntryStatus`) -- is a "
+            "defined constant or begins with `_`. A curated, non-exhaustive subset of the "
+            "report's full B.1/B.2 inventory (classifying every one of the 30 sites "
+            "individually is disproportionate for this slice). Promoted from the report's "
+            "MANDATORY."
+        ),
+        citation=_cite("docs/protocol/v2/extensibility.mdx:111-118"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-ENUM-202",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "Same defined-or-`_`-prefixed rule applied at open-enum sites the prose does not "
+            "individually restate: `session/update`'s own `sessionUpdate` discriminator, "
+            "`state_update.state`, and tool-call content blocks' `type`. ADVISORY per the "
+            "report; not promoted -- the corresponding test is still "
+            "`@pytest.mark.capability(\"capabilities.session\")`-gated for its own SKIP."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/extensibility.mdx:117,120; schema/v2/schema.json:4560-4575"
+        ),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-ENUM-203",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "A `_`-prefixed value at an open-enum site the client sends (here: "
+            "`session/request_permission`'s answered `outcome`) is tolerated by the agent -- "
+            "no crash, and the prompt itself is not answered with `-32602`. Untestable how the "
+            "agent treats the value internally; only survival is checked. ADVISORY per the "
+            "report; not promoted -- the corresponding test is still "
+            "`@pytest.mark.capability(\"capabilities.session\")`-gated for its own SKIP."
+        ),
+        citation=_cite("docs/protocol/v2/extensibility.mdx:115,122"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-EXT-001",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "A `_`-prefixed custom method request receives *some* response -- a result, or "
+            "an error with any code. Re-cited from v1 unchanged (D3): same requirement, only "
+            "the citation moves to v2's extensibility docs. The `-32601` code specifically "
+            "remains `ACP-JSONRPC-004`'s separate ADVISORY concern."
+        ),
+        citation=_cite("docs/protocol/v2/extensibility.mdx:43,52,65,109"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-META-001",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "A `session/prompt` request carrying a `_meta` object is accepted -- the turn "
+            "still proceeds normally. Re-cited from v1 unchanged (D3): `PromptRequest._meta` "
+            "still exists in v2."
+        ),
+        citation=_cite("docs/protocol/v2/extensibility.mdx:10,33-37,39"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-META-201",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "Every `_meta` value the agent emits, anywhere in the transcript, is a JSON "
+            "object or `null` -- never a string/array/number. New in v2; all 106 `_meta` "
+            "sites in the schema are typed `[\"object\", \"null\"]`."
+        ),
+        citation=_cite("schema/v2/schema.json:4289-4295"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-EXT-201",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "An unrecognized `_`-prefixed *notification* sent to the agent produces no "
+            "response line and no crash (SHOULD-ignore) -- the v2 analogue of v1's "
+            "`answers_notifications.py` defect pattern, generalised from `session/cancel` "
+            "specifically to any custom notification."
+        ),
+        citation=_cite("docs/protocol/v2/extensibility.mdx:109"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-EXT-202",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "Vendor extensions the agent advertises live under `initialize` -> "
+            "`result.capabilities._meta`, not as an unrecognized root key of `capabilities` "
+            "itself."
+        ),
+        citation=_cite("docs/protocol/v2/extensibility.mdx:93,126-149"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-EXT-203",
+        tier=Tier.INFORMATIONAL,
+        capability=None,
+        text=(
+            "Behaviour on receiving an unrecognized `$/`-prefixed protocol-level notification "
+            "is recorded, never asserted -- the spec explicitly says the agent \"is free to "
+            "ignore\" it, so there is no conforming/non-conforming distinction to enforce."
+        ),
+        citation=_cite("schema/v2/schema.json:6967-6990"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-ERROR-001",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "A JSON-RPC error's `message` is a non-empty, single-line string, and its "
+            "optional `data` is well-formed JSON. Re-cited from v1 unchanged (D3): `Error` "
+            "`$def` is byte-identical between v1 and v2."
+        ),
+        citation=_cite("schema/v2/schema.json:4127-4149; docs/protocol/v2/overview.mdx:181-185"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-SHUTDOWN-001",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "The agent exits promptly once stdin closes, without needing SIGTERM/SIGKILL. "
+            "Re-cited from v1 unchanged (D3): v2 still defines no dedicated shutdown method "
+            "and no stdin-EOF MUST -- only the mermaid step \"Close stdin, terminate "
+            "subprocess\"."
+        ),
+        citation=_cite("docs/protocol/v2/transports.mdx:41"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-SCHEMA-002",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "No agent-authored request/notification `params` or response `result` carries an "
+            "unrecognized root-level key. Re-cited from v1, with a v2-specific carve-out: "
+            "unknown-root-key detection is skipped for any object matched by an `other` "
+            "fallback branch, since an unknown/`_`-prefixed variant is by construction not "
+            "\"a type that's part of the specification\" -- already implemented in "
+            "`tck.v2.validation.find_unknown_root_keys`."
+        ),
+        citation=_cite("docs/protocol/v2/extensibility.mdx:39,113-120"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-STDERR-001",
+        tier=Tier.INFORMATIONAL,
+        capability=None,
+        text=(
+            "Stderr byte count is recorded for a human reading the report. Re-cited from v1 "
+            "unchanged (D3): the spec has nothing to say about stderr in either version."
+        ),
+        citation=_cite("docs/protocol/v2/transports.mdx"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-INFO-PARSE-001",
+        tier=Tier.INFORMATIONAL,
+        capability=None,
+        text=(
+            "Behaviour on a malformed (non-JSON) stdin line is recorded, never asserted. Re-cited "
+            "from v1 unchanged (D3): v2's error.mdx is still \"Documentation coming soon\" on "
+            "this exact scenario."
+        ),
+        citation=_cite("docs/protocol/v2/error.mdx"),
+        source_report="acp-v2-patches-enums-extensibility.md",
+    ),
+    Requirement(
+        id="ACP-INFO-INVALIDREQ-001",
+        tier=Tier.INFORMATIONAL,
+        capability=None,
+        text=(
+            "Behaviour on a structurally-invalid (well-formed JSON, not a valid JSON-RPC "
+            "envelope) request line is recorded, never asserted. Re-cited from v1 unchanged "
+            "(D3): v2's error.mdx is still \"Documentation coming soon\" on this exact "
+            "scenario."
+        ),
+        citation=_cite("docs/protocol/v2/error.mdx"),
+        source_report="acp-v2-patches-enums-extensibility.md",
     ),
 )
 

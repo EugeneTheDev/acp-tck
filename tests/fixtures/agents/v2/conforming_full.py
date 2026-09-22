@@ -21,6 +21,12 @@ Slice V2-5 adds one `type: "agent"` auth method (`methodId: "tck"`) -- correctly
 unconditionally, ACP-AUTH-204 when run with `--auth-method tck`, ACP-AUTH-203 when additionally
 run with `--allow-logout` (SKIPs, not FAILs, when either flag is omitted). ACP-AUTH-207 SKIPs
 here regardless of flags: this fixture advertises no `type: "terminal"` method at all.
+
+Slice V2-6 passes `emit_rich_turn_updates=True`, so every turn also emits a two-chunk agent
+message (one `messageId`), a `tool_call_update` create+patch pair (one `toolCallId`), and a
+`plan_update` (one `planId`) -- see `_base.ConformingAgent._send_rich_turn_updates`. This is what
+lets the new PATCH-20x/ENUM-201 rows PASS on this fixture instead of SKIPping "no <variant>
+observed".
 """
 
 import sys
@@ -57,6 +63,7 @@ def main() -> None:
         auth_methods=[
             {"methodId": "tck", "type": "agent", "name": "TCK"},
         ],
+        emit_rich_turn_updates=True,
     ).run()
 
 

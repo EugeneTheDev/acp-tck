@@ -46,7 +46,14 @@ dedicated `--allow-logout` opt-in since it may revoke the operator's own credent
 no-`authMethods` case (ADVISORY, re-cites v1), and two new-in-v2 MANDATORY rows: the open-enum
 `type` rule on `authMethods[*].type` (`type` is a required discriminator in v2, unlike v1 where
 it defaulted to `"agent"`) and the terminal auth method descriptor's `args`/`env` shape
-(`env` names MUST be unique) -- gated behind `--protocol-version 2`; default remains v1 -- and is
+(`env` names MUST be unique), and (V2-6) keyed upsert/patch semantics for message/tool-call/
+plan/terminal updates, the open-enum emitter rule (`tck.v2.protocol.is_valid_open_enum_value`:
+a value must be a defined constant or `_`-prefixed) at both a curated MUST-cited subset of
+sites and the receiver-tolerance direction, and extensibility/`_meta`/schema-hygiene rows
+re-cited from v1 (`ACP-EXT-001` MANDATORY; `ACP-META-001`/`ACP-ERROR-001`/`ACP-SHUTDOWN-001`/
+`ACP-SCHEMA-002`/`ACP-STDERR-001`/`ACP-INFO-PARSE-001`/`ACP-INFO-INVALIDREQ-001` ADVISORY/
+INFORMATIONAL) alongside three new-in-v2 hygiene rows (`ACP-META-201`, `ACP-EXT-201`,
+`ACP-EXT-202`, `ACP-EXT-203`) -- gated behind `--protocol-version 2`; default remains v1 -- and is
 expected to grow in later slices. Everything below is v1-specific unless a section says
 otherwise.
 
@@ -667,6 +674,94 @@ src/tck/
                             `auth/logout` may revoke the operator's own credentials -- SKIPs with
                             reason `"auth/logout not exercised: pass --allow-logout (it may revoke
                             the operator's credentials)"` otherwise).
+      test_patches.py          (V2-6) ACP-PATCH-201, ACP-PATCH-203..209 -- keyed upsert/patch
+                            semantics (`.agents/research/acp-v2-patches-enums-extensibility.md`
+                            "Patch/upsert -- new family"). `ACP-PATCH-202` is deliberately not
+                            registered: it duplicates `ACP-PROMPT-201` + `ACP-PROMPT-203`
+                            combined (D3). `ACP-PATCH-201/203/204/205/206/207` are
+                            `Tier.CAPABILITY`/`capabilities.session` (session-baseline tiering
+                            rule); `ACP-PATCH-208/209` stay `Tier.ADVISORY`/`capability=None`,
+                            with only the test itself capability-gated. `ACP-PATCH-201`: every
+                            message-kind update carries a non-empty string `messageId`.
+                            `ACP-PATCH-203`: two prompts on one session never cross-contaminate
+                            message ids. `ACP-PATCH-204/205/206/207`: `tool_call_update`/
+                            `plan_update`/`terminal_update`/`terminal_output_chunk` each carry
+                            their own required key (`toolCallId`/`planId`/absolute `cwd`/output
+                            bytes), each SKIPping "no `<variant>` observed" rather than PASSing
+                            or FAILing on evidence that was never produced -- neither `testy` nor
+                            `echo_agent` yet exercises tool calls/plans/terminals over v2 (report
+                            D5), so these only PASS for real against `conforming_full.py` (opted
+                            into `emit_rich_turn_updates=True`) and its defect fixtures.
+                            `ACP-PATCH-208`: the first observed `tool_call_update` for a given
+                            `toolCallId` is a create (not a bare patch). `ACP-PATCH-209`: a
+                            `requires_action`/`running` state_update pair brackets a
+                            `session/request_permission` round-trip.
+      test_enums.py            (V2-6) ACP-ENUM-201..203 -- open-enum emitter rules
+                            (`.agents/research/acp-v2-patches-enums-extensibility.md` "Open
+                            enums -- new family", B.1/B.2/B.5), enforced via
+                            `tck.v2.protocol.is_valid_open_enum_value` (a defined constant OR
+                            `_`-prefixed) since the schema itself accepts any string at these
+                            sites. The re-worded v1 `ACP-PROMPT-001` is deliberately not
+                            re-registered: already fully covered by `ACP-STATE-203` (D3).
+                            `ACP-ENUM-201` (`Tier.CAPABILITY`/`capabilities.session`, promoted
+                            from the report's MANDATORY): a curated subset of dedicated-prose
+                            sites -- `ToolKind`, `ToolCallStatus`, `PlanEntryPriority`/
+                            `PlanEntryStatus`. `ACP-ENUM-202` (`Tier.ADVISORY`,
+                            `capability=None`, test capability-gated): three no-dedicated-prose
+                            sites -- `SessionUpdate.sessionUpdate`, `StateUpdate.state`,
+                            `ToolCallContent.type`. `ACP-ENUM-203` (same tier/gating):
+                            receiver-tolerance direction -- the client sends a `_`-prefixed
+                            permission-outcome value and the agent must not crash or `-32602`;
+                            drives its own minimal hand-rolled turn (no hook in `run_prompt()`
+                            for a non-standard outcome), and unwraps JSON-RPC batch-array lines
+                            the same way `_helpers.run_prompt` does, so a spontaneously-batching
+                            but otherwise conformant agent doesn't spuriously FAIL just because
+                            its terminating idle arrived inside a batch.
+      test_extensibility.py  (V2-6) `ACP-EXT-001`/`ACP-META-001` (re-cited from v1 unchanged,
+                            `capability=None` on the registry; `ACP-META-001`'s own test still
+                            carries `@pytest.mark.capability("capabilities.session")` since it
+                            drives a real turn), `ACP-SCHEMA-002` (re-cited, v2 carve-out already
+                            in `tck.v2.validation.find_unknown_root_keys`; its own test is also
+                            capability-gated, since it sweeps a full `session/new` +
+                            `session/prompt` exchange), and the new hygiene rows `ACP-META-201`
+                            (ADVISORY, capability-gated test, not promoted: every `_meta` value
+                            anywhere in the transcript is an object or `null`), `ACP-EXT-201`
+                            (ADVISORY: an unrecognized `_`-prefixed notification produces no
+                            response), `ACP-EXT-202` (ADVISORY: vendor extensions live under
+                            `capabilities._meta`, not a new root key of `capabilities` itself --
+                            checked via a *nested* `find_unknown_root_keys` against the
+                            `AgentCapabilities` `$def`), `ACP-EXT-203` (INFORMATIONAL,
+                            `record_property`-only: behaviour on an unrecognized `$/`-prefixed
+                            protocol notification, which the spec says the agent is free to
+                            ignore). `ACP-EXT-001`/`ACP-EXT-201`/`ACP-EXT-203` need only one
+                            ordinary custom-method/notification exchange -- no `session/new`,
+                            no `capabilities` shape -- so `tests/v2/test_cli.py`'s
+                            `_VERSION_TOLERANT_IDS` includes all three: they PASS, not SKIP,
+                            against a v1 agent forced under `--protocol-version 2`.
+                            `ACP-EXT-202` reads `result.capabilities` (the v2 field name)
+                            directly and is NOT in that set: a v1-negotiated result has no such
+                            key at all (v1 uses `agentCapabilities` instead), so it genuinely
+                            `pytest.skip(...)`s on its own -- not via the `VERSION-MISMATCH:`
+                            marker, but still a skip.
+      test_diagnostics.py    (V2-6) `ACP-ERROR-001`/`ACP-SHUTDOWN-001`/`ACP-STDERR-001`
+                            (re-cited from v1 unchanged: `Error` `$def` is byte-identical, v2
+                            still has no dedicated shutdown method, and the spec has nothing to
+                            say about stderr in either version). All connection-level,
+                            `capability=None`, no capability marker on the test either -- each
+                            succeeds at the wire level regardless of negotiated version (v1's
+                            `conforming.py` implements `session/new` unconditionally), so all
+                            three are also in `_VERSION_TOLERANT_IDS`.
+      test_informational.py   (V2-6 extends V2-2b) adds `ACP-INFO-PARSE-001`/
+                            `ACP-INFO-INVALIDREQ-001` (re-cited from v1 unchanged -- version-
+                            agnostic transport-level probes with nothing v2-specific to revisit)
+                            alongside the existing `ACP-INFO-CONCURRENT-201`/
+                            `ACP-INFO-UNKNOWNSESSION-001`. The two new probes carry no
+                            capability marker either (their shared `_probe_connection_usable_
+                            after` helper swallows a `session/new` failure -- including a
+                            version-mismatch/capability-unsupported one -- into an "unusable"
+                            behaviour string rather than letting it propagate, then only ever
+                            `record_property(...)`s it, never asserts), so both are also in
+                            `_VERSION_TOLERANT_IDS`.
 
 tests/
   conftest.py              agent_launch() helper for spawning fixture agents under
@@ -692,15 +787,21 @@ tests/
     test_validation.py      unit tests for `tck.v2.validation`'s three v2-specific behaviors:
                           batch root dispatch, no `null` special case for responses, and the
                           `find_unknown_root_keys` open-fallback carve-out
-    test_registry.py         `tck.v2.requirements.REGISTRY` invariants (all 76 ids: the nine
+    test_registry.py         `tck.v2.requirements.REGISTRY` invariants (all 106 ids: the nine
                           from V2-1b, V2-2a's six prompt-turn ids, V2-2b's nine
                           `ACP-PROMPTCAP-001/002/003`/`ACP-PROMPT-003`/`ACP-PERM-201`/
                           `ACP-CLIENTCAP-201/202`/`ACP-INFO-CONCURRENT-201`/
                           `ACP-INFO-UNKNOWNSESSION-001`, V2-3's 24 cancellation/transport/
-                          JSON-RPC/batching ids, and V2-4's 24 session-management ids --
+                          JSON-RPC/batching ids, V2-4's 24 session-management ids --
                           `ACP-SESSION-203`, `ACP-RESUME-201..205`, `ACP-LIST-201..204`,
                           `ACP-CLOSE-201/202`, `ACP-DELETE-201..203`, `ACP-ADDDIRS-201/202`,
-                          `ACP-MCP-201/202`, `ACP-CONFIG-201..204`/`206`) + two-way check against
+                          `ACP-MCP-201/202`, `ACP-CONFIG-201..204`/`206` --, V2-5's seven
+                          `ACP-AUTH-201..207`, and V2-6's 23 patch/enum/extensibility ids: 15 new
+                          (`ACP-PATCH-201`/`203..209`, `ACP-ENUM-201..203`, `ACP-META-201`,
+                          `ACP-EXT-201..203`) plus eight bare re-cites from v1
+                          (`ACP-EXT-001`, `ACP-META-001`, `ACP-ERROR-001`, `ACP-SHUTDOWN-001`,
+                          `ACP-SCHEMA-002`, `ACP-STDERR-001`, `ACP-INFO-PARSE-001`,
+                          `ACP-INFO-INVALIDREQ-001`)) + two-way check against
                           `tck.v2.conformance` markers
     test_cli.py               end-to-end: run `python -m tck --protocol-version 2 --
                             <fixture>` as a subprocess; routing checks (`--help`, and that the
@@ -712,8 +813,10 @@ tests/
                             `_CANCEL_RACE_SKIP_IDS` also legitimately SKIP without a
                             `--cancel-prompt` override, since `conforming.py`'s short turns
                             resolve before the TCK can act on `session/cancel`); `conforming_
-                            full.py` (V2-2b, extended by V2-4 with every session-management capability) PASSing
-                            literally every one of the 76 ids when run with `--cancel-prompt
+                            full.py` (V2-2b, extended by V2-4 with every session-management
+                            capability, and by V2-6 with `emit_rich_turn_updates=True` plus every
+                            auth/logout capability) PASSing literally every one of the 106 ids
+                            when run with `--cancel-prompt
                             __hang__` (V2-3's cancellation tests need a
                             turn that is still in flight when `session/cancel` lands, exactly
                             like v1's own `--cancel-prompt` convention); one test per defect
@@ -802,7 +905,42 @@ tests/
                             own unconditional record-only reason, not the version mismatch, so
                             they carry no `VERSION-MISMATCH:` marker in their own message; zero
                             FAILs anywhere, yet `verdict.blocked_by_version_mismatch` is `true`
-                            and exit code is 1)
+                            and exit code is 1; V2-6 widens `_VERSION_TOLERANT_IDS` further with
+                            `ACP-EXT-001`/`ACP-EXT-201`/`ACP-EXT-203` -- each probes only an
+                            ordinary custom-method/notification exchange, never `session/new`'s
+                            or `capabilities`'s own shape -- plus `ACP-ERROR-001`/
+                            `ACP-SHUTDOWN-001`/`ACP-STDERR-001`/`ACP-INFO-PARSE-001`/
+                            `ACP-INFO-INVALIDREQ-001`, all re-cited from v1 unchanged and
+                            carrying no capability marker at all, whose own `session/new` calls
+                            (or, for the latter two, their `_probe_connection_usable_after`
+                            helper's graceful fallback) succeed at the wire level regardless of
+                            negotiated version; `ACP-EXT-202` is deliberately NOT included --
+                            it reads `result.capabilities` (the v2 field name) directly, which a
+                            v1-negotiated result simply doesn't have, so it genuinely
+                            `pytest.skip(...)`s on its own instead, a real skip without the
+                            `VERSION-MISMATCH:` marker text); V2-6 adds ten more defect/positive-
+                            control fixtures, one test each: `tool_call_update_missing_id.py`
+                            (FAILs only `ACP-PATCH-204`, cascades into `ACP-SCHEMA-001`),
+                            `plan_missing_plan_id.py` (FAILs only `ACP-PATCH-205`, cascades into
+                            `ACP-SCHEMA-001`), `message_chunk_missing_message_id.py` (FAILs only
+                            `ACP-PATCH-201`, cascades into `ACP-SCHEMA-001`),
+                            `unprefixed_custom_session_update.py` (FAILs only `ACP-ENUM-202`;
+                            schema-valid on its own, so no `ACP-SCHEMA-001` cascade),
+                            `prefixed_custom_session_update.py` (positive control: PASSes
+                            `ACP-ENUM-202` via a `_`-prefixed custom `sessionUpdate` value),
+                            `custom_method_no_response.py` (FAILs only `ACP-EXT-001`),
+                            `error_message_with_newline.py` (FAILs only `ACP-ERROR-001`),
+                            `never_exits_on_stdin_close.py` (FAILs only `ACP-SHUTDOWN-001`; its
+                            self-test keeps `--close-grace` small to avoid waiting out the
+                            default grace period at every rung of the shutdown ladder), and
+                            `unknown_root_key.py` (FAILs only `ACP-SCHEMA-002`; leaves
+                            `capabilities` itself untouched, so `ACP-EXT-202` is unaffected); the
+                            first three fixtures each override `_send_rich_turn_updates` outright
+                            (rather than opting in via `emit_rich_turn_updates=True`) so their one
+                            targeted defect doesn't drag in unrelated `ACP-PATCH-*`/`ACP-ENUM-201`
+                            evidence, and each fixture's self-test asserts the remaining
+                            rich-turn-update ids SKIP "no `<variant>` observed" rather than PASS
+                            on borrowed evidence
   fixtures/agents/v1/
     _base.py               shared ConformingAgent core (not a standalone script); optionally
                           takes a `capabilities` dict merged into `agentCapabilities`, and
@@ -1321,6 +1459,59 @@ tests/
                           array has two entries sharing the same `name`, violating "Names MUST be
                           unique" -- FAILs exactly `ACP-AUTH-207` (MANDATORY, new in v2 -- no v1
                           analogue: v1's terminal descriptor had no `args`/`env` fields at all)
+    tool_call_update_missing_id.py  (V2-6) `conforming_full.py` plus `emit_rich_turn_updates=
+                          True`, but overrides `_send_rich_turn_updates` outright to send only a
+                          `tool_call_update` with no `toolCallId` at all. FAILs exactly
+                          `ACP-PATCH-204`; cascades into `ACP-SCHEMA-001` (`ToolCallUpdate`
+                          requires `toolCallId`). No message chunk or plan update is sent, so
+                          `ACP-PATCH-201/203/205/208/209` and `ACP-ENUM-201/202` all SKIP "no
+                          `<variant>` observed" rather than PASS on borrowed evidence
+    plan_missing_plan_id.py  (V2-6) same shape, but sends a `plan_update` whose `plan` object has
+                          no `planId`. FAILs exactly `ACP-PATCH-205`; cascades into
+                          `ACP-SCHEMA-001` (`PlanItems` requires `planId`). `ACP-ENUM-201` still
+                          PASSes (the plan entry's `priority`/`status` are correctly shaped, even
+                          though the surrounding `plan` object is missing its id)
+    message_chunk_missing_message_id.py  (V2-6) same shape, but sends an `agent_message_chunk`
+                          with no `messageId`. FAILs exactly `ACP-PATCH-201` (checks *every*
+                          message-kind update observed, so this one extra malformed chunk is
+                          enough on its own, even though the turn's own `user_message`/closing
+                          `agent_message_chunk` are correctly shaped); cascades into
+                          `ACP-SCHEMA-001` (`ContentChunk` requires `messageId`)
+    unprefixed_custom_session_update.py  (V2-6) `conforming_full.py`, but sends one extra
+                          `session/update` whose `sessionUpdate` discriminator is an unrecognized,
+                          non-`_`-prefixed value (`"surprise"`). FAILs exactly `ACP-ENUM-202`;
+                          schema-valid on its own (the vendored schema's `SessionUpdate` `other`
+                          branch only requires `sessionUpdate` to be a string), so no
+                          `ACP-SCHEMA-001` cascade -- a purely prose-level violation
+    prefixed_custom_session_update.py  (V2-6) positive control: same shape, but the extra
+                          `session/update`'s `sessionUpdate` value is `_`-prefixed
+                          (`"_tck_custom_update"`) -- legal per the open-enum rule. PASSes
+                          `ACP-ENUM-202`, paired with `unprefixed_custom_session_update.py`'s
+                          negative control at the same site
+    custom_method_no_response.py  (V2-6) `conforming_full.py`, but silently swallows every
+                          `_`-prefixed custom method request instead of responding at all (every
+                          other method still dispatches normally via `super()`). FAILs exactly
+                          `ACP-EXT-001`
+    error_message_with_newline.py  (V2-6) `conforming_full.py`, but the `-32601` error message
+                          for an unrecognized method carries an embedded newline. FAILs exactly
+                          `ACP-ERROR-001`; every other error path and method is unaffected
+    never_exits_on_stdin_close.py  (V2-6) `conforming_full.py`, but never exits once stdin
+                          closes -- needs SIGTERM/SIGKILL to terminate. FAILs exactly
+                          `ACP-SHUTDOWN-001`. Self-test-only; its own `test_cli.py` entry keeps
+                          `--close-grace` small so the self-test doesn't wait out the default
+                          grace period at every rung of the shutdown ladder
+    unknown_root_key.py    (V2-6) `conforming_full.py`, but the `initialize` result carries an
+                          unrecognized root-level key (`"unknownRootKey"`) alongside the normal
+                          `protocolVersion`/`capabilities`/`info`. FAILs exactly `ACP-SCHEMA-002`
+                          (only caught by `tck.v2.validation.find_unknown_root_keys`, since the
+                          vendored schema never sets `additionalProperties: false`); leaves
+                          `capabilities` itself untouched, so `ACP-EXT-202` is unaffected
+    noisy_stderr_and_parse_error_reply.py  (V2-6) `conforming_full.py`, but logs every raw line
+                          received to stderr and replies to a malformed (non-JSON) stdin line
+                          with an explicit `-32700` instead of silently swallowing it. v2 twin of
+                          v1's fixture of the same name; self-test-only, deterministically
+                          exercises `ACP-STDERR-001`'s/`ACP-INFO-PARSE-001`'s non-default
+                          branches -- never FAILs anything, since neither is asserted on
 ```
 
 ## Running the TCK against an agent
