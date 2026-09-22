@@ -39,7 +39,7 @@ def test_ids_are_unique_and_well_formed():
         assert _ID_PATTERN.match(req_id), f"{req_id!r} does not match ACP-<AREA>-<NNN>"
 
 
-def test_registry_has_exactly_the_v2_5_requirements():
+def test_registry_has_exactly_the_v2_6_requirements():
     """This slice's registry covers the `initialize` handshake, the `session/new` baseline,
     (V2-2a) the mock-client prompt driver's core prompt-turn requirements, (V2-2b) prompt
     content capabilities, the permission-request shape, the agent->client method rules, reused
@@ -60,7 +60,13 @@ def test_registry_has_exactly_the_v2_5_requirements():
     `auth/logout` (`ACP-AUTH-203`, CAPABILITY, replaces v1's `ACP-AUTH-004` outright -- v2 has no
     logout capability marker), the no-`authMethods` case (`ACP-AUTH-205`, ADVISORY, re-cites v1's
     `ACP-AUTH-005`), the open-enum `type` rule (`ACP-AUTH-206`, MANDATORY, new in v2), and the
-    terminal descriptor shape (`ACP-AUTH-207`, MANDATORY, new in v2) -- see
+    terminal descriptor shape (`ACP-AUTH-207`, MANDATORY, new in v2), and (V2-6) patch/upsert
+    semantics (`ACP-PATCH-201,203..209`; `ACP-PATCH-202` and the re-worded `ACP-PROMPT-001` are
+    deliberately not registered -- duplicates of `ACP-PROMPT-201`/`ACP-PROMPT-203` and
+    `ACP-STATE-203` respectively), open-enum emitter rules (`ACP-ENUM-201..203`),
+    extensibility/hygiene re-cited from v1 (`ACP-EXT-001`, `ACP-META-001`, `ACP-ERROR-001`,
+    `ACP-SHUTDOWN-001`, `ACP-SCHEMA-002`, `ACP-STDERR-001`, `ACP-INFO-PARSE-001`,
+    `ACP-INFO-INVALIDREQ-001`), and new hygiene rows (`ACP-META-201`, `ACP-EXT-201..203`) -- see
     `tck.v2.requirements`'s module docstring for the full id-namespacing rationale."""
     assert set(REGISTRY) == {
         "ACP-INIT-001",
@@ -146,6 +152,29 @@ def test_registry_has_exactly_the_v2_5_requirements():
         "ACP-AUTH-205",
         "ACP-AUTH-206",
         "ACP-AUTH-207",
+        "ACP-PATCH-201",
+        "ACP-PATCH-203",
+        "ACP-PATCH-204",
+        "ACP-PATCH-205",
+        "ACP-PATCH-206",
+        "ACP-PATCH-207",
+        "ACP-PATCH-208",
+        "ACP-PATCH-209",
+        "ACP-ENUM-201",
+        "ACP-ENUM-202",
+        "ACP-ENUM-203",
+        "ACP-META-001",
+        "ACP-META-201",
+        "ACP-EXT-001",
+        "ACP-EXT-201",
+        "ACP-EXT-202",
+        "ACP-EXT-203",
+        "ACP-ERROR-001",
+        "ACP-SHUTDOWN-001",
+        "ACP-SCHEMA-002",
+        "ACP-STDERR-001",
+        "ACP-INFO-PARSE-001",
+        "ACP-INFO-INVALIDREQ-001",
     }
 
 

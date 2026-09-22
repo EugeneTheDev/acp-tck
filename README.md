@@ -36,8 +36,9 @@ process per test, so one crash can't cascade into unrelated failures.
   content capabilities, the permission flow, the agent -> client method rules,
   cancellation/stdio transport/the JSON-RPC envelope/batching, session management
   (`session/resume`/`list`/`close`/`delete`, `additionalDirectories`, MCP server config, config
-  options), and authentication (`authMethods`, `auth/login`/`auth/logout`) -- see `AGENTS.md`'s
-  `src/tck/v2/` layout entry. If the agent under
+  options), authentication (`authMethods`, `auth/login`/`auth/logout`), and keyed upsert/patch
+  semantics, open-enum emitter rules, and extensibility/`_meta`/schema-hygiene -- see
+  `AGENTS.md`'s `src/tck/v2/` layout entry. If the agent under
   test never actually negotiates the requested version, version-dependent tests are `SKIPPED`
   with a `VERSION-MISMATCH` hint and the run is forced `NOT CONFORMANT`.
 - `--agent-cwd DIR` -- working directory for the agent (default: inherit).

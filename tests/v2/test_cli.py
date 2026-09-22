@@ -61,8 +61,10 @@ _MANDATORY_IDS = {
     "ACP-AUTH-202",
     "ACP-AUTH-206",
     "ACP-AUTH-207",
+    "ACP-EXT-001",
 }
 _CAPABILITY_IDS = {
+    "ACP-ENUM-201",
     "ACP-SESSION-001",
     "ACP-SESSION-002",
     "ACP-PROMPT-205",
@@ -107,6 +109,12 @@ _CAPABILITY_IDS = {
     "ACP-CONFIG-206",
     "ACP-AUTH-203",
     "ACP-AUTH-204",
+    "ACP-PATCH-201",
+    "ACP-PATCH-203",
+    "ACP-PATCH-204",
+    "ACP-PATCH-205",
+    "ACP-PATCH-206",
+    "ACP-PATCH-207",
 }
 _ADVISORY_IDS = {
     "ACP-PROMPT-003",
@@ -122,6 +130,17 @@ _ADVISORY_IDS = {
     "ACP-DELETE-203",
     "ACP-AUTH-201",
     "ACP-AUTH-205",
+    "ACP-PATCH-208",
+    "ACP-PATCH-209",
+    "ACP-ENUM-202",
+    "ACP-ENUM-203",
+    "ACP-META-001",
+    "ACP-META-201",
+    "ACP-EXT-201",
+    "ACP-EXT-202",
+    "ACP-ERROR-001",
+    "ACP-SHUTDOWN-001",
+    "ACP-SCHEMA-002",
 }
 _INFORMATIONAL_IDS = {
     "ACP-INFO-CONCURRENT-201",
@@ -132,6 +151,10 @@ _INFORMATIONAL_IDS = {
     "ACP-INFO-BATCH-202",
     "ACP-MCP-201",
     "ACP-MCP-202",
+    "ACP-EXT-203",
+    "ACP-STDERR-001",
+    "ACP-INFO-PARSE-001",
+    "ACP-INFO-INVALIDREQ-001",
 }
 _ALL_IDS = _MANDATORY_IDS | _CAPABILITY_IDS | _ADVISORY_IDS | _INFORMATIONAL_IDS
 
@@ -170,6 +193,19 @@ _NOT_ADVERTISED_OR_EXERCISED_SKIP_IDS = {
     "ACP-PROMPTCAP-002",
     "ACP-PROMPTCAP-003",
     "ACP-PERM-201",
+    # Slice V2-6: any fixture that never opts into `_base.py`'s `_send_rich_turn_updates`
+    # (`emit_rich_turn_updates` defaults to `False`) never emits a tool_call_update/plan_update/
+    # terminal_update/terminal_output_chunk at all, and never asks for permission either -- so
+    # these all legitimately SKIP ("no <variant> observed") rather than PASS, exactly as they do
+    # for `conforming.py` itself (see `test_v2_conforming_agent_passes_everything` above).
+    "ACP-ENUM-201",
+    "ACP-ENUM-203",
+    "ACP-PATCH-204",
+    "ACP-PATCH-205",
+    "ACP-PATCH-206",
+    "ACP-PATCH-207",
+    "ACP-PATCH-208",
+    "ACP-PATCH-209",
 }
 
 # Slice V2-4: every pre-V2-4 fixture advertises only the bare `capabilities: {"session": {}}}`
@@ -232,6 +268,7 @@ def _run_cli(
     cancel_prompt: str | None = None,
     auth_method: str | None = None,
     allow_logout: bool = False,
+    close_grace: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     cmd = [sys.executable, "-m", "tck", "--timeout", timeout, "--startup-timeout", startup_timeout]
     if protocol_version is not None:
@@ -246,6 +283,8 @@ def _run_cli(
         cmd += ["--auth-method", auth_method]
     if allow_logout:
         cmd += ["--allow-logout"]
+    if close_grace is not None:
+        cmd += ["--close-grace", close_grace]
     cmd += ["--", sys.executable, str(fixture_dir / fixture)]
     return subprocess.run(cmd, capture_output=True, text=True, timeout=CLI_SUBPROCESS_TIMEOUT)
 
@@ -284,7 +323,18 @@ def test_v2_conforming_agent_passes_everything():
     `--auth-method`/`--allow-logout`, so `ACP-AUTH-203`/`204` (both need `authMethods` non-empty)
     and `ACP-AUTH-207` (needs a `type: "terminal"` entry to actually appear) all SKIP.
     `ACP-AUTH-201`/`202`/`205`/`206` PASS -- each holds vacuously true or is judged against the
-    absence of `authMethods`."""
+    absence of `authMethods`.
+
+    Slice V2-6: `conforming.py` never opts into `_send_rich_turn_updates` (`emit_rich_turn_
+    updates` defaults to `False`), so it never emits a tool_call_update/plan_update/terminal_
+    update/terminal_output_chunk at all -- `ACP-ENUM-201` (needs `tool_call_update.kind/.status`
+    or a plan entry `priority`/`status`), `ACP-PATCH-204/205/206/207` (tool call/plan/terminal
+    upsert-id checks), and `ACP-PATCH-208/209` (tool_call_update title/name stability, and the
+    permission requires_action/running bracketing -- `conforming.py` never asks for permission
+    either) all legitimately SKIP ("no <variant> observed"). `ACP-ENUM-203` also SKIPs for the
+    same "never asks for permission" reason. `ACP-PATCH-201/203` and `ACP-ENUM-202` PASS: the
+    ordinary message-chunk/state-update traffic every turn already emits is enough to exercise
+    them."""
     result = _run_cli(FIXTURES_DIR_V2, "conforming.py", protocol_version=2)
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -310,6 +360,14 @@ def test_v2_conforming_agent_passes_everything():
         "ACP-AUTH-203",
         "ACP-AUTH-204",
         "ACP-AUTH-207",
+        "ACP-ENUM-201",
+        "ACP-ENUM-203",
+        "ACP-PATCH-204",
+        "ACP-PATCH-205",
+        "ACP-PATCH-206",
+        "ACP-PATCH-207",
+        "ACP-PATCH-208",
+        "ACP-PATCH-209",
     } | _CANCEL_RACE_SKIP_IDS | _ALWAYS_SKIPPED_IDS
     for req_id, status in statuses.items():
         if req_id in expected_skips:
@@ -345,7 +403,15 @@ def test_v2_conforming_full_agent_passes_everything():
     this otherwise all-PASS fixture, exactly like any other CAPABILITY/ADVISORY-tier row gated on
     a marker or precondition the fixture doesn't meet. A SKIPped MANDATORY-tier id like
     `ACP-AUTH-207` does not affect `verdict.conformant` (only MANDATORY FAIL/NOT_TESTED and
-    CAPABILITY FAIL do), so the run is still CONFORMANT."""
+    CAPABILITY FAIL do), so the run is still CONFORMANT.
+
+    Slice V2-6: `conforming_full.py` opts into `_send_rich_turn_updates` (two message chunks
+    sharing one `messageId`, one tool_call create+patch sharing one `toolCallId`, one plan_update
+    with one `planId`), and `AsksPermissionAgent` still asks for permission every turn -- so
+    `ACP-PATCH-201/203/204/205/208/209` and `ACP-ENUM-201/202/203` all PASS. It never emits a
+    `terminal_update`/`terminal_output_chunk` though, so `ACP-PATCH-206/207` still legitimately
+    SKIP ("no terminal_update/terminal_output_chunk observed") -- exactly like
+    `test_patches.py`'s own module docstring notes for every fixture in this repo."""
     result = _run_cli(
         FIXTURES_DIR_V2,
         "conforming_full.py",
@@ -358,7 +424,12 @@ def test_v2_conforming_full_agent_passes_everything():
 
     statuses = _table_statuses(result.stdout)
     assert set(statuses) == _ALL_IDS, f"requirement table missing/extra ids: {result.stdout}"
-    expected_skips = _ALWAYS_SKIPPED_IDS | {"ACP-AUTH-207", "ACP-AUTH-205"}
+    expected_skips = _ALWAYS_SKIPPED_IDS | {
+        "ACP-AUTH-207",
+        "ACP-AUTH-205",
+        "ACP-PATCH-206",
+        "ACP-PATCH-207",
+    }
     for req_id, status in statuses.items():
         if req_id in expected_skips:
             assert status == "SKIPPED", f"{req_id} is {status}, expected SKIPPED:\n{result.stdout}"
@@ -372,7 +443,7 @@ def test_v2_conforming_full_agent_passes_everything():
 def test_v2_conforming_full_agent_without_allow_logout_only_skips_auth_203():
     """Acceptance criterion: the same `conforming_full.py --auth-method tck` run, but WITHOUT
     `--allow-logout`, must SKIP ONLY `ACP-AUTH-203` in addition to the baseline's own SKIPs
-    (`_ALWAYS_SKIPPED_IDS` plus `ACP-AUTH-207`/`ACP-AUTH-205`, per
+    (`_ALWAYS_SKIPPED_IDS` plus `ACP-AUTH-207`/`ACP-AUTH-205`/`ACP-PATCH-206`/`ACP-PATCH-207`, per
     `test_v2_conforming_full_agent_passes_everything` above) -- every other id keeps the exact
     same status. `ACP-AUTH-204` still PASSes here since `--auth-method tck` alone is enough to
     exercise `auth/login`; only `auth/logout` (`ACP-AUTH-203`) requires the separate
@@ -389,7 +460,13 @@ def test_v2_conforming_full_agent_without_allow_logout_only_skips_auth_203():
 
     statuses = _table_statuses(result.stdout)
     assert set(statuses) == _ALL_IDS, f"requirement table missing/extra ids: {result.stdout}"
-    expected_skips = _ALWAYS_SKIPPED_IDS | {"ACP-AUTH-207", "ACP-AUTH-205", "ACP-AUTH-203"}
+    expected_skips = _ALWAYS_SKIPPED_IDS | {
+        "ACP-AUTH-207",
+        "ACP-AUTH-205",
+        "ACP-AUTH-203",
+        "ACP-PATCH-206",
+        "ACP-PATCH-207",
+    }
     for req_id, status in statuses.items():
         if req_id in expected_skips:
             assert status == "SKIPPED", f"{req_id} is {status}, expected SKIPPED:\n{result.stdout}"
@@ -685,7 +762,10 @@ def test_vendor_stop_reason_passes_everything():
     """Positive control for the `_`-prefix open-enum extensibility rule. Predates V2-2b's
     content-capability/permission machinery, so `ACP-PROMPTCAP-001/002/003`/`ACP-PERM-201`
     legitimately SKIP (not advertised / not exercised) rather than PASS -- see
-    `_NOT_ADVERTISED_OR_EXERCISED_SKIP_IDS`. It also predates V2-3's cancellation machinery: every
+    `_NOT_ADVERTISED_OR_EXERCISED_SKIP_IDS` (which, per Slice V2-6, also covers the tool_call/
+    plan/terminal/permission-dependent PATCH-2xx/ENUM-201/203 ids this fixture never exercises,
+    since it never opts into `_send_rich_turn_updates`). It also predates V2-3's cancellation
+    machinery: every
     prompt (including the dedicated cancel-test prompt) resolves immediately with its own
     vendor-prefixed stop reason, so the terminating idle after `session/cancel` never says
     `"cancelled"` -- and a `_`-prefixed vendor value is not a recognised `StopReason` the TCK's
@@ -767,7 +847,11 @@ def test_no_idle_after_running_fails_every_run_prompt_dependent_id():
     V2-4b). Slice V2-4: `ACP-RESUME-202..205` also FAIL -- their own tests drive a
     `run_prompt` turn via `_session_with_history` to have something to (optionally) replay, and
     that turn also never resolves. `ACP-RESUME-201` is unaffected (no prompt turn needed), and
-    `ACP-CLOSE-202` FAILs alongside `ACP-CANCEL-208` since they share the same test."""
+    `ACP-CLOSE-202` FAILs alongside `ACP-CANCEL-208` since they share the same test. Slice
+    V2-6: `ACP-PATCH-209`'s own test function name happens to contain "permission" (it drives a
+    `run_prompt` turn expecting a permission request mid-turn), so this fixture's `-k` pattern
+    (already selecting `test_permission.py` for `ACP-PERM-201`) incidentally selects it too, and
+    it FAILs with the same `AgentTimeout` cascade as every other `run_prompt`-driven id here."""
     result = _run_cli(
         FIXTURES_DIR_V2,
         "no_idle_after_running.py",
@@ -808,6 +892,7 @@ def test_no_idle_after_running_fails_every_run_prompt_dependent_id():
         "ACP-TRANSPORT-201",
         "ACP-TRANSPORT-002",
         "ACP-TRANSPORT-203",
+        "ACP-PATCH-209",
     }, result.stdout
     assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
 
@@ -903,7 +988,8 @@ def test_update_wrong_session_fails_every_run_prompt_dependent_id():
     never recognizes a matching terminating idle either. Slice V2-4: also FAILs
     `ACP-RESUME-202..205` (their own tests drive a `run_prompt` turn via `_session_with_history`
     first, which never resolves either) and `ACP-CLOSE-202` (shares `ACP-CANCEL-208`'s exact
-    test)."""
+    test). Slice V2-6: `ACP-PATCH-209` also FAILs, for the same "permission" `-k` substring
+    incidence explained on `no_idle_after_running.py`'s test above."""
     result = _run_cli(
         FIXTURES_DIR_V2,
         "update_wrong_session.py",
@@ -944,6 +1030,7 @@ def test_update_wrong_session_fails_every_run_prompt_dependent_id():
         "ACP-TRANSPORT-201",
         "ACP-TRANSPORT-002",
         "ACP-TRANSPORT-203",
+        "ACP-PATCH-209",
     }, result.stdout
     assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
 
@@ -960,7 +1047,9 @@ def test_cancel_no_idle_fails_every_cancel_dependent_id():
     bound to the same test): `session/close` still rescues the hanging turn via
     `ConformingAgent`'s inherited default handler, so they PASS. Slice V2-4: also FAILs
     `ACP-RESUME-202..205` (their own tests drive a `run_prompt` turn via `_session_with_history`
-    first, which never resolves either since this fixture hangs on *every* prompt)."""
+    first, which never resolves either since this fixture hangs on *every* prompt). Slice V2-6:
+    `ACP-PATCH-209` also FAILs, for the same "permission" `-k` substring incidence explained on
+    `no_idle_after_running.py`'s test above."""
     result = _run_cli(
         FIXTURES_DIR_V2,
         "cancel_no_idle.py",
@@ -999,6 +1088,7 @@ def test_cancel_no_idle_fails_every_cancel_dependent_id():
         "ACP-RESUME-204",
         "ACP-RESUME-205",
         "ACP-INFO-CANCEL-202",
+        "ACP-PATCH-209",
     }, result.stdout
     assert statuses.get("ACP-CANCEL-208") == "PASS", result.stdout
     assert statuses.get("ACP-CLOSE-202") == "PASS", result.stdout
@@ -1348,7 +1438,24 @@ def test_v2_emits_batch_updates_passes_everything():
 
     statuses = _table_statuses(result.stdout)
     assert set(statuses) == _ALL_IDS, f"requirement table missing/extra ids: {result.stdout}"
-    expected_skips = _ALWAYS_SKIPPED_IDS | _SESSION_MGMT_EXTRAS_SKIP_IDS | _NO_AUTH_SKIP_IDS
+    # Slice V2-6: this fixture never opts into `_send_rich_turn_updates` either, so the
+    # tool_call/plan/terminal-dependent ids legitimately SKIP as they do for `conforming.py`/
+    # `vendor_stop_reason.py`/`idle_before_running.py` above. Unlike those three, though, this
+    # fixture is built on `AsksPermissionAgent` (it asks for permission mid-turn, same as
+    # `conforming_full.py`), so the permission-dependent `ACP-ENUM-203`/`ACP-PATCH-209` PASS
+    # here rather than SKIP -- only `ACP-PATCH-208` (needs a *tool_call_update*, not a
+    # permission request) still SKIPs.
+    _RICH_TURN_SKIP_IDS = {
+        "ACP-ENUM-201",
+        "ACP-PATCH-204",
+        "ACP-PATCH-205",
+        "ACP-PATCH-206",
+        "ACP-PATCH-207",
+        "ACP-PATCH-208",
+    }
+    expected_skips = (
+        _ALWAYS_SKIPPED_IDS | _SESSION_MGMT_EXTRAS_SKIP_IDS | _NO_AUTH_SKIP_IDS | _RICH_TURN_SKIP_IDS
+    )
     for req_id, status in statuses.items():
         if req_id in expected_skips:
             assert status == "SKIPPED", f"{req_id} is {status}, expected SKIPPED:\n{result.stdout}"
@@ -1652,6 +1759,157 @@ def test_terminal_env_duplicate_names_fails_auth_207_only():
     assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
 
 
+# --- V2-6: patch/upsert semantics, open enums, extensibility/hygiene -- defect fixtures ---
+
+
+def test_tool_call_update_missing_id_fails_patch_204_and_schema_001():
+    """`tool_call_update_missing_id.py` emits one `tool_call_update` with no `toolCallId` --
+    FAILs `ACP-PATCH-204` directly, and cascades into `ACP-SCHEMA-001` since `ToolCallUpdate`
+    schema-requires `toolCallId` (`schema/v2/schema.json`'s `$defs/ToolCallUpdate`)."""
+    result = _run_cli(
+        FIXTURES_DIR_V2, "tool_call_update_missing_id.py", protocol_version=2, k="test_patches or initialize"
+    )
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-PATCH-204", "ACP-SCHEMA-001"}, result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_plan_missing_plan_id_fails_patch_205_and_schema_001():
+    """`plan_missing_plan_id.py` emits one `plan_update` whose `plan` object has no `planId` --
+    FAILs `ACP-PATCH-205` directly, and cascades into `ACP-SCHEMA-001` since `PlanItems`
+    schema-requires `planId` (`schema/v2/schema.json`'s `$defs/PlanItems`)."""
+    result = _run_cli(
+        FIXTURES_DIR_V2, "plan_missing_plan_id.py", protocol_version=2, k="test_patches or initialize"
+    )
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-PATCH-205", "ACP-SCHEMA-001"}, result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_message_chunk_missing_message_id_fails_patch_201_and_schema_001():
+    """`message_chunk_missing_message_id.py` emits one `agent_message_chunk` with no
+    `messageId` -- FAILs `ACP-PATCH-201` directly, and cascades into `ACP-SCHEMA-001` since
+    `ContentChunk` schema-requires `messageId` (`schema/v2/schema.json`'s `$defs/ContentChunk`)."""
+    result = _run_cli(
+        FIXTURES_DIR_V2,
+        "message_chunk_missing_message_id.py",
+        protocol_version=2,
+        k="test_patches or initialize",
+    )
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-PATCH-201", "ACP-SCHEMA-001"}, result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_unprefixed_custom_session_update_fails_enum_202_only():
+    """`unprefixed_custom_session_update.py` sends one `session/update` with
+    `sessionUpdate: "surprise"` (neither a defined constant nor `_`-prefixed) -- FAILs
+    `ACP-ENUM-202` only. The `SessionUpdate` `$def`'s own `"other"`-titled fallback branch only
+    requires `sessionUpdate` to be a string, so this does NOT cascade into `ACP-SCHEMA-001`."""
+    result = _run_cli(
+        FIXTURES_DIR_V2, "unprefixed_custom_session_update.py", protocol_version=2, k="test_enums"
+    )
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-ENUM-202"}, result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_prefixed_custom_session_update_passes_enum_202():
+    """Positive control for the rule above: `_tck_custom_update` is `_`-prefixed, so
+    `ACP-ENUM-202` PASSes."""
+    result = _run_cli(
+        FIXTURES_DIR_V2, "prefixed_custom_session_update.py", protocol_version=2, k="test_enums"
+    )
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == set(), result.stdout
+    assert statuses.get("ACP-ENUM-202") == "PASS", result.stdout
+
+
+def test_custom_method_no_response_fails_ext_001_only():
+    """`custom_method_no_response.py` silently swallows every `_`-prefixed custom method
+    request instead of responding at all -- FAILs `ACP-EXT-001` (MANDATORY) only."""
+    result = _run_cli(
+        FIXTURES_DIR_V2, "custom_method_no_response.py", protocol_version=2, k="test_extensibility"
+    )
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-EXT-001"}, result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_error_message_with_newline_fails_error_001_only():
+    """`error_message_with_newline.py` appends an embedded newline to the `-32601` error
+    message only -- FAILs `ACP-ERROR-001` (ADVISORY) only."""
+    result = _run_cli(
+        FIXTURES_DIR_V2, "error_message_with_newline.py", protocol_version=2, k="test_diagnostics"
+    )
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-ERROR-001"}, result.stdout
+
+
+def test_never_exits_on_stdin_close_fails_shutdown_001_only():
+    """`never_exits_on_stdin_close.py` needs SIGTERM/SIGKILL to actually terminate -- FAILs
+    `ACP-SHUTDOWN-001` (ADVISORY) only. `--close-grace` is kept small so this self-test doesn't
+    pay the default grace period at every rung of the shutdown ladder."""
+    result = _run_cli(
+        FIXTURES_DIR_V2,
+        "never_exits_on_stdin_close.py",
+        protocol_version=2,
+        k="test_diagnostics",
+        close_grace="0.2",
+    )
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-SHUTDOWN-001"}, result.stdout
+
+
+def test_unknown_root_key_fails_schema_002_only():
+    """`unknown_root_key.py` adds `unknownRootKey` to the `initialize` result's root -- FAILs
+    `ACP-SCHEMA-002` (ADVISORY) only; the vendored schema itself never sets
+    `additionalProperties: false`, so this is not caught by `ACP-SCHEMA-001`/`ACP-INIT-001`."""
+    result = _run_cli(
+        FIXTURES_DIR_V2, "unknown_root_key.py", protocol_version=2, k="test_extensibility or initialize"
+    )
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-SCHEMA-002"}, result.stdout
+
+
+def test_noisy_stderr_and_parse_error_reply_fails_nothing():
+    """`noisy_stderr_and_parse_error_reply.py` logs every raw line to stderr and replies with an
+    explicit `-32700` to malformed JSON instead of staying silent -- self-test only, exercising
+    the non-default branches of `ACP-STDERR-001`/`ACP-INFO-PARSE-001` (both INFORMATIONAL,
+    never asserted on the probed behaviour itself, so this fixture FAILs nothing)."""
+    result = _run_cli(FIXTURES_DIR_V2, "noisy_stderr_and_parse_error_reply.py", protocol_version=2)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == set(), result.stdout
+    assert statuses.get("ACP-STDERR-001") == "PASS", result.stdout
+    assert statuses.get("ACP-INFO-PARSE-001") == "PASS", result.stdout
+
+
 # --- version mismatch: a v1 agent run under --protocol-version 2 ---
 
 # The negotiation rows (`ACP-INIT-001`/`003`/`201`/`202`) assert only on the negotiation
@@ -1681,12 +1939,41 @@ def test_terminal_env_duplicate_names_fails_auth_207_only():
 # produces zero FAILs, exactly the five JSONRPC ids PASS, and every other new id (all of
 # `ACP-TRANSPORT-*`/`ACP-BATCH-*`/`ACP-INFO-BATCH-*`) SKIPs with `VERSION-MISMATCH:`.
 _NEGOTIATION_IDS = {"ACP-INIT-001", "ACP-INIT-003", "ACP-INIT-201", "ACP-INIT-202"}
+# Slice V2-6: ACP-EXT-001/201/203 probe an ordinary `_`-/`$/`-prefixed custom method or
+# notification exchange -- they never inspect `initialize`'s negotiated version or its
+# `capabilities` shape at all, so they PASS regardless of which protocolVersion was negotiated.
+# ACP-EXT-202 is NOT included here: it reads `result.capabilities` (the v2 field name) directly,
+# which a v1-negotiated result simply doesn't have (v1 uses `agentCapabilities` instead), so it
+# correctly `pytest.skip("initialize result has no capabilities object to check")`s on its own --
+# a genuine skip, not the VERSION-MISMATCH marker, but still a skip either way (see
+# `test_extensibility.py`'s module docstring for the full breakdown).
 _VERSION_TOLERANT_IDS = _NEGOTIATION_IDS | {
     "ACP-JSONRPC-001",
     "ACP-JSONRPC-002",
     "ACP-JSONRPC-003",
     "ACP-JSONRPC-004",
     "ACP-JSONRPC-005",
+    "ACP-EXT-001",
+    "ACP-EXT-201",
+    "ACP-EXT-203",
+    # ACP-INFO-PARSE-001/ACP-INFO-INVALIDREQ-001 (re-cited from v1, unchanged) carry no
+    # `@pytest.mark.capability(...)` marker at all (test_informational.py's module docstring),
+    # and their shared `_probe_connection_usable_after` helper swallows a `session/new` failure
+    # -- including a version-mismatched/capability-unsupporting one -- into an "unusable"
+    # behaviour string rather than letting it propagate, then only ever `record_property(...)`s
+    # it, never asserts. So both PASS unconditionally, the same as the five JSONRPC ids above.
+    "ACP-INFO-PARSE-001",
+    "ACP-INFO-INVALIDREQ-001",
+    # ACP-STDERR-001 (re-cited from v1, unchanged): also connection-level/no capability marker,
+    # and its own `new_session(...)` call succeeds even against a v1-negotiated agent -- v1's
+    # `conforming.py` implements `session/new` unconditionally at the wire level, with no
+    # capability check of its own -- so this always PASSes regardless of negotiated version too.
+    "ACP-STDERR-001",
+    # ACP-ERROR-001/ACP-SHUTDOWN-001 (re-cited from v1, unchanged, `test_diagnostics.py`): same
+    # story -- connection-level, no capability marker, and their own `session/new` (missing
+    # `cwd`, or ordinary) calls succeed at the wire level against a v1-negotiated agent too.
+    "ACP-ERROR-001",
+    "ACP-SHUTDOWN-001",
 }
 _VERSION_MISMATCH_SKIP_IDS = (
     _MANDATORY_IDS | _CAPABILITY_IDS | _ADVISORY_IDS | _INFORMATIONAL_IDS
@@ -1737,6 +2024,15 @@ def test_v1_conforming_agent_under_protocol_version_2_is_blocked_by_version_mism
             # ACP-CANCEL-204/ACP-BATCH-206..208 are unconditional record-only SKIPs (MAY,
             # never exercised regardless of version) -- they SKIP here for that reason, not
             # because of the version mismatch, so they carry no VERSION-MISMATCH: marker.
+            continue
+        if r["id"] == "ACP-EXT-202":
+            # ACP-EXT-202 carries no `@pytest.mark.capability(...)` marker either (it reads
+            # `result.capabilities` -- the v2 field name -- directly, rather than going through
+            # the autouse capability gate), so it never produces the VERSION-MISMATCH: marker
+            # text; it still genuinely SKIPs here, just via its own plain
+            # `pytest.skip("initialize result has no capabilities object to check")`, since a
+            # v1-negotiated result has no `capabilities` key at all (v1 uses `agentCapabilities`
+            # instead) -- see `test_extensibility.py`'s module docstring.
             continue
         assert any("VERSION-MISMATCH:" in t["message"] for t in r["tests"]), r["tests"]
 

@@ -73,6 +73,20 @@ Slice V2-4 adds session management (`.agents/research/acp-v2-session-management.
   every other key, so both are already "accepted" in the sense `ACP-ADDDIRS-201/202`/
   `ACP-MCP-201/202` check (never rejected) -- there is nothing to actively support beyond not
   erroring.
+
+Slice V2-6 adds one opt-in hook, `_send_rich_turn_updates` (constructor flag
+`emit_rich_turn_updates`, default `False` so every earlier fixture is unaffected), fired once per
+turn right after the running update: a two-chunk `agent_message_chunk` pair sharing one
+`messageId` (`ACP-PATCH-201`), a `tool_call_update` create (with `title`/`kind`, `ACP-PATCH-208`)
+followed by a second `tool_call_update` patch carrying `content` for the same `toolCallId`
+(`ACP-PATCH-204`), and a `plan_update` with one entry (`ACP-PATCH-205`) -- so `conforming_full.py`
+(the only fixture that sets the flag) gives every new PATCH/ENUM row in
+`.agents/research/acp-v2-patches-enums-extensibility.md` something to observe instead of
+vacuously SKIPping "no <variant> observed". `AsksPermissionAgent` additionally brackets its
+`session/request_permission` with a `state_update {state: "requires_action"}` before sending it
+and `state_update {state: "running"}` once the answer resumes the turn, so `ACP-PATCH-209`
+(requires_action/running reporting around a permission block) has something to observe too --
+no-op for every fixture that never asks for permission at all.
 """
 
 from __future__ import annotations
@@ -115,9 +129,13 @@ class ConformingAgent:
         config_options: list[dict[str, Any]] | None = None,
         auth_methods: list[dict[str, Any]] | None = None,
         require_auth: bool = False,
+        emit_rich_turn_updates: bool = False,
     ) -> None:
         self._session_count = 0
         self._message_count = 0
+        self._tool_call_count = 0
+        self._plan_count = 0
+        self._emit_rich_turn_updates = emit_rich_turn_updates
         self._capabilities = capabilities if capabilities is not None else {}
         self._agent_name = agent_name
         self._sessions: dict[str, str] = {}  # sessionId -> cwd
@@ -369,6 +387,7 @@ class ConformingAgent:
         self._reply_to_prompt(msg_id, message_id)
         self._send_user_message_update(session_id, message_id, prompt)
         self._send_running_update(session_id)
+        self._send_rich_turn_updates(session_id)
         if self._is_hang_prompt(prompt):
             # Slice V2-3's cancel sentinel: withhold the terminating idle until `session/cancel`
             # (or `session/close`) actually arrives for this session -- see `_handle_cancel`/
@@ -387,6 +406,72 @@ class ConformingAgent:
         return any(
             isinstance(block, dict) and block.get("type") == "text" and block.get("text") == "__hang__"
             for block in prompt
+        )
+
+    def _send_rich_turn_updates(self, session_id: Any) -> None:
+        """Slice V2-6: opt-in (`emit_rich_turn_updates=True`) emission of a two-chunk agent
+        message, a tool_call create + follow-up patch, and a plan update -- so the ACP-PATCH-2xx/
+        ACP-ENUM-2xx rows have something real to scan instead of vacuously SKIPping. No-op
+        (default) for every fixture that doesn't opt in."""
+        if not self._emit_rich_turn_updates:
+            return
+        self._message_count += 1
+        chunk_message_id = f"msg-{self._message_count:04d}"
+        self._send_update(
+            session_id,
+            {
+                "sessionUpdate": "agent_message_chunk",
+                "messageId": chunk_message_id,
+                "content": {"type": "text", "text": "Let me "},
+            },
+        )
+        self._send_update(
+            session_id,
+            {
+                "sessionUpdate": "agent_message_chunk",
+                "messageId": chunk_message_id,
+                "content": {"type": "text", "text": "check that."},
+            },
+        )
+        self._tool_call_count += 1
+        tool_call_id = f"tool-{self._tool_call_count:04d}"
+        self._send_update(
+            session_id,
+            {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": tool_call_id,
+                "title": "Reading a file",
+                "kind": "read",
+                "status": "in_progress",
+            },
+        )
+        self._send_update(
+            session_id,
+            {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": tool_call_id,
+                "status": "completed",
+                "content": [{"type": "content", "content": {"type": "text", "text": "done"}}],
+            },
+        )
+        self._plan_count += 1
+        plan_id = f"plan-{self._plan_count:04d}"
+        self._send_update(
+            session_id,
+            {
+                "sessionUpdate": "plan_update",
+                "plan": {
+                    "type": "items",
+                    "planId": plan_id,
+                    "entries": [
+                        {
+                            "content": "Check the file",
+                            "priority": "medium",
+                            "status": "completed",
+                        }
+                    ],
+                },
+            },
         )
 
     def _prompt_rejection(self, prompt: list[Any]) -> tuple[int, str] | None:
@@ -512,6 +597,8 @@ class AsksPermissionAgent(ConformingAgent):
         self._perm_counter += 1
         perm_id = f"perm-{self._perm_counter}"
         self._pending_permission = {"perm_id": perm_id, "session_id": session_id}
+        # ACP-PATCH-209: report `requires_action` while blocked on the client's answer.
+        self._send_update(session_id, {"sessionUpdate": "state_update", "state": "requires_action"})
         self._write(
             {
                 "jsonrpc": "2.0",
@@ -537,6 +624,8 @@ class AsksPermissionAgent(ConformingAgent):
         result = message.get("result") or {}
         outcome = (result.get("outcome") or {}).get("outcome")
         stop_reason = "cancelled" if outcome == "cancelled" else "end_turn"
+        # ACP-PATCH-209: report `running` again once the block is resolved.
+        self._send_update(pending["session_id"], {"sessionUpdate": "state_update", "state": "running"})
         self._finish_turn(pending["session_id"], stop_reason)
 
 
