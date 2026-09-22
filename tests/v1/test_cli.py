@@ -939,7 +939,8 @@ def test_noisy_stderr_and_parse_error_reply_agent_informational_notes():
     assert "stderr byte(s)" in result.stdout, result.stdout
     for line in result.stdout.splitlines():
         if "ACP-STDERR-001" in line:
-            assert "0 stderr byte(s)" not in line, result.stdout
+            match = re.search(r"(\d+) stderr byte\(s\)", line)
+            assert match and int(match.group(1)) > 0, result.stdout
 
 
 def test_report_json_for_exits_immediately_has_no_crash_and_all_mandatory_fail_or_not_tested(
