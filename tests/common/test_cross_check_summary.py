@@ -140,3 +140,135 @@ def test_main_without_the_flag_still_exits_zero_regardless_of_fails(tmp_path: Pa
 
     exit_code = ccs.main(["cross-check-summary.py", str(left), "left", str(right), "right"])
     assert exit_code == 0
+
+
+def test_parse_expect_splits_label_and_id_set():
+    label, ids = ccs._parse_expect("python_v2_agent=ACP-BATCH-201,ACP-BATCH-202")
+    assert label == "python_v2_agent"
+    assert ids == {"ACP-BATCH-201", "ACP-BATCH-202"}
+
+
+def test_parse_expect_empty_ids_means_zero_expected_fails():
+    label, ids = ccs._parse_expect("testy_v2=")
+    assert label == "testy_v2"
+    assert ids == set()
+
+
+def test_parse_expect_rejects_missing_equals():
+    with pytest.raises(Exception):
+        ccs._parse_expect("no-equals-sign")
+
+
+def test_main_accepts_extra_reports_via_report_flag(tmp_path: Path, capsys):
+    left = tmp_path / "left.json"
+    right = tmp_path / "right.json"
+    extra = tmp_path / "extra.json"
+    left.write_text(json.dumps(_report([_req("ACP-INIT-003", "MANDATORY", "FAIL")])))
+    right.write_text(json.dumps(_report([_req("ACP-INIT-003", "MANDATORY", "FAIL")])))
+    extra.write_text(json.dumps(_report([_req("ACP-BATCH-201", "MANDATORY", "FAIL")])))
+
+    exit_code = ccs.main(
+        [
+            "cross-check-summary.py",
+            str(left),
+            "left",
+            str(right),
+            "right",
+            "--report",
+            str(extra),
+            "extra",
+        ]
+    )
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "extra" in out
+    assert "ACP-BATCH-201" in out
+
+
+def test_main_per_report_expect_overrides_the_global_default(tmp_path: Path, capsys):
+    left = tmp_path / "left.json"
+    right = tmp_path / "right.json"
+    extra = tmp_path / "extra.json"
+    left.write_text(json.dumps(_report([_req("ACP-INIT-003", "MANDATORY", "FAIL")])))
+    right.write_text(json.dumps(_report([_req("ACP-INIT-003", "MANDATORY", "FAIL")])))
+    extra.write_text(json.dumps(_report([_req("ACP-BATCH-201", "MANDATORY", "FAIL")])))
+
+    exit_code = ccs.main(
+        [
+            "cross-check-summary.py",
+            str(left),
+            "left",
+            str(right),
+            "right",
+            "--report",
+            str(extra),
+            "extra",
+            "--expect-only-mandatory-fail",
+            "ACP-INIT-003",
+            "--expect",
+            "extra=ACP-BATCH-201",
+        ]
+    )
+    assert exit_code == 0
+
+
+def test_main_per_report_expect_still_flags_a_genuine_deviation(tmp_path: Path, capsys):
+    left = tmp_path / "left.json"
+    right = tmp_path / "right.json"
+    extra = tmp_path / "extra.json"
+    left.write_text(json.dumps(_report([_req("ACP-INIT-003", "MANDATORY", "FAIL")])))
+    right.write_text(json.dumps(_report([_req("ACP-INIT-003", "MANDATORY", "FAIL")])))
+    # "extra" fails something the --expect override doesn't mention -- must still be caught.
+    extra.write_text(
+        json.dumps(
+            _report(
+                [
+                    _req("ACP-BATCH-201", "MANDATORY", "FAIL"),
+                    _req("ACP-SESSION-001", "MANDATORY", "FAIL"),
+                ]
+            )
+        )
+    )
+
+    exit_code = ccs.main(
+        [
+            "cross-check-summary.py",
+            str(left),
+            "left",
+            str(right),
+            "right",
+            "--report",
+            str(extra),
+            "extra",
+            "--expect-only-mandatory-fail",
+            "ACP-INIT-003",
+            "--expect",
+            "extra=ACP-BATCH-201",
+        ]
+    )
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "extra" in err and "ACP-SESSION-001" in err
+
+
+def test_main_expect_without_the_mandatory_fail_flag_still_checks_named_reports(tmp_path: Path):
+    left = tmp_path / "left.json"
+    right = tmp_path / "right.json"
+    left.write_text(json.dumps(_report([_req("ACP-INIT-003", "MANDATORY", "FAIL")])))
+    right.write_text(json.dumps(_report([])))
+
+    # No --expect-only-mandatory-fail at all, but "right" gets an explicit --expect: it should
+    # still be checked (and pass, since it has no MANDATORY FAILs), while "left" -- which has a
+    # real MANDATORY FAIL and no override -- is simply not checked at all.
+    exit_code = ccs.main(
+        [
+            "cross-check-summary.py",
+            str(left),
+            "left",
+            str(right),
+            "right",
+            "--expect",
+            "right=",
+        ]
+    )
+    assert exit_code == 0

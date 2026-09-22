@@ -161,12 +161,20 @@ spec is silent or reference agents disagree.
 
 ## Cross-checking against upstream agents
 
-`scripts/cross-check.sh` runs this TCK against two independently implemented agents -- the Rust
-SDK's `testy` fixture and the Python SDK's `examples/echo_agent.py` -- as a sanity check that the
-TCK's own plumbing isn't systematically wrong. It needs a Rust toolchain and local checkouts of
-both SDKs, so it's a manual/CI step rather than part of `uv run pytest`; see `AGENTS.md`
-"Cross-checking against upstream agents" for prerequisites and usage, and `docs/cross-check.md`
-for the latest result table with explanations of every non-`PASS`.
+`scripts/cross-check.sh` runs this TCK against independently implemented agents as a sanity check
+that the TCK's own plumbing isn't systematically wrong -- for v1, the Rust SDK's `testy` fixture
+and the Python SDK's `examples/echo_agent.py`; for v2, `testy` again (built with its
+`unstable_protocol_v2` feature) and a small, repo-authored v2 agent
+(`scripts/cross-check/python_v2_agent.py`) built on the Python SDK's `acp.experimental.v2`
+runtime, since no upstream v2 example agent exists yet. It needs a Rust toolchain and local
+checkouts of both SDKs, so it's a manual/CI step rather than part of `uv run pytest`; see
+`AGENTS.md` "Cross-checking against upstream agents" for prerequisites and usage (including the
+`ACP_CROSS_CHECK_V2` switch to skip the v2 legs), and `docs/cross-check.md` for the latest result
+tables with explanations of every non-`PASS`. Known baseline: `testy`/`echo_agent` (v1) each FAIL
+only the deliberately strengthened `ACP-INIT-003`; `testy`'s native v2 agent is fully conformant;
+the Python v2 reference agent FAILs five MANDATORY ids due to the upstream Python SDK's v2
+runtime having no JSON-RPC batch support and rejecting any non-`2` `protocolVersion` outright --
+both genuine upstream limitations, not TCK bugs.
 
 ## Contributing
 

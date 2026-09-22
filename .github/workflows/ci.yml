@@ -8,8 +8,9 @@ on:
 
 env:
   # Pinned per docs/cross-check.md "Latest run" -- update both together when re-vendoring.
-  RUST_SDK_SHA: 8bc6275a3d6b5accf102718d715017bfbb918c5c
-  PYTHON_SDK_SHA: d92b9683346c9e109895503878315e06d3eedb99
+  # Must be new enough for rust-sdk's `unstable_protocol_v2` cargo feature (the v2 leg).
+  RUST_SDK_SHA: 28688b2d97a81975ff875180c3a3e46e6cad0161
+  PYTHON_SDK_SHA: 9d07d7871ef4b220b8507e15fc4b1560f0950a64
 
 jobs:
   test:
@@ -37,9 +38,11 @@ jobs:
     name: cross-check (informational)
     needs: test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     # Informational only: independently-implemented upstream agents are expected to FAIL
-    # ACP-INIT-003 (see docs/cross-check.md) -- a red exit here does not mean the TCK broke.
+    # ACP-INIT-003 on v1 (see docs/cross-check.md) and a documented v2 baseline (Python's
+    # zero-batch-support crash plus its native strict-version-rejection, none of it a TCK bug)
+    # -- a red exit here does not mean the TCK broke.
     continue-on-error: true
     steps:
       - name: Checkout acp-tck
@@ -89,12 +92,16 @@ jobs:
           OUT_DIR: cross-check
         run: ./scripts/cross-check.sh
 
-      - name: Check expected scorecard (only ACP-INIT-003 MANDATORY FAIL)
+      - name: Check expected scorecard (v1 + v2 baselines, see docs/cross-check.md)
         run: |
           uv run python3 scripts/cross-check-summary.py \
             cross-check/testy.json testy \
             cross-check/echo_agent.json echo_agent \
-            --expect-only-mandatory-fail ACP-INIT-003
+            --report cross-check/testy-v2.json testy_v2 \
+            --report cross-check/python-v2.json python_v2_agent \
+            --expect-only-mandatory-fail ACP-INIT-003 \
+            --expect "testy_v2=" \
+            --expect "python_v2_agent=ACP-BATCH-201,ACP-BATCH-202,ACP-INIT-003,ACP-INIT-201,ACP-INIT-202"
 
       - name: Upload cross-check reports
         if: always()

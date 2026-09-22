@@ -1659,26 +1659,34 @@ hook.
 - **`cross-check`** -- `needs: test`, `continue-on-error: true` (informational only). Clones
   `rust-sdk`/`python-sdk` as sibling checkouts pinned to the SHAs recorded in
   `docs/cross-check.md`, builds `testy` with `Swatinem/rust-cache` caching cargo, runs
-  `scripts/cross-check.sh`, uploads the two `--report-json` reports as an artifact, then runs
-  `scripts/cross-check-summary.py --expect-only-mandatory-fail ACP-INIT-003` to assert the
-  scorecard hasn't drifted from the documented baseline (both upstream agents are expected to
-  FAIL only `ACP-INIT-003`, per "Cross-checking against upstream agents" below). Its own
-  exit code does not fail the workflow -- read the uploaded reports and the summary step's
-  output when it goes red.
+  `scripts/cross-check.sh` (v1 legs plus, since slice V2-7, the two v2 legs -- `testy` built
+  with the `unstable_protocol_v2` feature into an isolated `--target-dir`, and the
+  repo-authored `scripts/cross-check/python_v2_agent.py` against the Python SDK's
+  `acp.experimental.v2` runtime), uploads all four `--report-json` reports as one artifact,
+  then runs `scripts/cross-check-summary.py` with `--expect-only-mandatory-fail ACP-INIT-003`
+  (the v1 baseline) plus two `--expect LABEL=ID,...` overrides for the v2 legs to assert
+  neither scorecard has drifted from the documented baseline in `docs/cross-check.md` (v1: both
+  upstream agents FAIL only `ACP-INIT-003`; v2: `testy_v2` is fully clean, `python_v2_agent`
+  FAILs exactly its documented five ids -- see "Cross-checking against upstream agents" below).
+  Its own exit code does not fail the workflow -- read the uploaded reports and the summary
+  step's output when it goes red.
 
 ## Cross-checking against upstream agents
 
-`scripts/cross-check.sh` runs the packaged conformance suite against two independently
-implemented agents -- the Rust SDK's `testy` fixture and the Python SDK's
-`examples/echo_agent.py` -- to sanity-check the TCK's own plumbing (framing, id correlation,
-schema wiring, timeouts) against implementations this repo did not write. It is **not** part of
-`uv run pytest`: it needs a Rust toolchain and local checkouts of both SDKs, so it is a manual/CI
-step, run on demand. Pinned to ACP v1 for now; it stays that way until v2 reference SDKs exist to
-cross-check against.
+`scripts/cross-check.sh` runs the packaged conformance suite against independently implemented
+agents to sanity-check the TCK's own plumbing (framing, id correlation, schema wiring, timeouts)
+against implementations this repo did not write -- for v1, the Rust SDK's `testy` fixture and
+the Python SDK's `examples/echo_agent.py`; for v2 (added in slice V2-7), `testy` again (built
+with the `unstable_protocol_v2` feature, routing to its native v2 agent) and a small,
+repo-authored v2 agent, `scripts/cross-check/python_v2_agent.py`, built on the Python SDK's
+`acp.experimental.v2` runtime -- there is no upstream v2 example agent yet (see
+`.agents/research/reference-sdks-v2-status.md`). It is **not** part of `uv run pytest`: it needs
+a Rust toolchain and local checkouts of both SDKs, so it is a manual/CI step, run on demand.
 
 **Prerequisites:**
 
-- A Rust toolchain (`cargo`, `rustc >= 1.88`) on `PATH`.
+- A Rust toolchain (`cargo`, `rustc >= 1.88`) on `PATH`, new enough for the rust-sdk revision's
+  `unstable_protocol_v2` cargo feature if the v2 legs are enabled (the default).
 - Local checkouts of `agentclientprotocol/rust-sdk` and `agentclientprotocol/python-sdk` --
   by default the paths recorded in `.agents/skills/check-rust-sdk/.repo` and
   `.agents/skills/check-python-sdk/.repo`; override with the `ACP_RUST_SDK` / `ACP_PYTHON_SDK`
@@ -1691,8 +1699,13 @@ cross-check against.
 scripts/cross-check.sh
 ```
 
-`OUT_DIR` (default `scratch/cross-check/`, gitignored) controls where the two
-`--report-json` reports land. The script:
+Set `ACP_CROSS_CHECK_V2=0` to skip both v2 legs and run only the v1 comparison (e.g. if the
+local Rust toolchain lacks the `unstable_protocol_v2` feature, or to keep a quick v1-only smoke
+run).
+
+`OUT_DIR` (default `scratch/cross-check/`, gitignored) controls where the `--report-json`
+reports land (`testy.json`/`echo_agent.json` for v1, `testy-v2.json`/`python-v2.json` for v2).
+The script:
 
 1. builds `testy` with `cargo build -p agent-client-protocol-test --bin testy
    --no-default-features` (strict-v1 build; the default `unstable` feature adds a non-v1
@@ -1707,18 +1720,40 @@ scripts/cross-check.sh
    unpinned PEP 723 header would otherwise resolve the latest *stable* release, which has a
    known prompt-deserialization bug (fixed on `main`/`1.0.0rc1`; see
    `.agents/research/testy-cross-check.md` §3.3);
-4. prints a compact per-requirement comparison table (via `scripts/cross-check-summary.py`,
-   stdlib only) plus both verdict lines and exit codes.
+4. (v2, unless `ACP_CROSS_CHECK_V2=0`) builds `testy` again with `--no-default-features
+   --features unstable_protocol_v2`, into an **isolated** `--target-dir` (`$OUT_DIR/target-v2`)
+   rather than the checkout's own `target/` -- reusing the v1 leg's binary/directory for a
+   dual-feature build was tried and found to silently change the v1 leg's own `ACP-INIT-003`
+   result (see `docs/cross-check.md` "Why the v2 Rust build uses a separate `--target-dir`" for
+   the full explanation), so the two builds are kept fully separate;
+5. (v2) runs `acp-tck --protocol-version 2 --cancel-prompt wait_for_cancel --report-json
+   "$OUT_DIR/testy-v2.json" -- <the v2 testy binary>`, then the same against
+   `uv run --no-project --with 'agent-client-protocol==1.0.0rc2' python
+   scripts/cross-check/python_v2_agent.py`;
+6. prints a compact per-requirement comparison table (via `scripts/cross-check-summary.py`,
+   stdlib only, extended in slice V2-7 to accept more than two `--report PATH LABEL` pairs and
+   per-report `--expect LABEL=ID,...` overrides) plus every agent's verdict line and exit code.
 
-The script itself always exits `0` if it ran to completion -- the two agents' own verdicts are
-data to read, not the script's success/failure. **Expected result** (see `docs/cross-check.md`
-for the full table, explanations, and date of the last run): both agents are NOT CONFORMANT,
-solely because of the deliberately strengthened `ACP-INIT-003` (both echo the client's
-unsupported requested version verbatim) and the ADVISORY `ACP-INIT-004` (neither sets
-`agentInfo`); `echo_agent`'s cancel tests are permanently SKIPPED (it has no cancellation
-handling at all). Any *other* deviation from that baseline is worth investigating -- it means
-either a TCK bug or a genuine, newly-observed upstream behaviour; `docs/cross-check.md` is where
-that investigation is recorded.
+The script itself always exits `0` if it ran to completion -- every agent's own verdict is data
+to read, not the script's success/failure. **Expected result** (see `docs/cross-check.md` for
+the full tables, explanations, and date of the last run):
+
+- v1: both `testy` and `echo_agent` are NOT CONFORMANT, solely because of the deliberately
+  strengthened `ACP-INIT-003` (both echo the client's unsupported requested version verbatim)
+  and the ADVISORY `ACP-INIT-004` (neither sets `agentInfo`); `echo_agent`'s cancel tests are
+  permanently SKIPPED (it has no cancellation handling at all).
+- v2: `testy_v2` (native Rust v2 agent) is fully **CONFORMANT** -- zero FAILs. `python_v2_agent`
+  is NOT CONFORMANT, FAILing exactly `ACP-BATCH-201`/`ACP-BATCH-202` (MANDATORY) plus
+  `ACP-INIT-003`/`ACP-INIT-201`/`ACP-INIT-202` (MANDATORY): the upstream Python SDK's v2
+  transport has no JSON-RPC batch support at all (an uncaught `AttributeError` crashes the
+  process on any batch array) and its native v2 `Agent` rejects any `protocolVersion != 2` with
+  a strict `-32602`, instead of negotiating down/up per the spec's rule -- both pre-existing,
+  documented upstream SDK limitations (`.agents/research/acp-v2-cancellation-and-batching.md`
+  §B, `.agents/research/reference-sdks-v2-status.md`), not TCK bugs.
+
+Any *other* deviation from either documented baseline is worth investigating -- it means either
+a TCK bug or a genuine, newly-observed upstream behaviour; `docs/cross-check.md` is where that
+investigation is recorded.
 
 ## How to add a requirement + test
 
