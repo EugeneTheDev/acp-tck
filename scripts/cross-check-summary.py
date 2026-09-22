@@ -8,10 +8,9 @@ Usage:
                           [--expect-only-mandatory-fail ID [ID ...]]
                           [--expect LABEL=ID,ID,...]
 
-The two positional (path, label) pairs are always required (this is the original, still
-fully backward-compatible interface -- e.g. the v1 testy/echo_agent leg). `--report PATH
-LABEL` may be repeated to add further reports to the same comparison table -- e.g. the v2
-testy/python_v2_agent legs -- so a single invocation can print all four side by side.
+The two positional (path, label) pairs are always required (e.g. the v1 testy/echo_agent leg).
+`--report PATH LABEL` may be repeated to add further reports to the same comparison table --
+e.g. the v2 testy/python_v2_agent legs -- so a single invocation can print all four side by side.
 
 `--expect-only-mandatory-fail` sets the *default* expected set of MANDATORY-tier FAIL ids
 (order-independent) for every report that doesn't have a more specific `--expect` override --

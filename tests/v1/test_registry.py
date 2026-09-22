@@ -18,9 +18,9 @@ from tck.v1.requirements import REGISTRY
 
 _ID_PATTERN = re.compile(r"^ACP-[A-Z]+(?:-[A-Z]+)*-\d{3}$")
 """`ACP-<AREA>-<NNN>`, where `<AREA>` may itself be hyphen-segmented (e.g.
-`ACP-INFO-PARSE-001`, `ACP-INFO-UNKNOWNSESSION-001`) -- the INFORMATIONAL-tier ids introduced in
-slice 7 group under a shared `ACP-INFO-*` prefix rather than inventing an unrelated area name per
-id, since they are a related family of "record, never assert" probes (see
+`ACP-INFO-PARSE-001`, `ACP-INFO-UNKNOWNSESSION-001`) -- the INFORMATIONAL-tier ids group under a
+shared `ACP-INFO-*` prefix rather than inventing an unrelated area name per id, since they are a
+related family of "record, never assert" probes (see
 `tck/v1/conformance/test_informational.py`)."""
 _SPEC_REVISION_PATTERN = re.compile(r"@ [0-9a-f]{40}$")
 
@@ -104,7 +104,7 @@ def test_every_registry_id_is_referenced_by_at_least_one_test():
 
 
 def test_cli_selftest_tier_sets_match_the_registry():
-    """N10 (review-slices-7.md): `tests/v1/test_cli.py` hand-maintains four id sets
+    """`tests/v1/test_cli.py` hand-maintains four id sets
     (`_MANDATORY_IDS`/`_ADVISORY_IDS`/`_INFORMATIONAL_IDS`/`_CAPABILITY_IDS`) that must mirror
     `REGISTRY`'s own `Tier` field exactly -- this caught the AUTH-001/AUTH-003 retiering
     silently going stale in `test_cli.py` when `requirements.py`'s tier changed. Deriving the

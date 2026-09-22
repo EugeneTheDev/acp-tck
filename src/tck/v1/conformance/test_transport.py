@@ -2,14 +2,14 @@
 
 Drives a full exchange (`initialize` -> `session/new` -> `session/prompt`) through the mock
 client (`run_prompt`) so an agent that asks for permission mid-turn does not deadlock the
-transport tests (review S4), then asserts over every line the agent wrote to stdout, in either
-direction of that exchange -- including whatever the agent writes to stdout *after* the last
-response ever awaited, which `close()` drains into the transcript before the process exits
-(review S8) -- the highest-value structural check a client-side TCK can make
+transport tests, then asserts over every line the agent wrote to stdout, in either direction of
+that exchange -- including whatever the agent writes to stdout *after* the last response ever
+awaited, which `close()` drains into the transcript before the process exits -- the
+highest-value structural check a client-side TCK can make
 (`.agents/research/acp-v1-transport-and-jsonrpc.md` Testability note 1).
 
-Split into two tests (review S2) so a plain-ASCII framing violation (e.g. a banner on stdout)
-cannot be misreported as a UTF-8 violation: ACP-TRANSPORT-001 checks JSON-RPC framing/shape,
+Split into two tests so a plain-ASCII framing violation (e.g. a banner on stdout) cannot be
+misreported as a UTF-8 violation: ACP-TRANSPORT-001 checks JSON-RPC framing/shape,
 ACP-TRANSPORT-002 checks UTF-8 decoding, each over the *same* recorded transcript but with its
 own independent evidence.
 """
@@ -37,7 +37,7 @@ async def _drive_full_exchange(agent_launch, tmp_path):
             timeout=agent_launch.default_timeout,
         )
     # Collected after the `async with` block exits: `close()` has already drained whatever the
-    # agent wrote after the last response we awaited (review S8).
+    # agent wrote after the last response we awaited.
     return [entry for entry in agent.transcript if entry.direction is Direction.RECEIVED]
 
 
@@ -57,7 +57,7 @@ async def test_stdout_is_clean_ndjson_jsonrpc(agent_launch, tmp_path):
 async def test_stdout_is_valid_utf8(agent_launch, tmp_path):
     """ACP-TRANSPORT-002: every line on stdout decodes as UTF-8, independent of framing/shape --
     a plain-ASCII framing violation (e.g. a banner) must not fail this requirement, and only a
-    genuinely undecodable line may (review S2)."""
+    genuinely undecodable line may."""
     received = await _drive_full_exchange(agent_launch, tmp_path)
 
     assert received, "the agent never wrote anything to stdout"

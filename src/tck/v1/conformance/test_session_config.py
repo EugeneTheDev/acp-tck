@@ -11,10 +11,9 @@ that machinery only understands real `initialize`-result paths. Instead, each te
 performs its own `session/new` and manually `pytest.skip`s with the reason "session/new returned
 no modes/configOptions" when the relevant field is absent.
 
-Must NOT assert (per the research's "must NOT" list): that `current_mode_update` is emitted at
-all when `session/set_mode` succeeds (§7 -- emission itself is optional; only the field name
-*if* it is emitted is a MUST), any ordering/ownership between config option `category` values
-beyond schema validity, or that an agent adopt a *specific* mode/value scheme.
+See the research's "must NOT" list (§7) for what this module deliberately stays within --
+e.g. `current_mode_update` emission itself is optional; only the field name *if* it is emitted
+is a MUST.
 """
 
 from __future__ import annotations
@@ -137,8 +136,7 @@ async def test_set_mode_succeeds_and_update_uses_currentModeId(agent_launch, tmp
                 )
             except (AgentTimeout, AgentExited):
                 # An agent that exits promptly rather than staying connected through the quiet
-                # period also means "no update observed" -- not a defect (review-slices-5-6.md
-                # N14).
+                # period also means "no update observed" -- not a defect.
                 update_entry = None
 
         if update_entry is not None:
@@ -151,7 +149,7 @@ async def test_set_mode_succeeds_and_update_uses_currentModeId(agent_launch, tmp
             # requirement that a client-driven mode change be echoed back with a particular
             # value (an agent may autonomously switch again inside the quiet period and that is
             # still conforming) -- record the observed value for a human reader instead of
-            # asserting it (review-slices-5-6.md N16).
+            # asserting it.
             record_property("acp_tck_mode_update_current_mode_id", update["currentModeId"])
 
 
@@ -199,8 +197,8 @@ async def test_set_config_option_returns_the_complete_list(agent_launch, tmp_pat
             pytest.skip("session/new returned no modes/configOptions")
         session_id = result["sessionId"]
         # Guard against a non-dict/missing-"id" entry the same way CONFIG-001 does at its own
-        # set-comprehension (review-slices-5-6.md N21) -- this test runs independently of
-        # CONFIG-001, so it must not rely on that guard having already caught a malformed entry.
+        # set-comprehension -- this test runs independently of CONFIG-001, so it must not rely
+        # on that guard having already caught a malformed entry.
         original_ids = {
             option["id"] for option in config_options if isinstance(option, dict) and "id" in option
         }
@@ -236,8 +234,8 @@ async def test_set_config_option_returns_the_complete_list(agent_launch, tmp_pat
         # Subset, not set-equality: `acp-v1-session-capabilities.md`'s Testability note says the
         # id set "equals" the previously advertised set, but O2's own rationale for the complete-
         # list requirement is "so Agents can reflect dependent changes" -- which may *add*
-        # options a stricter reading would wrongly reject. This is intentional (review-slices-5-6.md
-        # N17); do not "fix" this into `==` without re-checking that rationale.
+        # options a stricter reading would wrongly reject. This is intentional; do not "fix"
+        # this into `==` without re-checking that rationale.
         assert original_ids <= returned_ids, (
             "session/set_config_option must return the *complete* configOptions list -- missing "
             f"ids {original_ids - returned_ids!r}"
@@ -259,7 +257,7 @@ async def test_no_boolean_config_option_without_client_capability(agent_launch, 
     Passes vacuously if the agent has no config options at all, or none of type boolean."""
     # `client_capabilities={}` is already `connected_agent`'s default -- passed explicitly here
     # (not load-bearing) so this test reads as "deliberately connects without the capability",
-    # not as an accident of whatever the default happens to be today (review-slices-5-6.md N25).
+    # not as an accident of whatever the default happens to be today.
     async with connected_agent(agent_launch, client_capabilities={}) as agent:
         result = await _new_session_full_result(agent, tmp_path, timeout=agent_launch.default_timeout)
         config_options = result.get("configOptions") or []

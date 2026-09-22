@@ -13,8 +13,8 @@ This module only validates messages the *agent* authors: agent -> client request
 requests/notifications the agent itself implements ... i.e. responses to methods the agent
 handles (`x-side: "agent"`, e.g. `initialize`), plus the bidirectional `$/cancel_request`
 notification. It never validates a message the *client* authored (e.g. a `fs/write_text_file`
-*response*, which the TCK's own mock client writes) -- there is no `validate_client_message`
-here because slice 2 does not need one.
+*response*, which the TCK's own mock client writes) -- there is no `validate_client_message`;
+add one only if a future requirement needs to assert on the harness's own outgoing traffic.
 """
 
 from __future__ import annotations
@@ -121,7 +121,7 @@ def _response_method_defs() -> dict[str, str]:
     defs = load_schema()["$defs"]
     # Select the branch by content (`properties` containing `result`), not position -- a schema
     # refresh that reorders `AgentResponse`'s `anyOf` must not silently map every method to the
-    # error branch and empty this mapping out (review N11).
+    # error branch and empty this mapping out.
     result_branch = next(
         branch for branch in defs["AgentResponse"]["anyOf"] if "result" in branch.get("properties", {})
     )
@@ -316,8 +316,8 @@ def validate_response_envelope(msg: dict[str, Any]) -> list[ValidationIssue]:
 def _allowed_root_properties(def_name: str) -> set[str] | None:
     """The set of property names permitted at the root of `#/$defs/{def_name}`, resolved by
     walking `allOf`/`anyOf`/`oneOf`/`$ref` (needed for ACP-SCHEMA-002: the vendored schema has
-    no `additionalProperties: false` anywhere -- see `.agents/plan.md` "Open questions" -- so
-    this comparison has to be built by hand instead of relying on jsonschema to reject extras).
+    no `additionalProperties: false` anywhere, so this comparison has to be built by hand
+    instead of relying on jsonschema to reject extras).
 
     Returns `None` if no branch in the composition ever declares a non-empty `properties` map
     (e.g. `def_name` is a bare scalar/array `$def` like `RequestId`) -- there is nothing
@@ -341,9 +341,9 @@ def _allowed_root_properties(def_name: str) -> set[str] | None:
                 _walk(defs.get(name, {}))
             # JSON Schema 2020-12 allows keywords alongside `$ref` on the same node -- fall
             # through to the sibling handling below instead of returning, so a `properties`/
-            # `allOf`/etc. next to a `$ref` is not silently dropped (review-slices-7.md N5).
-            # No-op today: a full walk of the vendored schema found no node carrying `$ref`
-            # alongside anything but `description`/`title`/`x-method`/`x-side`.
+            # `allOf`/etc. next to a `$ref` is not silently dropped. No-op today: a full walk
+            # of the vendored schema found no node carrying `$ref` alongside anything but
+            # `description`/`title`/`x-method`/`x-side`.
         props = node.get("properties")
         if isinstance(props, dict) and props:
             found_any_properties = True

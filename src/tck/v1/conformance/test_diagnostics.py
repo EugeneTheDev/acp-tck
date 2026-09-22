@@ -13,16 +13,14 @@ from ._helpers import connected_agent, skip_if_auth_gated
 
 @pytest.mark.requirement("ACP-ERROR-001")
 async def test_error_messages_are_non_empty_single_line(agent_launch):
-    """ACP-ERROR-001 (ADVISORY -- shared `Error` shape, `schema/v1/schema.json`'s `Error` def,
-    documents `message` as a "short description" but the spec text never pins down "non-empty"
-    or "no embedded newline" as a MUST; still, an error message that is empty or multi-line is
-    poor practice worth flagging, not failing a whole run over). Evidence: the reply to an
-    unrecognised method, and the reply to a `session/new` with an invalid/missing required
-    `cwd` -- both replies MUST exist per ACP-JSONRPC-002's mandatory evidence sources, so this
-    reuses them rather than inventing a third exchange. `data`, if present, is checked for being
-    JSON-shaped only in the trivial sense that it already parsed as part of the outer message;
-    nothing about its structure is asserted (validation.py's own docstring: "data is never
-    inspected")."""
+    """ACP-ERROR-001 (ADVISORY -- `schema/v1/schema.json`'s `Error` def documents `message` as
+    a "short description" but never pins down "non-empty"/"no embedded newline" as a MUST; an
+    empty or multi-line message is poor practice worth flagging, not failing a run over).
+    Evidence: the reply to an unrecognised method, and the reply to a `session/new` with an
+    invalid/missing required `cwd` -- both MUST exist per ACP-JSONRPC-002, so this reuses them
+    rather than inventing a third exchange. `data`, if present, is only checked for being
+    JSON-shaped (already true since it parsed as part of the outer message); nothing about its
+    structure is asserted."""
     async with connected_agent(agent_launch, handshake=False) as agent:
         init_id = await agent.send_request(
             "initialize", {"protocolVersion": PROTOCOL_VERSION, "clientCapabilities": {}}

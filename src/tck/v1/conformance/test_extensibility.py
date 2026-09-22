@@ -25,8 +25,7 @@ async def test_unknown_custom_method_receives_a_response(agent_launch):
 
     An agent that never replies at all is caught explicitly (rather than letting
     `wait_for_response` raise a bare `AgentTimeout`/`AgentExited`) so this -- the one MANDATORY
-    assertion in the module -- fails with the Req-42 wording, not a harness exception
-    (review-slices-7.md N7)."""
+    assertion in the module -- fails with the Req-42 wording, not a harness exception."""
     async with connected_agent(agent_launch) as agent:
         req_id = await agent.send_request("_tck/unknown")
         try:
@@ -75,8 +74,8 @@ async def test_prompt_meta_field_is_accepted(agent_launch, tmp_path):
 async def test_full_exchange_has_no_unknown_root_keys(agent_launch, tmp_path):
     """ACP-SCHEMA-002 (ADVISORY; Req 41 -- implementations MUST NOT add custom root fields to a
     spec type, `_meta` is for custom data instead). The vendored schema has no
-    `additionalProperties: false` anywhere (`.agents/plan.md` "Open questions"), so mandatory
-    schema validation (ACP-SCHEMA-001) cannot catch this on its own --
+    `additionalProperties: false` anywhere, so mandatory schema validation (ACP-SCHEMA-001)
+    cannot catch this on its own --
     `validation.find_unknown_root_keys` implements the comparison by hand: for every
     agent-emitted request/notification `params` and every successful response `result`,
     resolve the full property-name union of its `$def` (following `allOf`/`anyOf`/`oneOf`/

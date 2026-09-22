@@ -12,8 +12,8 @@ Implements the full 7-method v2 session baseline (`session/new`, `session/list`,
 `session/resume`, `session/close`, `session/prompt`, `session/cancel`, plus the
 `session/update` notifications a prompt turn sends) rather than just the `new`/`prompt`/`cancel`
 subset a literal reading of the task might suggest: advertising `capabilities.session` (even
-`{}`) commits an agent to that whole baseline (`.agents/plan.md` "v2 initialize / capabilities /
-baseline"), so a stub that only implemented new/prompt/cancel would self-inflict FAILs on the
+`{}`) commits an agent to that whole baseline, so a stub that only implemented
+new/prompt/cancel would self-inflict FAILs on the
 CAPABILITY-tier ACP-LIST-2xx/ACP-RESUME-2xx/ACP-CLOSE-2xx families instead of leaving them a
 clean, honest FAIL/PASS signal about the *reference SDK*.
 

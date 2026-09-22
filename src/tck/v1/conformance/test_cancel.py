@@ -1,8 +1,8 @@
 """Cancellation conformance: ACP-CANCEL-001, ACP-CANCEL-002 (Reqs 25, 26, 28).
 
-`ACP-JSONRPC-003` (slice 3) already covers `session/cancel` as a plain notification (no prompt
-in flight) receiving no response -- see that test's docstring in `test_jsonrpc.py`, extended to
-say so explicitly; there is no separate `ACP-CANCEL-003` here to avoid duplicating it.
+`ACP-JSONRPC-003` already covers `session/cancel` as a plain notification (no prompt in flight)
+receiving no response -- see that test's docstring in `test_jsonrpc.py`; there is no separate
+`ACP-CANCEL-003` here to avoid duplicating it.
 
 The TCK cannot make a real agent's turn "hang": whether `session/cancel` actually lands while
 the prompt is still in flight depends on how fast the agent under test resolves the turn, which
@@ -15,15 +15,14 @@ agent can still finish before or shortly after that.
 
 A raced/unexercised cancellation is reported as SKIPPED, never PASS -- claiming a PASS for a
 requirement that was never actually exercised would be dishonest. Two situations count as
-"not exercised" (`.agents/plan.md` "Cancel tests and the race"):
+"not exercised":
 
 1. The response was read before `session/cancel` could be sent at all (`cancelled_at_index is
    None`) -- `run_prompt` never got a chance to interrupt an in-flight turn.
 2. `session/cancel` was sent, but the response arrives with a valid, non-`cancelled` stop reason
    within a quiet period (`tck.v1.conformance._helpers.quiet_period`, derived from `--tck-timeout`
-   rather than a fixed sub-second constant -- review S9) of when the cancel notification was
-   written -- the agent may simply have finished on its own before it ever read the
-   notification.
+   rather than a fixed sub-second constant) of when the cancel notification was written -- the
+   agent may simply have finished on its own before it ever read the notification.
 
 Anything else is exercised and judged normally: `stopReason: "cancelled"` is a PASS: a
 JSON-RPC error, or a non-`cancelled` stop reason arriving later than the race window, is a FAIL.
@@ -126,15 +125,14 @@ async def test_no_session_update_follows_the_cancelled_response(
         if not (isinstance(msg, dict) and "result" in msg):
             # An error-shaped cancel response is ACP-CANCEL-001's finding to make, not this
             # test's -- asserting it here too would double-report the same defect as an
-            # *ordering* violation of Req 28, which is this test's actual and only concern
-            # (review-slices-5-6.md N15).
+            # *ordering* violation of Req 28, which is this test's actual and only concern.
             pytest.skip(
                 "prerequisite not met: cancel did not resolve the prompt with a success "
                 f"result (see ACP-CANCEL-001): {msg!r}"
             )
         # Only ordering is this test's concern (Req 28); whether each update carries the right
         # sessionId is ACP-PROMPT-002/Req 1 territory, asserted there -- attributing that here
-        # would mis-blame Req 28 for a mis-attributed-update defect (review S5).
+        # would mis-blame Req 28 for a mis-attributed-update defect.
 
         def _is_late_update_for_this_session(entry) -> bool:
             candidate = entry.parsed
@@ -146,8 +144,7 @@ async def test_no_session_update_follows_the_cancelled_response(
 
         # An agent that exits promptly after resolving the prompt (rather than staying connected
         # through the quiet period) raises AgentExited on EOF, not AgentTimeout -- that is still
-        # "no late update arrived," not a defect this requirement is about (review-slices-5-6.md
-        # N14).
+        # "no late update arrived," not a defect this requirement is about.
         with pytest.raises((AgentTimeout, AgentExited)):
             await agent.wait_for_message(
                 _is_late_update_for_this_session, timeout=quiet_period(agent_launch.default_timeout)

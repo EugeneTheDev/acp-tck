@@ -7,8 +7,8 @@ that way after `session/cancel`).
 
 Exists to exercise the mock client's permission-answering path
 (`tck.v1.conformance._helpers.run_prompt`), which nothing else in `tests/fixtures/agents/`
-exercises (review N17) -- every prompt/cancel test in the real suite depends on that path
-working, but until this fixture existed it was dead code in the self-test suite.
+exercises -- every prompt/cancel test in the real suite depends on that path working, so it
+needs its own self-test coverage.
 """
 
 from __future__ import annotations

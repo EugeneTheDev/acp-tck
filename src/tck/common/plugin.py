@@ -55,9 +55,9 @@ _DEFAULT_CANCEL_PROMPT = (
 )
 """Default `--tck-cancel-prompt` text: long enough that a real, working agent is likely still
 generating it when `session/cancel` arrives, so the cancel tests actually get to exercise
-cancellation instead of racing a near-instant response (see `.agents/plan.md` 'Cancel tests and
-the race'). Deliberately not special-cased by any fixture agent -- fixtures must not know the
-TCK's default prompt text, only the harness/tests do."""
+cancellation instead of racing a near-instant response. Deliberately not special-cased by any
+fixture agent -- fixtures must not know the TCK's default prompt text, only the harness/tests
+do."""
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -215,10 +215,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
                 if req_id not in registry:
                     errors.append(f"{item.nodeid}: unknown requirement id {req_id!r}")
         # `_phase_status` (below) folds a non-strict xpass into PASS and an xfail into SKIPPED --
-        # not documented, plausible to misread as the test having genuinely run, and a
-        # conformance suite has no legitimate use for "expected failure" (review-slices-5-6.md
-        # N23): forbid the marker outright rather than let its silent-status-remap behaviour
-        # bite someone later.
+        # easy to misread as the test having genuinely run, and a conformance suite has no
+        # legitimate use for "expected failure": forbid the marker outright rather than let its
+        # silent-status-remap behaviour bite someone later.
         if item.get_closest_marker("xfail") is not None:
             errors.append(
                 f"{item.nodeid}: @pytest.mark.xfail is not allowed in the conformance suite -- "
@@ -300,10 +299,10 @@ _INIT_AUTH_METHODS: contextvars.ContextVar[list[Any] | None] = contextvars.Conte
 def current_initialize_auth_methods() -> list[Any] | None:
     """The cached `initialize` result's `authMethods` for the current test (`None` if
     `initialize` failed or the field is absent/not a list) -- read by
-    `tck.v1.conformance._helpers.skip_if_auth_gated` (review-slices-5-6.md S4: a `-32000` from
-    `session/new` is only excusable as "needs --auth-method" when the agent actually advertised
-    at least one auth method; an agent with none advertised has no defined remedy and the
-    `-32000` is an ordinary failure, not something to skip)."""
+    `tck.v1.conformance._helpers.skip_if_auth_gated`: a `-32000` from `session/new` is only
+    excusable as "needs --auth-method" when the agent actually advertised at least one auth
+    method; an agent with none advertised has no defined remedy and the `-32000` is an ordinary
+    failure, not something to skip."""
     return _INIT_AUTH_METHODS.get()
 
 
@@ -399,8 +398,7 @@ def _lookup_capability(result: dict[str, Any], path: str) -> Any:
 
 
 def capability_is_supported(result: dict[str, Any], path: str, *, boolean: bool = False) -> bool:
-    """Whether the capability at `path` is advertised, per
-    `.agents/plan.md` "Decisions (orchestrator)" / "Capability detection":
+    """Whether the capability at `path` is advertised:
 
     - `boolean=True` gates (e.g. `promptCapabilities.image`, `agentCapabilities.loadSession`)
       are supported iff the value is `=== true` -- anything else (missing, `false`, `null`, an
@@ -497,16 +495,15 @@ def _truncate_stderr(text: str) -> str:
 
 
 _TRANSCRIPT_ENTRY_RAW_BYTES = 4 * 1024
-"""Per-entry cap on the JSON report's `raw` field, mirroring `_truncate_stderr`'s cap
-(`.agents/research/review-slices-5-6.md` S8) -- a single oversize line (an embedded image
-content block, a huge diff) must not blow up the report the way an unbounded stderr tail
-would."""
+"""Per-entry cap on the JSON report's `raw` field, mirroring `_truncate_stderr`'s cap -- a
+single oversize line (an embedded image content block, a huge diff) must not blow up the
+report the way an unbounded stderr tail would."""
 
 _TRANSCRIPT_MAX_ENTRIES = 400
 """Cap on the number of entries kept per failing test's JSON transcript: the first/last half
 each, with a gap marker in between -- the start (handshake/setup) and the end (the failure
 itself) are almost always what's interesting; a chatty middle (many `session/update`s) is the
-part safest to elide (S8)."""
+part safest to elide."""
 
 
 def _truncate_raw(text: str) -> str:
@@ -588,7 +585,7 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) ->
         # `record_property` accepts any scalar, but `state.properties`/`TestOutcome.properties`
         # are typed (and, via the JSON report, actually required to be) `dict[str, str]` --
         # coerce here, at the single collection point, rather than trust every call site to
-        # already pass a string (review-slices-5-6.md N22).
+        # already pass a string.
         state.properties[key] = str(value)
 
     settled = _phase_status(report)
@@ -702,8 +699,8 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     # every requirement would otherwise read NOT_TESTED and falsely force a non-conformant exit.
     # `exitstatus in (OK, TESTS_FAILED)` alone is not enough: a successful `--collect-only` run
     # (or any run where nothing actually executed, e.g. an empty `-k` match with no failures)
-    # also reports `ExitCode.OK` -- guard with "did any test actually produce a verdict"
-    # (`.agents/research/review-slices-5-6.md` S6) rather than trusting `exitstatus` alone.
+    # also reports `ExitCode.OK` -- guard with "did any test actually produce a verdict" rather
+    # than trusting `exitstatus` alone.
     states = config.stash.get(TEST_STATES_KEY, {})
     ran_any_test = any(state.status is not None for state in states.values())
     if exitstatus in (pytest.ExitCode.OK, pytest.ExitCode.TESTS_FAILED) and ran_any_test:
@@ -742,7 +739,7 @@ def pytest_terminal_summary(
     if not any(state.status is not None for state in states.values()):
         # Nothing actually ran (e.g. --collect-only, or a -k/-m that matched zero tests) --
         # every requirement would read NOT_TESTED, which would print a misleading verdict for a
-        # run that never intended to produce one at all (S6/S7 companion fix).
+        # run that never intended to produce one at all.
         terminalreporter.write_line(
             "ACP TCK: no test executed in this run (collection-only, or the selection matched "
             "nothing) -- no requirement verdict to report.",
@@ -794,10 +791,9 @@ def pytest_terminal_summary(
         selected = bool(keyword or markexpr)
         if selected and n_not_tested > 0:
             # Print whenever a selector was used and it left something NOT TESTED, independent
-            # of whether any MANDATORY requirement happened to pass -- the previous version only
-            # printed this when mandatory[PASS] == 0, which is exactly backwards: a `-k`-scoped
-            # run that *did* exercise a few requirements is the case most likely to be mistaken
-            # for a real verdict (`.agents/research/review-slices-7.md` S4).
+            # of whether any MANDATORY requirement happened to pass: a `-k`-scoped run that *did*
+            # exercise a few requirements is the case most likely to be mistaken for a real
+            # verdict.
             selector = f"-k {keyword!r}" if keyword else f"-m {markexpr!r}"
             terminalreporter.write_line(
                 f"hint: this run was scoped ({selector}), so some requirements were deselected "

@@ -253,7 +253,7 @@ def test_every_client_method_has_a_resolvable_schema() -> None:
         assert method in request_and_notification_defs, method
 
 
-# --- harness integration (slice 1 x slice 2) ---
+# --- harness integration ---
 
 
 def test_conforming_fixture_initialize_response_validates_clean() -> None:

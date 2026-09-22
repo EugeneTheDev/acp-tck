@@ -2,14 +2,14 @@
 """Non-conforming-but-legal-to-encounter fixture: answers `initialize` normally, then exits
 immediately (without replying) the moment it reads a line that is not valid JSON at all.
 
-Used to exercise the S1 fix (`.agents/research/review-slices-7.md` S1):
-`AgentProcess.send_raw` must translate `OSError`/`BrokenPipeError`/`ConnectionResetError` raised
-while writing to a *dead* agent's stdin into `AgentExited`, not let it escape as a bare
-traceback. `ACP-INFO-PARSE-001` sends a malformed line, then -- regardless of what it read back
--- immediately tries an ordinary `session/new` on the same connection to see if it is still
-usable (`_probe_connection_usable_after` in `test_informational.py`). Against this fixture, that
-second write lands on a stdin pipe whose reader has already exited, so it is exactly the
-"write to a dead process" case S1 targets.
+Used to exercise `AgentProcess.send_raw`'s translation of a dead-process write into
+`AgentExited`: it must translate `OSError`/`BrokenPipeError`/`ConnectionResetError` raised while
+writing to a *dead* agent's stdin, not let it escape as a bare traceback. `ACP-INFO-PARSE-001`
+sends a malformed line, then -- regardless of what it read back -- immediately tries an
+ordinary `session/new` on the same connection to see if it is still usable
+(`_probe_connection_usable_after` in `test_informational.py`). Against this fixture, that second
+write lands on a stdin pipe whose reader has already exited, so it is exactly the
+"write to a dead process" case this targets.
 
 Not built on `_base.ConformingAgent`: its `run()` loop deliberately swallows
 `json.JSONDecodeError` (malformed input is "a harness test concern, not ours to crash on"),

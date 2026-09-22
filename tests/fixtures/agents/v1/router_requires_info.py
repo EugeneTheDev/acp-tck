@@ -9,10 +9,10 @@ gets `-32602` naming the missing field, exactly as `AgentProtocolRouter`/`role/a
 does; a caller that includes a valid `info` gets back `protocolVersion: 2` in an otherwise
 v1-shaped result.
 
-Exists as the self-test canary for the ACP-INIT-003 fix (slice V2-0b): before the probe in
-`test_initialize.py` carried `info`, this fixture made the `65535` request fail with a spurious
-`-32602` (a params-shape error, not a negotiation one), flipping the whole run NOT CONFORMANT.
-After the fix, ACP-INIT-003 PASSes against it.
+Exists as the self-test canary for ACP-INIT-003's 65535 probe carrying `info`: without it, this
+fixture's `65535` request would fail with a spurious `-32602` (a params-shape error, not a
+negotiation one), flipping the whole run NOT CONFORMANT. With `info` present, ACP-INIT-003
+PASSes against it.
 """
 
 import sys
