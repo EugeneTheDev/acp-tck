@@ -1,5 +1,8 @@
 # Plan
 
+**v2 effort status (2026-09-22): implementation complete on `v2-support`; see `state.md` for the exact
+tip, verification numbers, and the open user decisions.** Sections below are the decision record.
+
 ## v2 effort — decided deliverable shape, part 1: package layout (approved by orchestrator, 2026-09-21)
 
 Source: `research/common-v1-v2-split-analysis.md` (D1–D8, §5) and `research/acp-v2-status-and-delta-inventory.md`.
@@ -276,28 +279,28 @@ Turn-end predicate (driver): an idle `state_update` ends the turn iff it carries
 - V2-8 also re-runs `scripts/cross-check.sh` (after V2-7 merges) and refreshes the v2 baseline table and CI
   expectations, since re-tiering/RESUME changes alter the scorecard.
 
-### Deferred nits (do not lose)
-- Review-pass item (V2-6): `ACP-PATCH-206/207` (terminal_update / terminal_output_chunk) never PASS against
-  any fixture — add a v2 fixture (or extend `conforming_full.py`) that emits terminal updates per the
-  patches report's wire tables so the rows are exercised.
-- Review-pass item (V2-5): `conforming_full.py` (v2) should also advertise a `terminal` auth method when the
-  client advertised `capabilities.auth.terminal`, so MANDATORY `ACP-AUTH-207` PASSes instead of SKIPping on
-  the all-PASS fixture.
-- Review-pass item (V2-5): `ACP-AUTH-202` (terminal method advertised without client `capabilities.auth.
-  terminal`) is the same requirement as v1 `ACP-AUTH-002` with renamed paths → per D3 it should keep the v1
-  id. Also confirm `ACP-MCP-201/202` INFORMATIONAL tier (plan intended CAPABILITY; "use unobservable" is
-  a fair reason — decide and document once).
-- Review-pass item (V2-3): `ACP-BATCH-206/207/208` and `ACP-CANCEL-204` are ADVISORY but record-only and
-  always SKIP ("cannot force"/"unobservable"). A row that can never be judged should be INFORMATIONAL (or
-  omitted, as v1 did for Req 10). Re-tier in the final review pass.
-- Perf: full suite ≈423 s after V2-3 (target ≤300 s). Candidates: `-k` scoping in `tests/v2/test_cli.py`,
-  `pytest-xdist`, fewer full-suite fixture runs.
-- review-v2-slices-0-1a #10: `VersionSpec.conformance_package` and `schema_dir` have no consumers — drop
-  them (update D1 wording) or wire `conformance_package` into diagnostics. Pick up in the final review pass.
-- review-v2-slices-0-1a #18: `__init__.py` in `tests/v1/`/`tests/common/` (optional).
+### Deferred nits (do not lose) — refreshed 2026-09-22 after V2-8
+Resolved by V2-8: PATCH-206/207 exercised via `conforming_full.py` terminal updates; `conforming_full.py`
+advertises a `terminal` auth method (AUTH-207 PASS); AUTH-202 keeps its 2xx id under the D3 refinement;
+MCP-201/202 stay INFORMATIONAL (documented once); BATCH-206/207/208 + CANCEL-204 → INFORMATIONAL; perf handled
+by `-k` scoping (V2-4b). Still open:
+- `VersionSpec.conformance_package`/`schema_dir` have no consumers outside `tests/common/test_version.py` —
+  drop them (update D1 wording) or wire `conformance_package` into diagnostics.
+- `__init__.py` in `tests/v1/`/`tests/common/` (optional).
+- **v1 suite has no `skip_if_version_mismatch` guard.** `tests/v1/test_cli.py::
+  test_v2_only_agent_under_protocol_version_1_is_blocked_by_version_mismatch` (fixture `v2_only_honest.py`)
+  shows the CAPABILITY gate fires symmetrically, but six non-capability v1 ids (INIT-002/004, META-001,
+  PROMPT-001, SCHEMA-001/002) hard-FAIL instead of SKIPping `VERSION-MISMATCH:` as `AGENTS.md` describes.
+  Either port the v2 guard into the v1 conformance modules or document the asymmetry — user decision.
+- ACP-CANCEL-208 and ACP-CLOSE-202 are one requirement counted twice (by design, stated in CANCEL-208's text);
+  ACP-CANCEL-205 is a subset of ACP-JSONRPC-003. Revisit if the tier counts ever feed a score.
 - v1 deferred nits N12/N20 (review-slices-5-6), N9 (review-slices-7).
+- v1 `ACP-AUTH-004` `logout` probe is not opt-in, unlike v2's `--allow-logout` — user decision.
 
 ### v2 effort — slices (order fixed 2026-09-21; each is one programmer run in its own worktree)
+**Status 2026-09-22: ALL SLICES LANDED on `v2-support` (V2-0 … V2-7, plus V2-8 review fixes and a
+codebase-wide comment-trimming pass). Remaining: final comment trim of V2-8 residue, then user decisions
+(merge to `main`, deferred nits above).** Historical slice plan follows.
 Every slice: registry entries cite the named research report(s) (`path:line` @ spec 8f76d6c); conforming
 + single-defect fixtures under `tests/fixtures/agents/v2/`; `tests/v2/test_cli.py` id-set assertions;
 `AGENTS.md` catalogue updated; `uv run pytest` green; v1 report byte-identical (regression guard from V2-0).
