@@ -453,6 +453,88 @@ re-cited -- v2's `PromptResponse` has no `stopReason` to resolve with), `ACP-MOD
 `ACP-CONFIG-003` (retired outright: v2 has no `clientCapabilities.session.configOptions.boolean`
 gate at all, so there is no v2 rule restricting `type: "boolean"` options to re-cite). See the
 report's own "v1 ids to retire" table for the full citation-by-citation rationale.
+
+## V2-5: authentication (`ACP-AUTH-201..207`)
+
+v2 renames v1's `authenticate`/`logout` to `auth/login`/`auth/logout` (`schema/v2/schema.json`
+`$defs/LoginAuthRequest`/`LogoutAuthRequest`, `x-method: "auth/login"`/`"auth/logout"`) and drops
+v1's separate `agentCapabilities.auth.logout` capability marker entirely: v2's own
+`AgentAuthCapabilities` `$def` says outright "This object does not advertise support for
+`auth/login` or `auth/logout`. Those methods are advertised by a non-empty `authMethods` list in
+the `initialize` response" (`schema/v2/schema.json` `$defs/AgentAuthCapabilities`). `AuthMethod`
+also gains a schema-REQUIRED `type` discriminator on every branch (`terminal`/`agent`/an open
+`other` branch) -- v1 let `type` default to "agent" when absent; v2 does not.
+
+- `ACP-AUTH-201` (ADVISORY, re-cites v1's `ACP-AUTH-001`): `authMethods[*].methodId` values are
+  unique. Same requirement, only the field name changed (`id` -> `methodId`,
+  `$defs/AuthMethodId`), so it keeps ADVISORY per v1's own tiering rather than being promoted --
+  D3 does not permit silently strengthening a re-cited requirement's tier just because the id
+  changes.
+- `ACP-AUTH-202` (MANDATORY, new id -- **not** a literal reuse of v1's `ACP-AUTH-002`): no
+  `type: "terminal"` entry may be advertised unless the client advertised terminal-auth support.
+  This is the same underlying MUST as v1's `ACP-AUTH-002`
+  ("Agents MUST advertise this method only when the client enabled its terminal authentication
+  capability", `schema/v2/schema.json` `$defs/AuthMethodTerminal`), but the wire encoding of the
+  gate itself changed in a way that is not "only the citation moved": v1 gates on a top-level
+  boolean field (`clientCapabilities.auth.terminal: true`/`false`/absent); v2 gates on an
+  object-marker path nested under `capabilities.auth.terminal` (`{}`/`null`/absent,
+  `$defs/AuthCapabilities`/`$defs/TerminalAuthCapabilities`) -- a genuine shape change in what a
+  test has to construct and check, not merely a re-cite. Per D3's own worked examples elsewhere
+  in this file (e.g. `ACP-INIT-002` not being reused as `ACP-INIT-201` once the negotiation rule
+  itself became a different, two-branch rule), a changed wire encoding for the same MUST gets a
+  new id rather than reusing the old number verbatim -- this mirrors the source report's own "v1
+  ids to retire" table, which explicitly maps `ACP-AUTH-002` -> `ACP-AUTH-202` for exactly this
+  reason ("client capability path changed... and the encoding changed boolean -> object
+  marker"). Tested against a second, dedicated connection that advertises
+  `capabilities.auth.terminal: {}` (the default v2 handshake omits it, so the *default*
+  connection's `authMethods` is the negative control for this same id, and the dedicated
+  positive-capability connection is what backs `ACP-AUTH-207` below).
+- `ACP-AUTH-203` (CAPABILITY, `capability="inferred:authMethods"`, replaces v1's
+  `ACP-AUTH-004` outright -- retired, no v2 marker to re-cite): `auth/logout` returns a
+  non-error, schema-valid result. v1 gated this test on the `agentCapabilities.auth.logout`
+  object marker; v2 has no such marker at all (see `AgentAuthCapabilities` above) -- support is
+  inferred purely from a non-empty `authMethods`, mirroring the `inferred:configOptions` pattern
+  used elsewhere in this file. Because calling `auth/logout` for real may revoke the operator's
+  own credentials for whatever the agent is authenticated as, this test additionally requires
+  `--allow-logout`/`--tck-allow-logout` (`tck.common.plugin.current_allow_logout()`) and SKIPs
+  with reason `"auth/logout not exercised: pass --allow-logout (it may revoke the operator's
+  credentials)"` otherwise -- a new opt-in gate with no v1 analogue (v1's `ACP-AUTH-004` always
+  ran unconditionally once the capability marker was present).
+- `ACP-AUTH-204` (CAPABILITY, `capability="inferred:authMethods"`, re-cites v1's
+  `ACP-AUTH-003` with the method renamed): given `--auth-method <id>` naming a non-`terminal`,
+  advertised `methodId`, `auth/login` does not answer `-32601` (Method not found), and a
+  subsequent `session/new` does not fail with `-32000`. SKIPs when `--auth-method` is not given
+  or the agent advertises no `authMethods` at all -- identical gating to v1's `ACP-AUTH-003`.
+- `ACP-AUTH-205` (ADVISORY, re-cites v1's `ACP-AUTH-005`/AUTH-A1): `session/new` must not fail
+  with `-32000` when `authMethods` is empty or absent. Same requirement and tier as v1's, only
+  re-cited to v2's schema/docs -- not promoted.
+- `ACP-AUTH-206` (MANDATORY, new -- no v1 analogue, since v1's `type` could default to "agent"
+  and had no closed/open enum rule): every `authMethods[*].type` is one of the schema's defined
+  discriminator values (`"agent"`, `"terminal"`) or begins with `_` -- the general
+  extensibility/open-enum rule (`docs/protocol/v2/authentication.mdx:120-122`,
+  `docs/protocol/v2/extensibility.mdx:111-121`) applied specifically to this field, checked via
+  `tck.v2.protocol.is_valid_open_enum_value`.
+- `ACP-AUTH-207` (MANDATORY, new -- no v1 analogue: v1's terminal auth descriptor had no
+  `args`/`env` fields at all): conditional on at least one `type: "terminal"` entry actually
+  appearing in `authMethods` on a connection that advertised
+  `capabilities.auth.terminal: {}` (else SKIP -- there is nothing to check). When one does
+  appear, every terminal descriptor's `args` (if present) is an array of strings, `env` (if
+  present) is an array of well-formed `EnvVariable` objects (`name`/`value` both required
+  strings, `$defs/EnvVariable`), and `env` entries' `name`s are unique within that descriptor
+  ("Names MUST be unique", `schema/v2/schema.json` `$defs/AuthMethodTerminal`). Uses the same
+  dedicated second connection as `ACP-AUTH-202`'s positive case.
+
+### v1 ids retired or replaced by this slice
+
+`ACP-AUTH-004` is retired outright (no v2 marker exists to gate it -- replaced in spirit by
+`ACP-AUTH-203`, which uses the `inferred:authMethods` pattern instead and additionally requires
+`--allow-logout`). `ACP-AUTH-001`, `ACP-AUTH-003`, and `ACP-AUTH-005` are re-cited under new ids
+(`ACP-AUTH-201`, `ACP-AUTH-204`, `ACP-AUTH-205` respectively) rather than reusing the v1 number,
+consistent with this file's convention elsewhere of giving every v2 area a fresh `2xx` block
+even when several individual ids within it are unchanged requirements (e.g. `ACP-CONFIG-201/202`
+above supersede `ACP-CONFIG-001/002` under new numbers despite being the "same requirement,
+re-cited"). `ACP-AUTH-002` is replaced by `ACP-AUTH-202` (new id, not reused) for the reason
+detailed above -- the gate's wire encoding changed, not just its citation.
 """
 
 from __future__ import annotations
@@ -1538,6 +1620,116 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "5538-5559"
         ),
         source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-AUTH-201",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "`authMethods[*].methodId` values are unique. Re-cites v1's `ACP-AUTH-001`; only "
+            "the field name changed (`id` -> `methodId`)."
+        ),
+        citation=_cite("schema/v2/schema.json:3399-3495 ($defs/AuthMethod, AuthMethodId)"),
+        source_report="acp-v2-authentication.md",
+    ),
+    Requirement(
+        id="ACP-AUTH-202",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "No `authMethods[*]` entry with `type: \"terminal\"` is advertised unless the "
+            "client advertised `capabilities.auth.terminal: {}` in `initialize`'s params. New "
+            "id, not a reuse of v1's `ACP-AUTH-002` -- the client-capability path and its "
+            "encoding both changed (v1: top-level boolean `clientCapabilities.auth.terminal`; "
+            "v2: nested object marker `capabilities.auth.terminal`)."
+        ),
+        citation=_cite(
+            "schema/v2/schema.json:3522 ($defs/AuthMethodTerminal); schema/v2/schema.json "
+            "($defs/AuthCapabilities, $defs/TerminalAuthCapabilities)"
+        ),
+        source_report="acp-v2-authentication.md",
+    ),
+    Requirement(
+        id="ACP-AUTH-203",
+        tier=Tier.CAPABILITY,
+        capability="inferred:authMethods",
+        text=(
+            "`auth/logout` returns a non-error, schema-valid result. Support is inferred from "
+            "a non-empty `authMethods` -- v2 has no `agentCapabilities.auth.logout` marker at "
+            "all (unlike v1); `capability=\"inferred:authMethods\"` is documentation-only. "
+            "Replaces v1's `ACP-AUTH-004` outright. Only actually exercised when "
+            "`--allow-logout`/`--tck-allow-logout` is given (destructive: may revoke the "
+            "operator's own credentials); SKIPs otherwise."
+        ),
+        citation=_cite(
+            "schema/v2/schema.json:5997-6010 ($defs/LogoutAuthRequest); schema/v2/schema.json "
+            "3613-3626 ($defs/LogoutAuthResponse); schema/v2/schema.json ($defs/"
+            "AgentAuthCapabilities)"
+        ),
+        source_report="acp-v2-authentication.md",
+    ),
+    Requirement(
+        id="ACP-AUTH-204",
+        tier=Tier.CAPABILITY,
+        capability="inferred:authMethods",
+        text=(
+            "Given `--auth-method <id>` naming a non-`terminal`, advertised `methodId`, "
+            "`auth/login` does not answer `-32601` (Method not found), and a subsequent "
+            "`session/new` does not fail with `-32000`. Mirrors v1's `ACP-AUTH-003` exactly, "
+            "method renamed `authenticate` -> `auth/login`. SKIPs when `--auth-method` was not "
+            "given, or the agent advertises no `authMethods`."
+        ),
+        citation=_cite(
+            "schema/v2/schema.json:5974-5996 ($defs/LoginAuthRequest, required: [\"methodId\"]); "
+            "schema/v2/schema.json:3599-3612 ($defs/LoginAuthResponse)"
+        ),
+        source_report="acp-v2-authentication.md",
+    ),
+    Requirement(
+        id="ACP-AUTH-205",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "`session/new` does not fail with `-32000` (AUTHENTICATION_REQUIRED) when "
+            "`authMethods` is empty or absent. Re-cites v1's `ACP-AUTH-005`/AUTH-A1; not "
+            "promoted."
+        ),
+        citation=_cite("docs/protocol/v2/schema.mdx:428 (-32000 is a MAY, not a MUST)"),
+        source_report="acp-v2-authentication.md",
+    ),
+    Requirement(
+        id="ACP-AUTH-206",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "Every `authMethods[*].type` is one of the schema's defined discriminator values "
+            "(`\"agent\"`, `\"terminal\"`) or begins with `_` -- the general open-enum "
+            "extensibility rule applied to this field. New in v2: v1's `type` could default to "
+            "\"agent\" when absent and had no enum-closure rule at all."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/authentication.mdx:120-122; docs/protocol/v2/extensibility.mdx:"
+            "111-121; schema/v2/schema.json:3399-3495 ($defs/AuthMethod)"
+        ),
+        source_report="acp-v2-authentication.md",
+    ),
+    Requirement(
+        id="ACP-AUTH-207",
+        tier=Tier.MANDATORY,
+        capability=None,
+        text=(
+            "On a connection that advertised `capabilities.auth.terminal: {}`, every "
+            "`type: \"terminal\"` entry's `args` (if present) is an array of strings, `env` "
+            "(if present) is an array of well-formed `EnvVariable` objects (`name`/`value` "
+            "both required strings), and `env` entries' `name`s are unique within that "
+            "descriptor. Conditional on at least one terminal entry actually appearing; SKIPs "
+            "otherwise. New in v2 -- v1's terminal auth descriptor had no `args`/`env` fields."
+        ),
+        citation=_cite(
+            "schema/v2/schema.json:3522-3552 ($defs/AuthMethodTerminal, \"Names MUST be "
+            "unique\"); schema/v2/schema.json ($defs/EnvVariable)"
+        ),
+        source_report="acp-v2-authentication.md",
     ),
 )
 

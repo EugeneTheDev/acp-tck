@@ -39,7 +39,7 @@ def test_ids_are_unique_and_well_formed():
         assert _ID_PATTERN.match(req_id), f"{req_id!r} does not match ACP-<AREA>-<NNN>"
 
 
-def test_registry_has_exactly_the_v2_4_requirements():
+def test_registry_has_exactly_the_v2_5_requirements():
     """This slice's registry covers the `initialize` handshake, the `session/new` baseline,
     (V2-2a) the mock-client prompt driver's core prompt-turn requirements, (V2-2b) prompt
     content capabilities, the permission-request shape, the agent->client method rules, reused
@@ -47,14 +47,21 @@ def test_registry_has_exactly_the_v2_4_requirements():
     (`ACP-CANCEL-201..208`, `ACP-INFO-CANCEL-201/202`), stdio transport (`ACP-TRANSPORT-002`,
     reused from v1; `ACP-TRANSPORT-201`/`203`, new/widened), the JSON-RPC envelope
     (`ACP-JSONRPC-001..005`, all reused from v1 -- only the evidence-gathering probe widens to
-    cover batches), and batching (`ACP-BATCH-201..208`, `ACP-INFO-BATCH-201/202`), and (V2-4)
+    cover batches), and batching (`ACP-BATCH-201..208`, `ACP-INFO-BATCH-201/202`), (V2-4)
     session management: `session/resume` (`ACP-SESSION-203`, `ACP-RESUME-201..205`),
     `session/list` (`ACP-LIST-201..204`), `session/close` (`ACP-CLOSE-201`; `ACP-CLOSE-202`
     reuses `test_cancel.py`'s `ACP-CANCEL-208` test rather than adding a second probe),
     `session/delete` (`ACP-DELETE-201..203`), `additionalDirectories` (`ACP-ADDDIRS-201/202`),
     MCP server config (`ACP-MCP-201/202`, INFORMATIONAL), and `configOptions`
-    (`ACP-CONFIG-201..204,206`) -- see `tck.v2.requirements`'s module docstring for the full
-    id-namespacing rationale."""
+    (`ACP-CONFIG-201..204,206`), and (V2-5) authentication: `authMethods` uniqueness
+    (`ACP-AUTH-201`, ADVISORY, re-cites v1's `ACP-AUTH-001`), the terminal-method client-
+    capability gate (`ACP-AUTH-202`, MANDATORY, new id -- wire encoding changed from v1), the
+    `auth/login`/`session/new` flow (`ACP-AUTH-204`, CAPABILITY, mirrors v1's `ACP-AUTH-003`),
+    `auth/logout` (`ACP-AUTH-203`, CAPABILITY, replaces v1's `ACP-AUTH-004` outright -- v2 has no
+    logout capability marker), the no-`authMethods` case (`ACP-AUTH-205`, ADVISORY, re-cites v1's
+    `ACP-AUTH-005`), the open-enum `type` rule (`ACP-AUTH-206`, MANDATORY, new in v2), and the
+    terminal descriptor shape (`ACP-AUTH-207`, MANDATORY, new in v2) -- see
+    `tck.v2.requirements`'s module docstring for the full id-namespacing rationale."""
     assert set(REGISTRY) == {
         "ACP-INIT-001",
         "ACP-INIT-003",
@@ -132,6 +139,13 @@ def test_registry_has_exactly_the_v2_4_requirements():
         "ACP-CONFIG-203",
         "ACP-CONFIG-204",
         "ACP-CONFIG-206",
+        "ACP-AUTH-201",
+        "ACP-AUTH-202",
+        "ACP-AUTH-203",
+        "ACP-AUTH-204",
+        "ACP-AUTH-205",
+        "ACP-AUTH-206",
+        "ACP-AUTH-207",
     }
 
 

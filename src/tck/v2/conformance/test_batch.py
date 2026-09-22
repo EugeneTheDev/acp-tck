@@ -34,7 +34,13 @@ import pytest
 from tck.common.harness import AgentExited, AgentTimeout
 from tck.v2.protocol import INVALID_REQUEST, PROTOCOL_VERSION
 
-from ._helpers import connected_agent, quiet_period, skip_if_version_mismatch
+from ._helpers import (
+    connected_agent,
+    login_if_needed,
+    quiet_period,
+    skip_if_auth_gated_msg,
+    skip_if_version_mismatch,
+)
 
 
 @contextlib.asynccontextmanager
@@ -42,7 +48,11 @@ async def _v2_only_agent(agent_launch):
     """Like `test_initialize.py`'s tests: a fresh connection, one manual `initialize`, and a
     `VERSION-MISMATCH:` skip unless the agent actually negotiated v2 -- every batch probe below
     needs the agent to understand v2's own batching rules, which a version-mismatched agent
-    never claimed to."""
+    never claimed to. Also logs in (`login_if_needed`) when `--auth-method` was given, since this
+    manual `initialize` bypasses `connected_agent`'s own auto-login step and at least one batch
+    probe (`test_batch_of_requests_replies_with_matching_responses`) sends `session/new` inside
+    the batch -- without this, an agent gated behind authentication would answer `-32000` for
+    real instead of succeeding."""
     async with connected_agent(agent_launch, handshake=False) as agent:
         req_id = await agent.send_request(
             "initialize",
@@ -54,6 +64,7 @@ async def _v2_only_agent(agent_launch):
             f"initialize did not return a result object: {entry.text!r}"
         )
         skip_if_version_mismatch(msg["result"])
+        await login_if_needed(agent, timeout=agent_launch.default_timeout)
         yield agent
 
 
@@ -162,6 +173,7 @@ async def test_batch_of_requests_replies_with_matching_responses(agent_launch, t
             f"response array is missing an id: {msg!r}"
         )
         session_response = by_id["tck-batch-session"]
+        skip_if_auth_gated_msg(session_response)
         assert isinstance(session_response.get("result"), dict) and isinstance(
             session_response["result"].get("sessionId"), str
         ), f"session/new entry did not resolve to a sessionId, matched by id: {session_response!r}"

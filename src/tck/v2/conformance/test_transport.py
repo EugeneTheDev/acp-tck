@@ -32,7 +32,7 @@ import pytest
 
 from tck.common.harness import Direction
 
-from ._helpers import connected_agent, new_session, run_prompt, skip_if_version_mismatch
+from ._helpers import connected_agent, login_if_needed, new_session, run_prompt, skip_if_version_mismatch
 from ..protocol import PROTOCOL_VERSION
 
 
@@ -54,6 +54,7 @@ async def _drive_full_exchange(agent_launch, tmp_path):
         )
         skip_if_version_mismatch(msg["result"])
 
+        await login_if_needed(agent, timeout=agent_launch.default_timeout)
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         await run_prompt(
             agent,

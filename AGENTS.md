@@ -34,9 +34,21 @@ session management: `session/resume` (including replay-ordering rules for `{"typ
 (`stdio`/`http`), and `session/set_config_option` -- all `Tier.CAPABILITY` (or `INFORMATIONAL`
 for the two MCP rows, unobservable without a real MCP server) and gated on the corresponding
 `capabilities.session.*` marker (`configOptions` support is *inferred* from `session/new`'s own
-result, like v1's `modes`/`configOptions`, not a separate capability marker) -- gated behind
-`--protocol-version 2`; default remains v1 -- and is expected to grow in later slices. Everything
-below is v1-specific unless a section says otherwise.
+result, like v1's `modes`/`configOptions`, not a separate capability marker), and (V2-5)
+authentication: `authMethods` uniqueness (ADVISORY), the terminal-method client-capability gate
+(MANDATORY -- v1's boolean `clientCapabilities.auth.terminal` becomes a nested object marker
+`capabilities.auth.terminal` in v2, so this is a new id rather than a literal reuse of v1's),
+`auth/login`/`auth/logout` (v2's renames of v1's `authenticate`/`logout`; login is
+`Tier.CAPABILITY` mirroring v1's `authenticate` test, logout is `Tier.CAPABILITY` but replaces
+v1's outright -- v2 drops the separate `agentCapabilities.auth.logout` marker entirely, so
+support is inferred from `authMethods` alone, and calling it for real is gated behind a
+dedicated `--allow-logout` opt-in since it may revoke the operator's own credentials), the
+no-`authMethods` case (ADVISORY, re-cites v1), and two new-in-v2 MANDATORY rows: the open-enum
+`type` rule on `authMethods[*].type` (`type` is a required discriminator in v2, unlike v1 where
+it defaulted to `"agent"`) and the terminal auth method descriptor's `args`/`env` shape
+(`env` names MUST be unique) -- gated behind `--protocol-version 2`; default remains v1 -- and is
+expected to grow in later slices. Everything below is v1-specific unless a section says
+otherwise.
 
 Slices so far add an installable CLI (`acp-tck`), a requirement registry, a pytest plugin,
 transport/`initialize` conformance tests, mandatory session/prompt/cancel conformance tests, full
@@ -622,6 +634,39 @@ src/tck/
                             value outside that list is rejected). `ACP-CONFIG-206` (a
                             `currentConfigOptionsUpdate` notification, if the agent chooses to
                             send one on its own initiative, validates against the v2 schema).
+      test_authentication.py  (V2-5) ACP-AUTH-201..207 -- `authMethods` shape, the terminal-
+                            method client-capability gate, the `auth/login`/`auth/logout`/
+                            `session/new` flow, and the open-enum `type` rule. A local
+                            `_initialized_agent` async context manager (one manual `initialize`,
+                            optionally with a `capabilities` override, plus
+                            `skip_if_version_mismatch`) is used throughout since most of these
+                            tests need to inspect the `initialize` result itself. `ACP-AUTH-201`
+                            (ADVISORY; re-cites v1's `ACP-AUTH-001`, field renamed `id` ->
+                            `methodId`). `ACP-AUTH-206` (MANDATORY, new in v2: every
+                            `authMethods[*].type` is `"agent"`, `"terminal"`, or `_`-prefixed --
+                            `type` is a required discriminator in v2, unlike v1 where it defaulted
+                            to `"agent"`). `ACP-AUTH-202` (MANDATORY, new id -- NOT a reuse of v1's
+                            `ACP-AUTH-002`, since the wire encoding changed: v1's gate was the
+                            top-level boolean `clientCapabilities.auth.terminal`, v2's is the
+                            nested object marker `capabilities.auth.terminal`; asserted on the
+                            default connection, which never advertises it). `ACP-AUTH-207`
+                            (MANDATORY, new in v2 -- no v1 analogue: on a *second*, dedicated
+                            connection that does advertise `capabilities.auth.terminal: {}`,
+                            every `type: "terminal"` entry's `args`/`env` shape is valid and
+                            `env` names are unique; SKIPs if no terminal entry appears at all).
+                            `ACP-AUTH-204` (CAPABILITY, `capability="inferred:authMethods"` --
+                            mirrors v1's `ACP-AUTH-003` exactly, method renamed `authenticate` ->
+                            `auth/login`; needs `--tck-auth-method`, SKIPs otherwise since the TCK
+                            cannot guess a valid `methodId`). `ACP-AUTH-205` (ADVISORY; re-cites
+                            v1's `ACP-AUTH-005`/AUTH-A1: no `authMethods` at all means
+                            `session/new` must not fail `-32000`). `ACP-AUTH-203` (CAPABILITY,
+                            `capability="inferred:authMethods"` -- replaces v1's `ACP-AUTH-004`
+                            outright, since v2 drops the separate `agentCapabilities.auth.logout`
+                            marker entirely and infers support from `authMethods` alone; runs ONLY
+                            with `--allow-logout`/`--tck-allow-logout`, since actually calling
+                            `auth/logout` may revoke the operator's own credentials -- SKIPs with
+                            reason `"auth/logout not exercised: pass --allow-logout (it may revoke
+                            the operator's credentials)"` otherwise).
 
 tests/
   conftest.py              agent_launch() helper for spawning fixture agents under
@@ -937,7 +982,16 @@ tests/
                           `additionalDirectories`/`mcpServers` need no new handling at all --
                           `_handle_new_session`/`_handle_resume_session` already ignore every
                           `params` key besides `cwd`/`sessionId`, so both are already "accepted"
-                          in the sense the corresponding tests check.
+                          in the sense the corresponding tests check. V2-5 adds authentication:
+                          an `auth_methods`/`require_auth` constructor pair (mirrors v1's
+                          `_base.py`), `auth/login`/`auth/logout` handlers (login succeeds iff
+                          `methodId` matches one of `auth_methods`, flipping `self._authenticated`;
+                          logout unconditionally flips it back and always succeeds), and
+                          `_handle_new_session` now errors with `-32000` when `require_auth` is
+                          set and the connection is not yet authenticated. `authMethods` is
+                          included in `initialize`'s result iff the constructor was given a
+                          non-`None` list (an empty list is distinct from omitting the key
+                          entirely, matching the schema's "optional array" framing).
     conforming.py          advertises `capabilities: {"session": {}}` so `ACP-SESSION-001/002`
                           PASS rather than SKIP; otherwise a trivial entry point, mirrors
                           `fixtures/agents/v1/conforming.py`
@@ -1018,8 +1072,17 @@ tests/
                           `ACP-RESUME-202`'s ordering rule), `session/list` returning `[]` (never
                           an error) when no session matches the query `cwd`, and a `configOptions`
                           entry on `session/new` plus a working `session/set_config_option` that
-                          returns the complete list -- PASSes all 76 ids when run with
-                          `--cancel-prompt __hang__`
+                          returns the complete list. V2-5 adds one `type: "agent"` authMethods
+                          entry (`methodId: "tck"`), correctly implementing `auth/login`/
+                          `auth/logout` -- PASSes all 83 registered ids when run with
+                          `--cancel-prompt __hang__ --auth-method tck --allow-logout`, except
+                          `ACP-AUTH-207` (MANDATORY but SKIPs: it needs a `type: "terminal"`
+                          entry to appear on a connection that advertises `capabilities.auth.
+                          terminal`, and this fixture advertises no terminal method at all -- a
+                          SKIPped MANDATORY id does not affect `verdict.conformant`, only a FAIL
+                          or NOT_TESTED one does, so the run is still CONFORMANT). Without
+                          `--allow-logout`, `ACP-AUTH-203` additionally SKIPs (its own,
+                          separately documented opt-in) but the run stays CONFORMANT either way
     asks_permission.py     (V2-2b) `AsksPermissionAgent` advertising only the plain
                           `capabilities.session` baseline (no prompt-content markers) --
                           isolates `ACP-PERM-201` PASSing while `ACP-PROMPTCAP-001/002/003` SKIP
@@ -1225,6 +1288,39 @@ tests/
                           `verbosity` one so a "partial" reply is actually distinguishable from a
                           "complete" one. FAILs exactly `ACP-CONFIG-202`; `ACP-CONFIG-201`/`203`/
                           `204`/`206` are unaffected. Mirrors v1's `config_partial_list.py`
+    gated_by_auth.py       (V2-5) advertises one `type: "agent"` authMethods entry (`methodId:
+                          "tck"`) and always errors `session/new` with `-32000` until `auth/
+                          login` has succeeded with that methodId. Without `--auth-method`,
+                          every session-dependent test SKIPs with the `AUTH-GATED:` marker,
+                          forcing `verdict.blocked_by_auth == true` (exit code 1) despite zero
+                          FAILs; with `--auth-method tck`, `connected_agent`'s auto-login step
+                          authenticates before anything else and the run is fully CONFORMANT.
+                          v2 port of v1's `gated_by_auth.py` (method renamed `authenticate` ->
+                          `auth/login`)
+    terminal_auth_unadvertised.py  (V2-5) advertises a `type: "terminal"` authMethods entry
+                          unconditionally, even to a connection that never advertised
+                          `capabilities.auth.terminal` -- FAILs exactly `ACP-AUTH-202`. No
+                          `args`/`env` fields, so it can't also trip `ACP-AUTH-207`. v2 port of
+                          v1's fixture of the same name (field renamed `id` -> `methodId`)
+    duplicate_method_id.py  (V2-5) advertises two authMethods entries sharing the same
+                          `methodId` -- FAILs exactly the ADVISORY `ACP-AUTH-201`; the verdict
+                          stays CONFORMANT (an ADVISORY FAIL never flips it). No v1 analogue
+    custom_auth_type_unprefixed.py  (V2-5) advertises an authMethods entry whose `type` is
+                          `"sso"` -- neither a defined value nor `_`-prefixed -- FAILs exactly
+                          `ACP-AUTH-206` (MANDATORY, new in v2: no v1 analogue, since v1 had no
+                          open-enum rule on this field at all)
+    advertises_auth_but_logout_errors.py  (V2-5) implements `auth/login` normally but always
+                          errors on `auth/logout`. FAILs `ACP-AUTH-203` only when run with
+                          `--auth-method tck --allow-logout` (both required to actually exercise
+                          `auth/logout` at all); without `--allow-logout` it SKIPs like any other
+                          agent, since the TCK never calls the destructive method. No v1 analogue
+                          (v1's logout test had no opt-in gate)
+    terminal_env_duplicate_names.py  (V2-5) advertises its `type: "terminal"` authMethods entry
+                          only to a connection that itself advertised `capabilities.auth.
+                          terminal` (so it never also trips `ACP-AUTH-202`); that entry's `env`
+                          array has two entries sharing the same `name`, violating "Names MUST be
+                          unique" -- FAILs exactly `ACP-AUTH-207` (MANDATORY, new in v2 -- no v1
+                          analogue: v1's terminal descriptor had no `args`/`env` fields at all)
 ```
 
 ## Running the TCK against an agent
@@ -1308,7 +1404,23 @@ message prefixed `"AUTH-GATED:"`, and the run is forced NOT CONFORMANT
 (`Verdict.blocked_by_auth`) even if no MANDATORY/CAPABILITY requirement otherwise failed --
 because those requirements were never actually exercised. `ACP-AUTH-003` itself additionally
 SKIPs outright whenever `--auth-method` is omitted (it can't guess a valid method id) or the
-agent advertises no `authMethods` at all.
+agent advertises no `authMethods` at all. `--auth-method` also works with `--protocol-version 2`
+(plugin: same `--tck-auth-method`), where it drives v2's renamed `auth/login` instead --
+`ACP-AUTH-204` is v2's `ACP-AUTH-003` counterpart and follows the exact same SKIP rules.
+
+`--allow-logout` (plugin: `--tck-allow-logout`) opts in to actually calling v2's `auth/logout`
+against the agent under test (`ACP-AUTH-203`). It is off by default -- unlike `--auth-method`,
+which only ever *reads* the agent's state, a real `auth/logout` call may revoke the operator's
+own credentials for whatever account the agent is authenticated as, so the TCK never calls it
+uninvited. Without this flag, `ACP-AUTH-203` SKIPs with reason `"auth/logout not exercised: pass
+--allow-logout (it may revoke the operator's credentials)"` instead of exercising the method; a
+SKIPped `Tier.CAPABILITY` requirement does not affect `verdict.conformant` (only a *failed*
+capability check does), so omitting `--allow-logout` never by itself makes a run NOT CONFORMANT.
+Has no effect under `--protocol-version 1`: v1's logout test (`ACP-AUTH-004`) is gated purely by
+the `agentCapabilities.auth.logout` capability marker and has no `--allow-logout`-style opt-in of
+its own. v2 has no equivalent capability marker at all (support is inferred from `authMethods`
+being non-empty), so `--allow-logout` is v2's only gate on whether `auth/logout` is ever called
+for real.
 
 You can also run the suite directly with plain pytest, e.g. to add pytest's own flags:
 

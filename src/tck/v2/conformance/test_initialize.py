@@ -13,7 +13,7 @@ from tck.v2.validation import validate_agent_message, validate_agent_response
 
 import pytest
 
-from ._helpers import connected_agent, new_session, run_prompt, skip_if_version_mismatch
+from ._helpers import connected_agent, login_if_needed, new_session, run_prompt, skip_if_version_mismatch
 
 
 @pytest.mark.requirement("ACP-INIT-001")
@@ -289,6 +289,7 @@ async def test_initialize_exchange_validates_against_schema(agent_launch, tmp_pa
 
         capabilities = msg["result"].get("capabilities")
         if isinstance(capabilities, dict) and capabilities.get("session") is not None:
+            await login_if_needed(agent, timeout=agent_launch.default_timeout)
             session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
             await run_prompt(
                 agent,
