@@ -16,56 +16,33 @@ registered).
 
 None of these tests carries a `@pytest.mark.capability(...)` marker (there is nothing for the
 autouse `_tck_capability_gate` to look up -- `capability="inferred:configOptions"` is
-documentation-only), so each connects via the local `_v2_only_agent` helper below -- `test_batch.
-py`'s "manual initialize + skip on VERSION-MISMATCH" pattern, kept local for the same reason
-`test_batch.py` keeps its own copy rather than promoting it to `_helpers.py` -- instead of
-`connected_agent(agent_launch)` directly, so a v1-only agent forced under `--protocol-version 2`
-SKIPs with the `VERSION-MISMATCH:` marker instead of just "session/new returned no
-configOptions" (`tests/v2/test_cli.py`'s `test_v1_conforming_agent_under_protocol_version_2_is_
-blocked_by_version_mismatch` invariant).
+documentation-only), so each connects via `_helpers.v2_only_agent` -- the shared "manual
+initialize + skip on VERSION-MISMATCH + login_if_needed" pattern (review-v2-slices-1b-6 finding
+19; this file previously kept its own byte-for-byte copy, including a hand-copied `initialize`
+params literal that bypassed `SPEC.initialize_params()` and omitted `capabilities` entirely)
+instead of `connected_agent(agent_launch)` directly, so a v1-only agent forced under
+`--protocol-version 2` SKIPs with the `VERSION-MISMATCH:` marker instead of just "session/new
+returned no configOptions" (`tests/v2/test_cli.py`'s `test_v1_conforming_agent_under_protocol_
+version_2_is_blocked_by_version_mismatch` invariant).
 """
 
 from __future__ import annotations
 
-import contextlib
 from typing import Any
 
 import pytest
 
-from tck.v2.protocol import PROTOCOL_VERSION
 from tck.v2.validation import validate_agent_response
 
 from ._helpers import (
-    connected_agent,
     drain_quiet,
-    login_if_needed,
     quiet_period,
     resume_session,
     set_config_option,
     skip_if_auth_gated,
-    skip_if_version_mismatch,
+    update_of,
+    v2_only_agent,
 )
-
-
-@contextlib.asynccontextmanager
-async def _v2_only_agent(agent_launch):
-    """A fresh connection, one manual `initialize`, and a `VERSION-MISMATCH:` skip unless the
-    agent actually negotiated v2 -- see the module docstring. Also logs in (`login_if_needed`)
-    when `--auth-method` was given, since every caller goes on to call `session/new` and this
-    manual `initialize` bypasses `connected_agent`'s own auto-login step."""
-    async with connected_agent(agent_launch, handshake=False) as agent:
-        req_id = await agent.send_request(
-            "initialize",
-            {"protocolVersion": PROTOCOL_VERSION, "info": {"name": "acp-tck", "version": "0"}},
-        )
-        entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
-        msg = entry.parsed
-        assert isinstance(msg, dict) and isinstance(msg.get("result"), dict), (
-            f"initialize did not return a result object: {entry.text!r}"
-        )
-        skip_if_version_mismatch(msg["result"])
-        await login_if_needed(agent, timeout=agent_launch.default_timeout)
-        yield agent
 
 
 async def _new_session_full_result(agent, cwd, *, timeout):
@@ -73,8 +50,8 @@ async def _new_session_full_result(agent, cwd, *, timeout):
     callers can inspect `configOptions`.
 
     SKIPs (via `skip_if_auth_gated`, same as `_helpers.new_session()`) rather than failing when
-    the agent requires authentication and no `--auth-method` was configured -- `_v2_only_agent`
-    now also performs `login_if_needed` itself, so this remaining `skip_if_auth_gated` call only
+    the agent requires authentication and no `--auth-method` was configured -- `v2_only_agent`
+    already performs `login_if_needed` itself, so this remaining `skip_if_auth_gated` call only
     matters when no `--auth-method` was given at all (the ordinary auth-gate SKIP)."""
     req_id = await agent.send_request("session/new", {"cwd": str(cwd)})
     entry = await agent.wait_for_response(req_id, timeout=timeout)
@@ -136,21 +113,10 @@ def _assert_config_options_shape_valid(config_options: list[Any]) -> None:
         # any other `type` is a custom/`_`-prefixed variant -- nothing further to check here.
 
 
-def _update_of(entry: Any) -> dict[str, Any] | None:
-    msg = entry.parsed
-    if not isinstance(msg, dict) or msg.get("method") != "session/update":
-        return None
-    params = msg.get("params")
-    if not isinstance(params, dict):
-        return None
-    update = params.get("update")
-    return update if isinstance(update, dict) else None
-
-
 @pytest.mark.requirement("ACP-CONFIG-201")
 async def test_config_options_shape_is_valid(agent_launch, tmp_path):
     """ACP-CONFIG-201."""
-    async with _v2_only_agent(agent_launch) as agent:
+    async with v2_only_agent(agent_launch) as agent:
         result = await _new_session_full_result(agent, tmp_path, timeout=agent_launch.default_timeout)
         config_options = result.get("configOptions")
         if not config_options:
@@ -158,10 +124,11 @@ async def test_config_options_shape_is_valid(agent_launch, tmp_path):
         _assert_config_options_shape_valid(config_options)
 
 
-async def _pick_settable_option(config_options: list[Any]) -> tuple[dict[str, Any], str, Any]:
+def _pick_settable_option(config_options: list[Any]) -> tuple[dict[str, Any], str, Any]:
     """Pick the first configOptions entry this suite knows how to `session/set_config_option`,
     returning `(option, set_type, new_value)`. Skips if `config_options[0]` is a custom type this
-    suite has no wire encoding for."""
+    suite has no wire encoding for. Plain function, not `async def` (review-v2-slices-1b-6 NIT
+    finding 32): it never awaits anything."""
     target = config_options[0]
     if target.get("type") == "boolean":
         return target, "boolean", not target.get("currentValue")
@@ -176,11 +143,18 @@ async def _pick_settable_option(config_options: list[Any]) -> tuple[dict[str, An
 
 
 @pytest.mark.requirement("ACP-CONFIG-202")
-async def test_set_config_option_returns_the_complete_list(agent_launch, tmp_path):
+async def test_set_config_option_returns_the_complete_list(agent_launch, tmp_path, record_property):
     """ACP-CONFIG-202. Gate is genuinely unstated upstream (C12): SKIPs rather than ever
     speculatively calling `session/set_config_option` when `session/new` advertised no
-    `configOptions` at all -- there would be nothing legitimate to set."""
-    async with _v2_only_agent(agent_launch) as agent:
+    `configOptions` at all -- there would be nothing legitimate to set.
+
+    Does NOT assert `changed["currentValue"] == new_value` (review-v2-slices-1b-6 finding 2;
+    `acp-v2-session-management.md:508`, C9: "Asserting `currentValue == the value you sent` is
+    weaker than it looks -- an agent may legitimately reflect a dependent adjustment; keep that
+    sub-assertion ADVISORY"). Only the superset-of-ids check below is this row's actual
+    contract; whether the changed entry's own value echoes what was sent is recorded via
+    `record_property`, never asserted."""
+    async with v2_only_agent(agent_launch) as agent:
         result = await _new_session_full_result(agent, tmp_path, timeout=agent_launch.default_timeout)
         config_options = result.get("configOptions")
         if not config_options:
@@ -191,7 +165,7 @@ async def test_set_config_option_returns_the_complete_list(agent_launch, tmp_pat
             for option in config_options
             if isinstance(option, dict) and "configId" in option
         }
-        target, set_type, new_value = await _pick_settable_option(config_options)
+        target, set_type, new_value = _pick_settable_option(config_options)
 
         entry = await set_config_option(
             agent,
@@ -218,16 +192,19 @@ async def test_set_config_option_returns_the_complete_list(agent_launch, tmp_pat
             (o for o in returned if isinstance(o, dict) and o.get("configId") == target["configId"]),
             None,
         )
-        assert changed is not None and changed.get("currentValue") == new_value, (
-            f"session/set_config_option's returned list does not reflect the new value for "
-            f"{target['configId']!r}: {changed!r}"
+        assert changed is not None, (
+            f"session/set_config_option's returned list is missing the changed option "
+            f"{target['configId']!r} entirely: {returned!r}"
+        )
+        record_property(
+            "acp_tck_config_option_echoes_sent_value", changed.get("currentValue") == new_value
         )
 
 
 @pytest.mark.requirement("ACP-CONFIG-203")
 async def test_resume_config_options_shape_is_valid_when_present(agent_launch, tmp_path):
     """ACP-CONFIG-203. A new carrier in v2 -- v1's `session/load` had no analogous field."""
-    async with _v2_only_agent(agent_launch) as agent:
+    async with v2_only_agent(agent_launch) as agent:
         result = await _new_session_full_result(agent, tmp_path, timeout=agent_launch.default_timeout)
         if not result.get("configOptions"):
             pytest.skip("session/new returned no configOptions")
@@ -248,7 +225,7 @@ async def test_resume_config_options_shape_is_valid_when_present(agent_launch, t
 @pytest.mark.requirement("ACP-CONFIG-204")
 async def test_select_config_option_current_value_is_declared(agent_launch, tmp_path):
     """ACP-CONFIG-204."""
-    async with _v2_only_agent(agent_launch) as agent:
+    async with v2_only_agent(agent_launch) as agent:
         result = await _new_session_full_result(agent, tmp_path, timeout=agent_launch.default_timeout)
         config_options = result.get("configOptions")
         if not config_options:
@@ -270,7 +247,7 @@ async def test_select_config_option_current_value_is_declared(agent_launch, tmp_
 async def test_config_option_update_is_complete_if_observed(agent_launch, tmp_path, record_property):
     """ACP-CONFIG-206. Conditional and vacuous (recorded, never FAILed) when no
     `config_option_update` is ever observed during the run."""
-    async with _v2_only_agent(agent_launch) as agent:
+    async with v2_only_agent(agent_launch) as agent:
         result = await _new_session_full_result(agent, tmp_path, timeout=agent_launch.default_timeout)
         config_options = result.get("configOptions")
         if not config_options:
@@ -281,7 +258,7 @@ async def test_config_option_update_is_complete_if_observed(agent_launch, tmp_pa
             for option in config_options
             if isinstance(option, dict) and "configId" in option
         }
-        target, set_type, new_value = await _pick_settable_option(config_options)
+        target, set_type, new_value = _pick_settable_option(config_options)
 
         entry = await set_config_option(
             agent,
@@ -303,7 +280,7 @@ async def test_config_option_update_is_complete_if_observed(agent_launch, tmp_pa
         update_entries = [
             update
             for entry in observed
-            if (update := _update_of(entry)) is not None and update.get("sessionUpdate") == "config_option_update"
+            if (update := update_of(entry)) is not None and update.get("sessionUpdate") == "config_option_update"
         ]
         record_property("acp_tck_config_option_update_observed", bool(update_entries))
         if not update_entries:

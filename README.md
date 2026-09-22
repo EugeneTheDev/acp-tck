@@ -60,9 +60,10 @@ process per test, so one crash can't cascade into unrelated failures.
   those requirements were never actually exercised.
 - `--allow-logout` -- (v2 only) opt in to actually calling `auth/logout` against the agent under
   test. Off by default because it may revoke the operator's own credentials for whatever account
-  the agent is authenticated as; without it, the logout requirement reports `SKIPPED` instead of
-  exercising the method (never affects conformance either way, since it's a `CAPABILITY`-tier
-  check).
+  the agent is authenticated as; without it, the logout requirement (`ACP-AUTH-203`) reports
+  `SKIPPED` instead of exercising the method. A SKIPPED `CAPABILITY`-tier requirement doesn't
+  affect conformance -- only a *failed* one does -- so omitting `--allow-logout` never by itself
+  makes a run NOT CONFORMANT.
 - `--close-grace S` -- grace period in seconds budgeted at each stage of the shutdown ladder
   (close stdin, then SIGTERM, then SIGKILL) when tearing down the agent process after a test
   (default 2.0). Each stage stops early as soon as the agent actually exits, rather than always

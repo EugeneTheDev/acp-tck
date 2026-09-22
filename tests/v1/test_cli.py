@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "agents" / "v1"
+FIXTURES_DIR_V2 = Path(__file__).parent.parent / "fixtures" / "agents" / "v2"
 CLI_SUBPROCESS_TIMEOUT = 60
 """Wall-clock cap on one `_run_cli` subprocess. Against `wrong_id_echo.py`, every
 `--timeout`-bounded MANDATORY/ADVISORY/INFORMATIONAL id fails/errors via a real timeout (since
@@ -111,6 +112,8 @@ CAPABILITY (see `test_session_capabilities.py` module docstring)."""
 def _run_cli(
     fixture: str,
     *,
+    fixture_dir: Path | None = None,
+    protocol_version: int | None = None,
     k: str | None = None,
     timeout: str = "1",
     report_json: str | None = None,
@@ -129,6 +132,8 @@ def _run_cli(
         "--startup-timeout",
         startup_timeout,
     ]
+    if protocol_version is not None:
+        cmd += ["--protocol-version", str(protocol_version)]
     if test_timeout is not None:
         cmd += ["--test-timeout", test_timeout]
     if k is not None:
@@ -144,7 +149,7 @@ def _run_cli(
     cmd += [
         "--",
         sys.executable,
-        str(FIXTURES_DIR / fixture),
+        str((fixture_dir or FIXTURES_DIR) / fixture),
     ]
     return subprocess.run(cmd, capture_output=True, text=True, timeout=CLI_SUBPROCESS_TIMEOUT)
 
@@ -375,6 +380,42 @@ def test_version_mismatch_errors_fails_init_003_only():
         assert statuses.get(req_id) == "SKIPPED", f"{req_id} should SKIP (unexercised):\n{result.stdout}"
     for req_id in _MANDATORY_IDS - {"ACP-INIT-003"} - _CANCEL_IDS - {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
+
+
+def test_v2_only_agent_under_protocol_version_1_is_blocked_by_version_mismatch():
+    """`v2_only_honest.py` (`tests/fixtures/agents/v2/`) always answers `initialize` with
+    `protocolVersion: 2`, honestly, regardless of what a v1 client requests -- the mirror image
+    of `tests/v2/test_cli.py`'s `test_v1_conforming_agent_under_protocol_version_2_is_blocked_by_
+    version_mismatch`. `_tck_capability_gate` (`tck.common.plugin`) is version-agnostic: it fires
+    whenever the negotiated `protocolVersion` does not equal this run's own, in either
+    direction, so every `CAPABILITY`-tier id here SKIPs with the `VERSION-MISMATCH:` marker
+    and zero CAPABILITY FAILs occur -- proving `Verdict.blocked_by_version_mismatch` itself is
+    symmetric, not "always `False` for a v1 run".
+
+    Unlike v2's own conformance tests, v1's MANDATORY/ADVISORY tests were written under a
+    single-version assumption and never call a `skip_if_version_mismatch`-equivalent guard
+    themselves, so a handful of them (`ACP-INIT-002`/`004`, `ACP-META-001`, `ACP-PROMPT-001`,
+    `ACP-SCHEMA-001`/`002`) genuinely FAIL here against the v2-shaped result -- an accurate,
+    pre-existing asymmetry in *test coverage*, not evidence against the flag's own symmetry."""
+    result = _run_cli(
+        "v2_only_honest.py", fixture_dir=FIXTURES_DIR_V2, protocol_version=1
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+    assert "blocked by version mismatch" in result.stdout, result.stdout
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {
+        "ACP-INIT-002",
+        "ACP-INIT-004",
+        "ACP-META-001",
+        "ACP-PROMPT-001",
+        "ACP-SCHEMA-001",
+        "ACP-SCHEMA-002",
+    }, result.stdout
+    for req_id in _CAPABILITY_IDS:
+        assert statuses.get(req_id) == "SKIPPED", f"{req_id}: {result.stdout}"
 
 
 def test_router_requires_info_passes_everything():

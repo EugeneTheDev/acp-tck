@@ -33,9 +33,34 @@ import pytest
 from tck.common.harness import AgentExited, AgentTimeout
 from tck.v2 import SPEC
 
-from ._helpers import connected_agent, new_session, quiet_period
+from ._helpers import connected_agent, new_session, probe_behaviour, quiet_period
 
 _PROMPT_TEXT = "hi"
+
+
+def _classify_reply_or_result(entry) -> str:
+    """`on_reply` for the two probes whose reply may legitimately be a normal `result` (a second
+    concurrent prompt's acceptance receipt; an unknown-`sessionId` prompt's own acceptance,
+    should an agent choose to accept it) as well as an error."""
+    msg = entry.parsed
+    error = msg.get("error") if isinstance(msg, dict) else None
+    if isinstance(error, dict):
+        return f"replied with error code {error.get('code')!r}"
+    elif isinstance(msg, dict) and "result" in msg:
+        return "replied with a result (no error)"
+    else:
+        return f"replied: {entry.text!r}"
+
+
+def _classify_reply(entry) -> str:
+    """`on_reply` for the two raw-transport probes (malformed JSON line / structurally invalid
+    request), where a `result` response is not itself a distinct, meaningful category."""
+    msg = entry.parsed
+    error = msg.get("error") if isinstance(msg, dict) else None
+    if isinstance(error, dict):
+        return f"replied with error code {error.get('code')!r}"
+    else:
+        return f"replied: {entry.text!r}"
 
 
 async def _probe_connection_usable_after(agent, tmp_path, timeout: float) -> str:
@@ -69,23 +94,10 @@ async def test_concurrent_prompt_behaviour(agent_launch, tmp_path, record_proper
             "session/prompt",
             {"sessionId": session_id, "prompt": [{"type": "text", "text": _PROMPT_TEXT}]},
         )
-        try:
-            entry = await agent.wait_for_response(
-                second_id, timeout=quiet_period(agent_launch.default_timeout)
-            )
-        except AgentTimeout:
-            behaviour = "silent"
-        except AgentExited as exc:
-            behaviour = f"agent exited (exit_code={exc.exit_code!r})"
-        else:
-            msg = entry.parsed
-            error = msg.get("error") if isinstance(msg, dict) else None
-            if isinstance(error, dict):
-                behaviour = f"replied with error code {error.get('code')!r}"
-            elif isinstance(msg, dict) and "result" in msg:
-                behaviour = "replied with a result (no error)"
-            else:
-                behaviour = f"replied: {entry.text!r}"
+        behaviour = await probe_behaviour(
+            agent.wait_for_response(second_id, timeout=quiet_period(agent_launch.default_timeout)),
+            _classify_reply_or_result,
+        )
 
         # Best-effort drain of the first prompt's own response, so this connection's teardown
         # doesn't race a still-in-flight turn; never asserts, never raises.
@@ -110,34 +122,26 @@ async def test_unknown_session_id_behaviour(agent_launch, tmp_path, record_prope
             "session/prompt",
             {"sessionId": "tck-does-not-exist", "prompt": [{"type": "text", "text": _PROMPT_TEXT}]},
         )
-        try:
-            entry = await agent.wait_for_response(prompt_id, timeout=agent_launch.default_timeout)
-        except AgentTimeout:
+        def _on_silent() -> str:
             outstanding = [
-                entry.parsed.get("method")
-                for entry in agent.pending()
-                if isinstance(entry.parsed, dict)
-                and entry.parsed.get("method")
-                and "id" in entry.parsed
+                pending.parsed.get("method")
+                for pending in agent.pending()
+                if isinstance(pending.parsed, dict)
+                and pending.parsed.get("method")
+                and "id" in pending.parsed
             ]
             if outstanding:
-                behaviour = (
+                return (
                     f"silent (agent had {len(outstanding)} outstanding client "
                     f"request(s): {outstanding})"
                 )
-            else:
-                behaviour = "silent"
-        except AgentExited as exc:
-            behaviour = f"agent exited (exit_code={exc.exit_code!r})"
-        else:
-            msg = entry.parsed
-            error = msg.get("error") if isinstance(msg, dict) else None
-            if isinstance(error, dict):
-                behaviour = f"replied with error code {error.get('code')!r}"
-            elif isinstance(msg, dict) and "result" in msg:
-                behaviour = "replied with a result (no error)"
-            else:
-                behaviour = f"replied: {entry.text!r}"
+            return "silent"
+
+        behaviour = await probe_behaviour(
+            agent.wait_for_response(prompt_id, timeout=agent_launch.default_timeout),
+            _classify_reply_or_result,
+            on_silent=_on_silent,
+        )
 
     record_property("behaviour", behaviour)
 
@@ -153,19 +157,10 @@ async def test_malformed_json_line_behaviour(agent_launch, tmp_path, record_prop
         await agent.wait_for_response(init_id, timeout=agent_launch.startup_timeout)
 
         await agent.send_raw(b"{not valid json at all")
-        try:
-            entry = await agent.read_line(timeout=quiet_period(agent_launch.default_timeout))
-        except AgentTimeout:
-            behaviour = "silent"
-        except AgentExited as exc:
-            behaviour = f"agent exited (exit_code={exc.exit_code!r})"
-        else:
-            msg = entry.parsed
-            error = msg.get("error") if isinstance(msg, dict) else None
-            if isinstance(error, dict):
-                behaviour = f"replied with error code {error.get('code')!r}"
-            else:
-                behaviour = f"replied: {entry.text!r}"
+        behaviour = await probe_behaviour(
+            agent.read_line(timeout=quiet_period(agent_launch.default_timeout)),
+            _classify_reply,
+        )
 
         usable_after = await _probe_connection_usable_after(
             agent, tmp_path, agent_launch.default_timeout
@@ -186,19 +181,10 @@ async def test_structurally_invalid_request_behaviour(agent_launch, tmp_path, re
         await agent.wait_for_response(init_id, timeout=agent_launch.startup_timeout)
 
         await agent.send_raw(b'{"foo": "bar"}')
-        try:
-            entry = await agent.read_line(timeout=quiet_period(agent_launch.default_timeout))
-        except AgentTimeout:
-            behaviour = "silent"
-        except AgentExited as exc:
-            behaviour = f"agent exited (exit_code={exc.exit_code!r})"
-        else:
-            msg = entry.parsed
-            error = msg.get("error") if isinstance(msg, dict) else None
-            if isinstance(error, dict):
-                behaviour = f"replied with error code {error.get('code')!r}"
-            else:
-                behaviour = f"replied: {entry.text!r}"
+        behaviour = await probe_behaviour(
+            agent.read_line(timeout=quiet_period(agent_launch.default_timeout)),
+            _classify_reply,
+        )
 
         usable_after = await _probe_connection_usable_after(
             agent, tmp_path, agent_launch.default_timeout

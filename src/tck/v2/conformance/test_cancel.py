@@ -12,11 +12,12 @@ acceptance receipt, `{messageId}`) onto a *separate*, terminating `session/updat
 `ACP-CANCEL-201/202/203/205/206/207/208` are `Tier.CAPABILITY`, `capability="capabilities.session"`
 -- `session/cancel` is named directly in the seven-method session baseline (the session-baseline
 rows rule), exactly like `ACP-SESSION-001/002`/`ACP-PROMPT-201` etc. `ACP-CANCEL-204`
-("as soon as possible") is `Tier.ADVISORY` on the `Requirement` itself (`capability=None`, per
-`Requirement.__post_init__`'s invariant) since a client-only TCK has no wire-observable way to
-judge promptness at all; its test still carries the `capabilities.session` marker for the SKIP
-gate and always ends in an explicit `pytest.skip(...)`, never an assertion, mirroring
-`ACP-PROMPT-003`'s "ADVISORY row, capability marker on the test anyway" pattern.
+("as soon as possible") is `Tier.INFORMATIONAL` on the `Requirement` itself (`capability=None`,
+per `Requirement.__post_init__`'s invariant) since a client-only TCK has no wire-observable way
+to judge promptness at all; its test still carries the `capabilities.session` marker for the SKIP
+gate and always ends in an explicit `pytest.skip(...)`, never an assertion. It records
+`acp_tck_cancel_sent`/`acp_tck_stop_reason` first so the always-SKIP is not vacuous -- an
+INFORMATIONAL/record-only row should still leave evidence in the report.
 
 **The race, and the honest-SKIP pattern** (ported from v1's `test_cancel.py`, re-keyed to v2's
 idle-based turn end instead of the response): `run_prompt(..., on_cancel=True)` fires
@@ -73,20 +74,39 @@ from __future__ import annotations
 
 import pytest
 
-from tck.common.harness import AgentExited, AgentTimeout, Direction
+from tck.common.harness import AgentTimeout, Direction
 
 from ..protocol import STOP_REASONS
-from ._helpers import connected_agent, new_session, quiet_period, run_prompt
+from ._helpers import (
+    connected_agent,
+    iter_messages,
+    new_session,
+    probe_behaviour,
+    quiet_period,
+    run_prompt,
+)
 
 
-def _skip_if_cancel_not_exercised(agent, turn, record_property, *, race_window: float) -> None:
-    """Shared v2 race gate for `ACP-CANCEL-201/203/206/207` -- see the module docstring's
-    "The race, and the honest-SKIP pattern" section. Only ever raises `pytest.skip.Exception`
-    (situations 1/2) or returns; never asserts anything itself."""
-    if turn.cancelled_at_index is None:
-        pytest.skip(
-            "cancellation not exercised: the turn ended before session/cancel could be sent"
-        )
+def _skip_if_turn_end_race_not_exercised(
+    agent,
+    turn,
+    record_property,
+    *,
+    race_window: float,
+    trigger_at_index: int | None,
+    trigger_method: str,
+    verb: str,
+    property_prefix: str,
+    race_explanation_suffix: str = "",
+) -> None:
+    """Shared v2 race gate behind `_skip_if_cancel_not_exercised` (`session/cancel` trigger,
+    `ACP-CANCEL-201/203/206/207`) and `_skip_if_close_cancel_not_exercised` (`session/close`
+    trigger, `ACP-CANCEL-208`) -- both were previously byte-for-byte copies of this same
+    skeleton apart from which trigger index/wire method/property-name prefix they used. See the
+    module docstring's "The race, and the honest-SKIP pattern" section. Only ever raises
+    `pytest.skip.Exception` (situations 1/2) or returns; never asserts anything itself."""
+    if trigger_at_index is None:
+        pytest.skip(f"{verb} not exercised: the turn ended before {trigger_method} could be sent")
     if turn.idle_update is None:
         # Ended via a JSON-RPC error instead of an idle -- not a race, but not this helper's
         # callers' concern either; ACP-CANCEL-203 is the row that judges this directly.
@@ -96,16 +116,34 @@ def _skip_if_cancel_not_exercised(agent, turn, record_property, *, race_window: 
         # A clean pass, or a value so wrong it isn't a plausible "finished on its own" outcome
         # either (ACP-STATE-203 already owns flagging an invalid stopReason) -- nothing to skip.
         return
-    cancel_timestamp = agent.transcript[turn.cancelled_at_index].timestamp
-    elapsed_ms = (turn.idle_update.timestamp - cancel_timestamp) * 1000
-    record_property("acp_tck_cancel_race_window_ms", f"{race_window * 1000:.0f}")
+    trigger_timestamp = agent.transcript[trigger_at_index].timestamp
+    elapsed_ms = (turn.idle_update.timestamp - trigger_timestamp) * 1000
+    record_property(f"acp_tck_{property_prefix}_race_window_ms", f"{race_window * 1000:.0f}")
     if elapsed_ms < race_window * 1000:
-        record_property("acp_tck_cancel_race_ms", f"{elapsed_ms:.0f}")
+        record_property(f"acp_tck_{property_prefix}_race_ms", f"{elapsed_ms:.0f}")
         pytest.skip(
-            f"cancellation not exercised: idle arrived {elapsed_ms:.0f} ms after session/cancel "
-            "(within the race window) with a valid but non-cancelled stopReason -- the agent may "
-            "simply have finished before reading the cancel notification"
+            f"{verb} not exercised: idle arrived {elapsed_ms:.0f} ms after {trigger_method} "
+            f"(within the race window) with a valid but non-cancelled stopReason{race_explanation_suffix}"
         )
+
+
+def _skip_if_cancel_not_exercised(agent, turn, record_property, *, race_window: float) -> None:
+    """Shared v2 race gate for `ACP-CANCEL-201/203/206/207` -- see the module docstring's
+    "The race, and the honest-SKIP pattern" section. Only ever raises `pytest.skip.Exception`
+    (situations 1/2) or returns; never asserts anything itself."""
+    _skip_if_turn_end_race_not_exercised(
+        agent,
+        turn,
+        record_property,
+        race_window=race_window,
+        trigger_at_index=turn.cancelled_at_index,
+        trigger_method="session/cancel",
+        verb="cancellation",
+        property_prefix="cancel",
+        race_explanation_suffix=(
+            " -- the agent may simply have finished before reading the cancel notification"
+        ),
+    )
 
 
 @pytest.mark.requirement("ACP-CANCEL-201", "ACP-CANCEL-207")
@@ -187,6 +225,12 @@ async def test_no_further_state_update_after_the_cancelled_idle(
     SKIPs (deferring to `ACP-CANCEL-201`/`207`) whenever the turn didn't actually resolve as
     `stopReason: "cancelled"` in the first place -- this row has nothing to check the "no further
     state_update" claim against otherwise.
+
+    Checks every message inside a batch-array line too: an agent that delivers a spurious
+    post-cancel `state_update` folded into a batch would otherwise be invisible to a dict-only
+    scan. Only catches `AgentTimeout` on the quiet-period wait, not `AgentExited`: an agent that
+    crashes right after the cancelled idle must not score a false PASS by having its exit
+    swallowed alongside "no further update arrived".
     """
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
@@ -207,16 +251,18 @@ async def test_no_further_state_update_after_the_cancelled_idle(
             )
 
         def _is_state_update_for_this_session(entry) -> bool:
-            msg = entry.parsed
-            if not (isinstance(msg, dict) and msg.get("method") == "session/update"):
-                return False
-            params = msg.get("params") or {}
-            if params.get("sessionId") != session_id:
-                return False
-            update = params.get("update") or {}
-            return update.get("sessionUpdate") == "state_update"
+            for msg in iter_messages(entry):
+                if msg.get("method") != "session/update":
+                    continue
+                params = msg.get("params") or {}
+                if params.get("sessionId") != session_id:
+                    continue
+                update = params.get("update") or {}
+                if update.get("sessionUpdate") == "state_update":
+                    return True
+            return False
 
-        with pytest.raises((AgentTimeout, AgentExited)):
+        with pytest.raises(AgentTimeout):
             await agent.wait_for_message(
                 _is_state_update_for_this_session,
                 timeout=quiet_period(agent_launch.default_timeout),
@@ -352,25 +398,16 @@ def _skip_if_close_cancel_not_exercised(agent, turn, record_property, *, race_wi
     """`ACP-CANCEL-208`'s own analogue of `_skip_if_cancel_not_exercised`, keyed on
     `action_sent_at_index`/`action_response` (the `session/close` trigger) instead of
     `cancelled_at_index` (there is no `session/cancel` in this scenario at all)."""
-    if turn.action_sent_at_index is None:
-        pytest.skip(
-            "cancellation-via-close not exercised: the turn ended before session/close could be "
-            "sent"
-        )
-    if turn.idle_update is None:
-        return
-    stop_reason = turn.stop_reason
-    if stop_reason == "cancelled" or stop_reason not in STOP_REASONS:
-        return
-    close_timestamp = agent.transcript[turn.action_sent_at_index].timestamp
-    elapsed_ms = (turn.idle_update.timestamp - close_timestamp) * 1000
-    record_property("acp_tck_close_cancel_race_window_ms", f"{race_window * 1000:.0f}")
-    if elapsed_ms < race_window * 1000:
-        record_property("acp_tck_close_cancel_race_ms", f"{elapsed_ms:.0f}")
-        pytest.skip(
-            f"cancellation-via-close not exercised: idle arrived {elapsed_ms:.0f} ms after "
-            "session/close (within the race window) with a valid but non-cancelled stopReason"
-        )
+    _skip_if_turn_end_race_not_exercised(
+        agent,
+        turn,
+        record_property,
+        race_window=race_window,
+        trigger_at_index=turn.action_sent_at_index,
+        trigger_method="session/close",
+        verb="cancellation-via-close",
+        property_prefix="close_cancel",
+    )
 
 
 @pytest.mark.requirement("ACP-CANCEL-208", "ACP-CLOSE-202")
@@ -425,16 +462,10 @@ async def test_cancel_with_no_foreground_work_behaviour(agent_launch, tmp_path, 
         def _is_a_response(entry) -> bool:
             return isinstance(entry.parsed, dict) and "method" not in entry.parsed
 
-        try:
-            entry = await agent.wait_for_message(
-                _is_a_response, timeout=quiet_period(agent_launch.default_timeout)
-            )
-        except AgentTimeout:
-            behaviour = "silent"
-        except AgentExited as exc:
-            behaviour = f"agent exited (exit_code={exc.exit_code!r})"
-        else:
-            behaviour = f"sent a response-shaped message: {entry.text!r}"
+        behaviour = await probe_behaviour(
+            agent.wait_for_message(_is_a_response, timeout=quiet_period(agent_launch.default_timeout)),
+            lambda entry: f"sent a response-shaped message: {entry.text!r}",
+        )
 
     record_property("behaviour", behaviour)
 
@@ -460,7 +491,16 @@ async def test_cancel_during_pending_permission_request_behaviour(
             timeout=agent_launch.default_timeout,
         )
         record_property("acp_tck_cancel_sent", turn.cancelled_at_index is not None)
-        record_property(
-            "acp_tck_permission_requests_seen", len(turn.client_requests_seen)
+        permission_requests_seen = sum(
+            1
+            for entry in turn.client_requests_seen
+            if isinstance(entry.parsed, dict)
+            and entry.parsed.get("method") == "session/request_permission"
         )
+        record_property(
+            "acp_tck_permission_requests_seen",
+            permission_requests_seen,
+        )  # filtered to session/request_permission specifically: client_requests_seen also
+        # carries agent -> client notifications, so an unfiltered len() here would no longer
+        # mean what its property name says.
         record_property("acp_tck_stop_reason", turn.stop_reason)

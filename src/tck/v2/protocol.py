@@ -57,6 +57,43 @@ STOP_REASONS = frozenset(
     }
 )
 
+# Open-enum value sets for the `ACP-ENUM-201`/`ACP-ENUM-202` families (schema/v2/schema.json's
+# `ToolKind`, `ToolCallStatus`, `PlanEntryPriority`, `PlanEntryStatus`,
+# `SessionUpdate.sessionUpdate`, `StateUpdate.state`, `ToolCallContent.type`). Hand-copied
+# constants, same as `STOP_REASONS` above; promoted here from `test_enums.py`'s own former
+# module-local copies (review-v2-slices-1b-6 finding 20). `tests/v2/test_validation.py`'s
+# `test_enum_sets_match_the_schema` independently re-derives each of these from `schema.json`'s
+# own `anyOf`/`const` branches and asserts equality, so a schema refresh that adds, removes, or
+# renames a branch is caught as a test failure rather than silently drifting out of sync.
+TOOL_KIND = frozenset(
+    {"read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other"}
+)
+TOOL_CALL_STATUS = frozenset({"pending", "in_progress", "completed", "failed", "cancelled"})
+PLAN_ENTRY_PRIORITY = frozenset({"high", "medium", "low"})
+PLAN_ENTRY_STATUS = frozenset({"pending", "in_progress", "completed", "cancelled"})
+SESSION_UPDATE_KIND = frozenset(
+    {
+        "user_message_chunk",
+        "user_message",
+        "agent_message_chunk",
+        "agent_message",
+        "agent_thought_chunk",
+        "agent_thought",
+        "state_update",
+        "tool_call_content_chunk",
+        "tool_call_update",
+        "terminal_update",
+        "terminal_output_chunk",
+        "plan_update",
+        "available_commands_update",
+        "config_option_update",
+        "session_info_update",
+        "usage_update",
+    }
+)
+STATE_UPDATE_STATE = frozenset({"running", "idle", "requires_action"})
+TOOL_CALL_CONTENT_TYPE = frozenset({"content", "diff", "terminal"})
+
 
 def is_valid_open_enum_value(value: Any, defined: frozenset[str]) -> bool:
     """Req B1: a value for an open enum / tagged-union discriminator (e.g. `StopReason`) is

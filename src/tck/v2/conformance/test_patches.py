@@ -24,10 +24,12 @@ D5), so these rows SKIP against `testy`/`echo_agent` and only PASS for real agai
 from __future__ import annotations
 
 import base64
+import os
 from typing import Any
 
 import pytest
 
+from ..protocol import STOP_REASON_CANCELLED, STOP_REASON_REFUSAL
 from ._helpers import connected_agent, new_session, run_prompt
 
 _PROMPT_TEXT = "hi"
@@ -187,7 +189,7 @@ async def test_terminal_updates_have_absolute_cwd_and_unique_ids(agent_launch, t
         cwd = update.get("cwd")
         if cwd is None:
             continue  # cwd is a patch field: omitted means unchanged, nothing new to check
-        assert isinstance(cwd, str) and cwd.startswith("/"), (
+        assert isinstance(cwd, str) and os.path.isabs(cwd), (
             f"terminal_update.cwd must be an absolute path, got {cwd!r}"
         )
         seen_cwd = first_cwd_by_id.get(terminal_id)
@@ -274,7 +276,10 @@ async def test_first_tool_call_update_reports_title(agent_launch, tmp_path):
 @pytest.mark.capability("capabilities.session")
 async def test_requires_action_reported_around_permission_request(agent_launch, tmp_path):
     """ACP-PATCH-209 (ADVISORY). While blocked on a permission response the agent reports
-    `requires_action`, and `running` when it resumes (`prompt-lifecycle.mdx:371`)."""
+    `requires_action`, and `running` when it resumes (`prompt-lifecycle.mdx:371`). SKIPs when
+    the turn ends in `refusal`/`cancelled`: a refused or cancelled turn legitimately never
+    resumes foreground work, so there is nothing for the "running again" half of this check to
+    observe."""
     turn = await _drive_one_turn(agent_launch, tmp_path)
     if not any(
         isinstance(entry.parsed, dict) and entry.parsed.get("method") == "session/request_permission"
@@ -289,6 +294,12 @@ async def test_requires_action_reported_around_permission_request(agent_launch, 
         f"agent sent session/request_permission but never reported state_update "
         f"{{state: 'requires_action'}}; observed states: {states!r}"
     )
+    if turn.stop_reason in (STOP_REASON_REFUSAL, STOP_REASON_CANCELLED):
+        pytest.skip(
+            f"turn ended with stopReason={turn.stop_reason!r}; the turn never resumed "
+            "foreground work, so there is nothing to check for a 'running' state after "
+            "requires_action"
+        )
     # `running` must appear again after the (last) requires_action, i.e. the agent resumed
     # foreground work once the permission answer came back.
     last_requires_action = max(i for i, s in enumerate(states) if s == "requires_action")

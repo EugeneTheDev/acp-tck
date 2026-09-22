@@ -8,7 +8,7 @@ update misattributed to `"other"`, `run_prompt` itself never observes a matching
 matching terminating idle and blocks until its own `timeout` elapses, then raises
 `AgentTimeout`. Every test that drives its own turn through `run_prompt` and inspects the
 returned `PromptTurn` (`ACP-PROMPT-201`, `ACP-PROMPT-203`, `ACP-STATE-201`, `ACP-STATE-202`,
-`ACP-STATE-203`, `ACP-PROMPT-002`) independently FAILs via that same `AgentTimeout` -- none of
+`ACP-STATE-203`, `ACP-PROMPT-205`) independently FAILs via that same `AgentTimeout` -- none of
 them get far enough to inspect `turn.updates` at all.
 This is the intended, honest outcome of misattributing every update's `sessionId`: it is
 indistinguishable, from the mock client's point of view, from an agent that never responds to

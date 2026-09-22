@@ -115,7 +115,7 @@ if [ "$CROSS_CHECK_V2" = "1" ]; then
     --report "$OUT_DIR/python-v2.json" python_v2_agent \
     --expect-only-mandatory-fail ACP-INIT-003 \
     --expect "testy_v2=" \
-    --expect "python_v2_agent=ACP-BATCH-201,ACP-BATCH-202,ACP-INIT-003,ACP-INIT-201,ACP-INIT-202"
+    --expect "python_v2_agent=ACP-BATCH-201,ACP-BATCH-202,ACP-INIT-003,ACP-INIT-201,ACP-INIT-202,ACP-JSONRPC-001,ACP-JSONRPC-003"
 else
   python3 "$SCRIPT_DIR/cross-check-summary.py" \
     "$OUT_DIR/testy.json" testy \

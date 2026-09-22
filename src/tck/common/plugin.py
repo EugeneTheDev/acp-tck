@@ -133,12 +133,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--tck-allow-logout",
         action="store_true",
         default=False,
-        help="Opt in to actually calling v2's `auth/logout` against the agent under test "
-        "(ACP-AUTH-203). Off by default because it may revoke the operator's own credentials "
-        "for whatever account the agent is authenticated as -- without this flag, ACP-AUTH-203 "
-        "SKIPs instead of exercising it. v1 has no equivalent option: its logout test "
-        "(ACP-AUTH-004) is gated purely by the `agentCapabilities.auth.logout` marker and is "
-        "unaffected by this flag.",
+        help="Opt in to actually calling v2's `auth/logout` against the agent under test. Off "
+        "by default because it may revoke the operator's own credentials for whatever account "
+        "the agent is authenticated as -- without this flag, the logout test SKIPs instead of "
+        "exercising it. v1 has no equivalent option: its logout test is gated purely by the "
+        "`agentCapabilities.auth.logout` marker and is unaffected by this flag.",
     )
     group.addoption(
         "--tck-close-grace",
@@ -823,9 +822,9 @@ def pytest_terminal_summary(
             terminalreporter.write_line(
                 "hint: one or more version-dependent tests were SKIPPED because this connection "
                 "did not negotiate the protocol version this run targets (initialize negotiated "
-                "down to a different version than --protocol-version requested) -- the agent "
-                "under test may simply not support this version; the run cannot be scored "
-                "CONFORMANT without a successful negotiation.",
+                "a different protocolVersion than --protocol-version requested, in either "
+                "direction) -- the agent under test may simply not support this version; the "
+                "run cannot be scored CONFORMANT without a successful negotiation.",
                 bold=True,
                 yellow=True,
             )

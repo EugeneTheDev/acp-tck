@@ -6,7 +6,7 @@ FAILs exactly `ACP-STATE-203` (the idle's `stopReason` must be a defined constan
 open-enum `_`-prefixed extension). `ACP-STATE-201` (`running` observed before the idle) and
 `ACP-STATE-202` (idle arrives after `running`) are unaffected -- both `running` and a
 stop-reason-bearing idle are still observed, just with an illegal value. `ACP-PROMPT-201`/
-`ACP-PROMPT-203`/`ACP-PROMPT-002` are all unaffected too.
+`ACP-PROMPT-203`/`ACP-PROMPT-205` are all unaffected too.
 """
 
 import sys

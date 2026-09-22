@@ -5,7 +5,13 @@ v2's schema is open at every scalar enum and tagged-union discriminator except
 `ElicitationSchemaType` and the JSON-RPC `jsonrpc` literal (B.4) -- but nine separate prose
 passages bind the *emitter* anyway: a value must be a defined constant OR begin with `_`
 (B.5). `tck.v2.protocol.is_valid_open_enum_value` is the hand-written check that enforces this
-(the schema itself would happily accept `"kind": "sorcery"` via its own `other`-branch fallback).
+(the schema itself would happily accept `"kind": "sorcery"` via its own `other`-branch
+fallback). The defined-constant sets themselves (`TOOL_KIND`, `TOOL_CALL_STATUS`,
+`PLAN_ENTRY_PRIORITY`, `PLAN_ENTRY_STATUS`, `SESSION_UPDATE_KIND`, `STATE_UPDATE_STATE`,
+`TOOL_CALL_CONTENT_TYPE`) live in `tck.v2.protocol` next to `STOP_REASONS`, not here -- promoted
+out of this module's former local copies (review-v2-slices-1b-6 finding 20); see
+`tests/v2/test_validation.py::test_enum_sets_match_the_schema` for the meta-test that keeps them
+honest against `schema.json`.
 
 The re-worded v1 `ACP-PROMPT-001` ("the idle's `stopReason` is a defined constant or `_`-prefixed")
 is deliberately **not** re-registered here: it is already fully covered by `ACP-STATE-203`, which
@@ -33,47 +39,28 @@ its own minimal turn by hand instead of reusing it.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from typing import Any
 
 import pytest
 
 from tck.common.harness import AgentExited, AgentTimeout
-from tck.v2.protocol import METHOD_NOT_FOUND, is_valid_open_enum_value
+from tck.v2.protocol import (
+    METHOD_NOT_FOUND,
+    PLAN_ENTRY_PRIORITY,
+    PLAN_ENTRY_STATUS,
+    SESSION_UPDATE_KIND,
+    STATE_UPDATE_STATE,
+    TOOL_CALL_CONTENT_TYPE,
+    TOOL_CALL_STATUS,
+    TOOL_KIND,
+    is_valid_open_enum_value,
+)
 
 from ._helpers import connected_agent, new_session, run_prompt
 
 _PROMPT_TEXT = "hi"
-
-_TOOL_KIND = frozenset(
-    {"read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other"}
-)
-_TOOL_CALL_STATUS = frozenset({"pending", "in_progress", "completed", "failed", "cancelled"})
-_PLAN_ENTRY_PRIORITY = frozenset({"high", "medium", "low"})
-_PLAN_ENTRY_STATUS = frozenset({"pending", "in_progress", "completed", "cancelled"})
-
-_SESSION_UPDATE_KIND = frozenset(
-    {
-        "user_message_chunk",
-        "user_message",
-        "agent_message_chunk",
-        "agent_message",
-        "agent_thought_chunk",
-        "agent_thought",
-        "state_update",
-        "tool_call_content_chunk",
-        "tool_call_update",
-        "terminal_update",
-        "terminal_output_chunk",
-        "plan_update",
-        "available_commands_update",
-        "config_option_update",
-        "session_info_update",
-        "usage_update",
-    }
-)
-_STATE_UPDATE_STATE = frozenset({"running", "idle", "requires_action"})
-_TOOL_CALL_CONTENT_TYPE = frozenset({"content", "diff", "terminal"})
 
 
 def _update_dicts(turn) -> list[dict[str, Any]]:
@@ -121,11 +108,11 @@ async def test_dedicated_prose_open_enum_sites_are_defined_or_underscore_prefixe
             continue
         if "kind" in update and update["kind"] is not None:
             checked += 1
-            if not is_valid_open_enum_value(update["kind"], _TOOL_KIND):
+            if not is_valid_open_enum_value(update["kind"], TOOL_KIND):
                 violations.append(f"tool_call_update.kind={update['kind']!r}")
         if "status" in update and update["status"] is not None:
             checked += 1
-            if not is_valid_open_enum_value(update["status"], _TOOL_CALL_STATUS):
+            if not is_valid_open_enum_value(update["status"], TOOL_CALL_STATUS):
                 violations.append(f"tool_call_update.status={update['status']!r}")
 
     for update in updates:
@@ -139,11 +126,11 @@ async def test_dedicated_prose_open_enum_sites_are_defined_or_underscore_prefixe
                 continue
             if "priority" in entry:
                 checked += 1
-                if not is_valid_open_enum_value(entry["priority"], _PLAN_ENTRY_PRIORITY):
+                if not is_valid_open_enum_value(entry["priority"], PLAN_ENTRY_PRIORITY):
                     violations.append(f"plan entry priority={entry['priority']!r}")
             if "status" in entry:
                 checked += 1
-                if not is_valid_open_enum_value(entry["status"], _PLAN_ENTRY_STATUS):
+                if not is_valid_open_enum_value(entry["status"], PLAN_ENTRY_STATUS):
                     violations.append(f"plan entry status={entry['status']!r}")
 
     if checked == 0:
@@ -174,18 +161,18 @@ async def test_no_dedicated_prose_open_enum_sites_are_defined_or_underscore_pref
         if kind is None:
             continue
         checked += 1
-        if not is_valid_open_enum_value(kind, _SESSION_UPDATE_KIND):
+        if not is_valid_open_enum_value(kind, SESSION_UPDATE_KIND):
             violations.append(f"sessionUpdate={kind!r}")
         if kind == "state_update" and "state" in update:
             checked += 1
-            if not is_valid_open_enum_value(update["state"], _STATE_UPDATE_STATE):
+            if not is_valid_open_enum_value(update["state"], STATE_UPDATE_STATE):
                 violations.append(f"state_update.state={update['state']!r}")
         if kind in ("tool_call_update", "tool_call_content_chunk"):
             content = update.get("content")
             for block in content or []:
                 if isinstance(block, dict) and "type" in block:
                     checked += 1
-                    if not is_valid_open_enum_value(block["type"], _TOOL_CALL_CONTENT_TYPE):
+                    if not is_valid_open_enum_value(block["type"], TOOL_CALL_CONTENT_TYPE):
                         violations.append(f"tool call content type={block['type']!r}")
 
     if checked == 0:
@@ -266,10 +253,24 @@ async def test_agent_tolerates_underscore_prefixed_permission_outcome(agent_laun
                     }
                 )
 
-        loop_deadline_timeout = agent_launch.default_timeout
+        # `deadline` bounds the *whole* loop below, not each individual read (review-v2-slices-
+        # 1b-6 finding 21): an agent that keeps streaming updates, each safely within
+        # `agent_launch.default_timeout` of the last, but never actually reaches a terminating
+        # idle, would otherwise let this loop run arbitrarily long since a fresh per-read
+        # deadline never itself expires.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + agent_launch.default_timeout
         try:
             while not reached_idle and not crashed_break:
-                entry = await agent.read_line(timeout=loop_deadline_timeout)
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise AgentTimeout(
+                        "never reached a terminating idle state_update after a `_`-prefixed "
+                        f"permission outcome within {agent_launch.default_timeout}s",
+                        agent.transcript,
+                        stderr=agent.stderr_text(),
+                    )
+                entry = await agent.read_line(timeout=remaining)
                 raw = entry.parsed
                 # A line may itself be a JSON-RPC batch array (`ACP-BATCH-207` permits an agent
                 # to spontaneously emit a batch of `session/update` notifications) -- unwrap it

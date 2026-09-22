@@ -4,7 +4,7 @@ different `messageId` than the one the `session/prompt` response actually return
 
 FAILs exactly `ACP-PROMPT-203` (the echoed `messageId` must match the response's). `ACP-PROMPT-
 201` (response shape) is unaffected -- the response itself is still well-formed. `ACP-STATE-201/
-202/203` and `ACP-PROMPT-002` are unaffected: `running`/idle/schema/sessionId are all otherwise
+202/203` and `ACP-PROMPT-205` are unaffected: `running`/idle/schema/sessionId are all otherwise
 normal.
 """
 

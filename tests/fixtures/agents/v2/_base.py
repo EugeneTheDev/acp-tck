@@ -56,10 +56,22 @@ acp-v2-session-management.md` B1: advertising `session` even as `{}` commits the
   vacuously SKIPping. Only `conforming_full.py` sets the flag. `AsksPermissionAgent` additionally
   brackets its `session/request_permission` with `state_update {state: "requires_action"}` before
   and `state_update {state: "running"}` after, so `ACP-PATCH-209` has something to observe too.
+- `terminal_auth_method`, a constructor-supplied `AuthMethod` dict (`type: "terminal"`), is
+  appended to whatever `auth_methods` `initialize` would otherwise answer, but only when the
+  request's own `params.capabilities.auth.terminal` object marker is present (`{}`/non-`null`) --
+  mirrors `ACP-AUTH-202`'s own gate exactly, so the default (no `auth.terminal` capability)
+  connection still advertises none and stays the negative control that id needs, while the
+  dedicated positive-capability connection `ACP-AUTH-207` opens sees one.
+- `_send_rich_turn_updates` also emits one `terminal_update` (with `command`/absolute `cwd`) and
+  one `terminal_output_chunk` (with independently-base64-encoded `data`) sharing a `terminalId`,
+  mirroring the pattern already used for `tool_call_update` (`ACP-PATCH-206`/`207`) -- so
+  `conforming_full.py` reaches `ACP-AUTH-207`/`ACP-PATCH-206`/`ACP-PATCH-207` PASS instead of
+  SKIP.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import sys
 from typing import Any
@@ -99,11 +111,13 @@ class ConformingAgent:
         auth_methods: list[dict[str, Any]] | None = None,
         require_auth: bool = False,
         emit_rich_turn_updates: bool = False,
+        terminal_auth_method: dict[str, Any] | None = None,
     ) -> None:
         self._session_count = 0
         self._message_count = 0
         self._tool_call_count = 0
         self._plan_count = 0
+        self._terminal_count = 0
         self._emit_rich_turn_updates = emit_rich_turn_updates
         self._capabilities = capabilities if capabilities is not None else {}
         self._agent_name = agent_name
@@ -123,6 +137,11 @@ class ConformingAgent:
         self._auth_methods = auth_methods
         self._require_auth = require_auth
         self._authenticated = False
+        # A `type: "terminal"` descriptor to append to `authMethods`, but only
+        # for a connection whose `initialize` request actually advertised
+        # `capabilities.auth.terminal` (see `_initialize_result`/`_client_wants_terminal_auth`
+        # below) -- `ACP-AUTH-202`'s own gate, so this never leaks onto the default connection.
+        self._terminal_auth_method = terminal_auth_method
 
     def run(self) -> None:
         for raw_line in sys.stdin:
@@ -229,9 +248,25 @@ class ConformingAgent:
             "capabilities": dict(self._capabilities),
             "info": {"name": self._agent_name, "version": "0.0.0"},
         }
-        if self._auth_methods is not None:
-            result["authMethods"] = self._auth_methods
+        auth_methods = list(self._auth_methods) if self._auth_methods is not None else []
+        if self._terminal_auth_method is not None and self._client_wants_terminal_auth(params):
+            auth_methods.append(self._terminal_auth_method)
+        if auth_methods:
+            result["authMethods"] = auth_methods
         return result
+
+    @staticmethod
+    def _client_wants_terminal_auth(params: dict[str, Any]) -> bool:
+        """`ACP-AUTH-202`'s own object-marker gate, mirrored here: `True` iff
+        the `initialize` request's `capabilities.auth.terminal` path resolves to a present,
+        non-`null` value (an empty object still counts)."""
+        capabilities = params.get("capabilities")
+        if not isinstance(capabilities, dict):
+            return False
+        auth = capabilities.get("auth")
+        if not isinstance(auth, dict):
+            return False
+        return auth.get("terminal") is not None
 
     def _handle_login(self, msg_id: Any, params: dict[str, Any]) -> None:
         method_id = params.get("methodId")
@@ -342,6 +377,12 @@ class ConformingAgent:
         # later `_handle_response` call instead of finishing it immediately, for
         # `AsksPermissionAgent`) both no-op/pass-through by default.
         session_id = params.get("sessionId")
+        # Reject a `sessionId` this agent never created, mirroring v1's own `_base.py` fixture
+        # strictness -- scoped to `session/prompt` only (`session/resume` deliberately accepts
+        # any `sessionId`, see `_handle_resume_session`).
+        if session_id not in self._sessions:
+            self._error(msg_id, -32602, f"Invalid params: unknown sessionId {session_id!r}")
+            return
         prompt = params.get("prompt") or []
         rejection = self._prompt_rejection(prompt)
         if rejection is not None:
@@ -436,6 +477,28 @@ class ConformingAgent:
                         }
                     ],
                 },
+            },
+        )
+        # One terminal_update (absolute cwd, ACP-PATCH-206) plus one terminal_output_chunk
+        # (independently-decodable base64 data, ACP-PATCH-207), sharing a terminalId -- otherwise
+        # both SKIP "no <variant> observed" against this fixture.
+        self._terminal_count += 1
+        terminal_id = f"term-{self._terminal_count:04d}"
+        self._send_update(
+            session_id,
+            {
+                "sessionUpdate": "terminal_update",
+                "terminalId": terminal_id,
+                "command": "echo hi",
+                "cwd": "/tmp",
+            },
+        )
+        self._send_update(
+            session_id,
+            {
+                "sessionUpdate": "terminal_output_chunk",
+                "terminalId": terminal_id,
+                "data": base64.b64encode(b"hi\n").decode("ascii"),
             },
         )
 

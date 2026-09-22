@@ -237,12 +237,12 @@ requirement id               testy            echo_agent       testy_v2         
 -----------------------------------------------------------------------------------------------
 ACP-ADDDIRS-201               MISSING          MISSING          SKIPPED          SKIPPED
 ACP-ADDDIRS-202               MISSING          MISSING          SKIPPED          SKIPPED
-ACP-AUTH-201                  MISSING          MISSING          PASS             PASS
+ACP-AUTH-201                  MISSING          MISSING          SKIPPED          SKIPPED
 ACP-AUTH-202                  MISSING          MISSING          PASS             PASS
 ACP-AUTH-203                  MISSING          MISSING          SKIPPED          SKIPPED
 ACP-AUTH-204                  MISSING          MISSING          SKIPPED          SKIPPED
 ACP-AUTH-205                  MISSING          MISSING          PASS             PASS
-ACP-AUTH-206                  MISSING          MISSING          PASS             PASS
+ACP-AUTH-206                  MISSING          MISSING          SKIPPED          SKIPPED
 ACP-AUTH-207                  MISSING          MISSING          SKIPPED          SKIPPED
 ACP-BATCH-201                 MISSING          MISSING          PASS             FAIL
 ACP-BATCH-202                 MISSING          MISSING          PASS             FAIL
@@ -287,7 +287,10 @@ ACP-INIT-201                  MISSING          MISSING          PASS            
 ACP-INIT-202                  MISSING          MISSING          PASS             FAIL
 ACP-INIT-203                  MISSING          MISSING          PASS             PASS
 ACP-INIT-204                  MISSING          MISSING          PASS             PASS
+ACP-JSONRPC-001 (v2)          MISSING          MISSING          PASS             FAIL
+ACP-JSONRPC-003 (v2)          MISSING          MISSING          PASS             FAIL
 ACP-JSONRPC-004 (v2)          MISSING          MISSING          PASS             PASS
+ACP-JSONRPC-005 (v2)          MISSING          MISSING          PASS             FAIL
 ACP-LIST-201                  MISSING          MISSING          PASS             PASS
 ACP-LIST-202                  MISSING          MISSING          PASS             PASS
 ACP-LIST-203                  MISSING          MISSING          PASS             PASS
@@ -321,29 +324,32 @@ ACP-TRANSPORT-201              MISSING          MISSING          PASS           
 ACP-TRANSPORT-203              MISSING          MISSING          PASS             PASS
 ```
 
-(Every id shared with v1 -- `ACP-INIT-001/003`, `ACP-JSONRPC-001/002/003/005`,
+(Every id shared with v1 -- `ACP-INIT-001/003`, `ACP-JSONRPC-001/002/003/004/005`,
 `ACP-ERROR-001`, `ACP-EXT-001`, `ACP-SCHEMA-001/002`, `ACP-SESSION-001/002`,
 `ACP-SHUTDOWN-001`, `ACP-STDERR-001`, `ACP-TRANSPORT-002`, `ACP-META-001`,
 `ACP-PROMPT-003`, `ACP-INFO-{PARSE,INVALIDREQ,UNKNOWNSESSION}-001` -- all still applies at v2
-and PASSes for both v2 agents except `ACP-INIT-003`, addressed below; omitted from this table
-for brevity since the v1 table above already shows the shared-id columns. See
-`scratch/cross-check/testy-v2.json` / `python-v2.json`, gitignored, for the complete, exact
-`cross-check-summary.py` output including every shared id.)
+and PASSes for both v2 agents except `ACP-INIT-003` and, for `python_v2_agent` only,
+`ACP-JSONRPC-001/003/005` (batch-delivered evidence, same root cause as the `ACP-BATCH-2xx`
+crash below), each given its own `(v2)`-suffixed row above since its v2 status diverges from
+the v1 table; every other shared id is omitted from this table for brevity since the v1 table
+above already shows those columns identically. See `scratch/cross-check/testy-v2.json` /
+`python-v2.json`, gitignored, for the complete, exact `cross-check-summary.py` output including
+every shared id.)
 
 **Per-tier counts:**
 
 | tier | testy_v2 PASS/FAIL/SKIPPED/NOT_TESTED | python_v2_agent PASS/FAIL/SKIPPED/NOT_TESTED |
 |---|---|---|
-| MANDATORY | 18/0/1/0 | 13/5/1/0 |
+| MANDATORY | 17/0/2/0 | 10/7/2/0 |
 | CAPABILITY | 31/0/20/0 | 30/0/21/0 |
-| ADVISORY | 16/0/8/0 | 13/3/8/0 |
-| INFORMATIONAL | 10/0/2/0 | 10/0/2/0 |
+| ADVISORY | 15/0/5/0 | 11/4/5/0 |
+| INFORMATIONAL | 10/0/6/0 | 10/0/6/0 |
 
 Verdict lines:
 
 ```
-testy_v2: VERDICT: CONFORMANT (blocked_by_auth=False) tier_counts={'MANDATORY': {'PASS': 18, 'FAIL': 0, 'SKIPPED': 1, 'NOT_TESTED': 0}, 'CAPABILITY': {'PASS': 31, 'FAIL': 0, 'SKIPPED': 20, 'NOT_TESTED': 0}, 'ADVISORY': {'PASS': 16, 'FAIL': 0, 'SKIPPED': 8, 'NOT_TESTED': 0}, 'INFORMATIONAL': {'PASS': 10, 'FAIL': 0, 'SKIPPED': 2, 'NOT_TESTED': 0}}
-python_v2_agent: VERDICT: NOT CONFORMANT (blocked_by_auth=False) tier_counts={'MANDATORY': {'PASS': 13, 'FAIL': 5, 'SKIPPED': 1, 'NOT_TESTED': 0}, 'CAPABILITY': {'PASS': 30, 'FAIL': 0, 'SKIPPED': 21, 'NOT_TESTED': 0}, 'ADVISORY': {'PASS': 13, 'FAIL': 3, 'SKIPPED': 8, 'NOT_TESTED': 0}, 'INFORMATIONAL': {'PASS': 10, 'FAIL': 0, 'SKIPPED': 2, 'NOT_TESTED': 0}}
+testy_v2: VERDICT: CONFORMANT (blocked_by_auth=False) tier_counts={'MANDATORY': {'PASS': 17, 'FAIL': 0, 'SKIPPED': 2, 'NOT_TESTED': 0}, 'CAPABILITY': {'PASS': 31, 'FAIL': 0, 'SKIPPED': 20, 'NOT_TESTED': 0}, 'ADVISORY': {'PASS': 15, 'FAIL': 0, 'SKIPPED': 5, 'NOT_TESTED': 0}, 'INFORMATIONAL': {'PASS': 10, 'FAIL': 0, 'SKIPPED': 6, 'NOT_TESTED': 0}}
+python_v2_agent: VERDICT: NOT CONFORMANT (blocked_by_auth=False) tier_counts={'MANDATORY': {'PASS': 10, 'FAIL': 7, 'SKIPPED': 2, 'NOT_TESTED': 0}, 'CAPABILITY': {'PASS': 30, 'FAIL': 0, 'SKIPPED': 21, 'NOT_TESTED': 0}, 'ADVISORY': {'PASS': 11, 'FAIL': 4, 'SKIPPED': 5, 'NOT_TESTED': 0}, 'INFORMATIONAL': {'PASS': 10, 'FAIL': 0, 'SKIPPED': 6, 'NOT_TESTED': 0}}
 ```
 
 `testy_v2` is fully **CONFORMANT** -- zero FAILs anywhere, all CAPABILITY-tier families PASS
@@ -368,6 +374,12 @@ JSON-RPC batch array observes `AgentExited(exit_code=1)` instead of a response.
 ```
 tck.common.harness.process.AgentExited: agent process exited while waiting for a line (exit_code=1)
 ```
+
+Same root cause additionally FAILs `ACP-JSONRPC-001`/`003` (MANDATORY) and `ACP-JSONRPC-005`
+(ADVISORY): these shared v1/v2 ids reuse `test_batch.py`'s `ACP-BATCH-204`/`202`/`203` tests as
+their own batch-delivered evidence (a second `@pytest.mark.requirement(...)` marker on the same
+test), so the crash that FAILs the batch id FAILs the co-bound JSON-RPC id too, for the same
+process-exit reason -- not a second, independent defect.
 
 `testy_v2` (native Rust v2 support, correctly implementing batching) PASSes all five -- this is
 squarely a Python SDK limitation, not a TCK bug, and not something `python_v2_agent.py` itself
@@ -432,10 +444,11 @@ predicted scorecard in `.agents/research/testy-cross-check.md` §3.1 exactly (on
 the already-decided ACP-INIT-003 strengthening); `echo_agent`'s v1 scorecard matches the
 prediction except for the previously-documented ACP-JSONRPC-004 finding. On v2, `testy_v2` is
 fully CONFORMANT (zero FAILs, matching the research's prediction that testy's native v2 agent
-correctly implements the full baseline), and every one of `python_v2_agent`'s eight FAILs is
+correctly implements the full baseline), and every one of `python_v2_agent`'s eleven FAILs is
 either (a) the already-documented, pre-slice Python SDK batch-support crash
-(`.agents/research/acp-v2-cancellation-and-batching.md` §B) or (a) the already-documented
-strict-version-rejection in the native Python v2 `Agent` (`.agents/research/
+(`.agents/research/acp-v2-cancellation-and-batching.md` §B -- including `ACP-JSONRPC-001/003/005`,
+whose evidence for this id is gathered by the same crashing batch tests) or (b) the
+already-documented strict-version-rejection in the native Python v2 `Agent` (`.agents/research/
 reference-sdks-v2-status.md`) -- both genuine upstream SDK limitations discovered before this
 slice, now empirically reproduced and confirmed rather than newly found here. Zero CAPABILITY-tier
 FAILs on either v2 agent means both fixtures/agents correctly implement whatever baseline they
@@ -447,6 +460,7 @@ flags in both `scripts/cross-check.sh` and `.github/workflows/ci.yml`):
 
 - `testy_v2`: zero MANDATORY FAILs (fully conformant).
 - `python_v2_agent`: exactly `ACP-BATCH-201`, `ACP-BATCH-202`, `ACP-INIT-003`, `ACP-INIT-201`,
-  `ACP-INIT-202` as MANDATORY FAILs -- any other MANDATORY FAIL, or the disappearance of one of
-  these five (e.g. if a future python-sdk release adds batch support or relaxes strict version
-  rejection), is worth investigating and updating this document for.
+  `ACP-INIT-202`, `ACP-JSONRPC-001`, `ACP-JSONRPC-003` as MANDATORY FAILs -- any other MANDATORY
+  FAIL, or the disappearance of one of these seven (e.g. if a future python-sdk release adds
+  batch support or relaxes strict version rejection), is worth investigating and updating this
+  document for.

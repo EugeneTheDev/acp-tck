@@ -31,9 +31,8 @@ import pytest
 
 from tck.common.harness import AgentExited, AgentTimeout, Direction
 from tck.v2 import SPEC, validation
-from tck.v2.protocol import STOP_REASONS
 
-from ._helpers import connected_agent, login_if_needed, new_session, quiet_period, run_prompt
+from ._helpers import connected_agent, iter_messages, new_session, quiet_period, run_prompt, skip_if_version_mismatch
 
 _PROMPT_TEXT = "hi"
 
@@ -64,9 +63,12 @@ async def test_unknown_custom_method_receives_a_response(agent_launch):
 async def test_meta_field_on_prompt_is_accepted(agent_launch, tmp_path):
     """ACP-META-001 (ADVISORY, re-cited from v1 unchanged -- `_meta` on `session/prompt` params
     still exists, `PromptRequest._meta`). A `session/prompt` carrying `_meta` with a
-    `traceparent` key is accepted and the turn still reaches a terminating idle with a legal
-    `stopReason` (v2's response is only an acceptance receipt, so this checks the *turn*, not the
-    response, unlike v1's version of this test)."""
+    `traceparent` key is still accepted (a normal acceptance receipt arrives) and the turn still
+    reaches a terminating idle `state_update` (v2's response is only an acceptance receipt, so
+    this checks the *turn*, not the response, unlike v1's version of this test). Does not also
+    check the stopReason's *validity* (review-v2-slices-1b-6 finding 10): that is
+    `ACP-STATE-203`'s own concern, checked unconditionally for every turn regardless of `_meta`;
+    duplicating it here would only obscure which id actually caught a bad stopReason."""
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         turn = await run_prompt(
@@ -89,9 +91,6 @@ async def test_meta_field_on_prompt_is_accepted(agent_launch, tmp_path):
     assert turn.idle_update is not None, (
         "a session/prompt carrying _meta must still reach a terminating idle state_update"
     )
-    assert turn.stop_reason in STOP_REASONS or (
-        isinstance(turn.stop_reason, str) and turn.stop_reason.startswith("_")
-    ), f"unexpected stopReason with _meta present: {turn.stop_reason!r}"
 
 
 @pytest.mark.requirement("ACP-META-201")
@@ -155,15 +154,20 @@ async def test_extensions_are_advertised_under_capabilities_meta(agent_launch):
     `initialize` -> `result.capabilities._meta`, not as a new root key of `capabilities` itself
     (`docs/protocol/v2/extensibility.mdx:93,126-149`) -- checked via a *nested* application of
     `find_unknown_root_keys` against the `AgentCapabilities` `$def`, rather than the
-    whole-response root-level check `ACP-SCHEMA-002` already performs."""
+    whole-response root-level check `ACP-SCHEMA-002` already performs.
+
+    Manual `initialize` (no session follows, so no `login_if_needed` call either -- review-v2-
+    slices-1b-6 finding 14: the removed call was dead code, nothing session-dependent came after
+    it) plus `skip_if_version_mismatch`: `AgentCapabilities`' own shape is v2-specific, so a v1-
+    only agent forced under `--protocol-version 2` cannot be honestly judged against it."""
     async with connected_agent(agent_launch, handshake=False) as agent:
         req_id = await agent.send_request("initialize", SPEC.initialize_params())
         entry = await agent.wait_for_response(req_id, timeout=agent_launch.startup_timeout)
-        await login_if_needed(agent, timeout=agent_launch.startup_timeout)
 
     msg = entry.parsed
     if not (isinstance(msg, dict) and isinstance(msg.get("result"), dict)):
         pytest.skip("initialize did not succeed; nothing to check here (ACP-INIT-001 owns this)")
+    skip_if_version_mismatch(msg["result"])
     capabilities = msg["result"].get("capabilities")
     if not isinstance(capabilities, dict):
         pytest.skip("initialize result has no capabilities object to check")
@@ -204,7 +208,10 @@ async def test_full_exchange_has_no_unknown_root_keys(agent_launch, tmp_path):
     construction not "a type that's part of the specification",
     `docs/protocol/v2/extensibility.mdx:39`). Swept over an ordinary
     initialize -> session/new -> session/prompt exchange, same trick as v1's version of this
-    test: derive `method_by_id` from the SENT transcript to resolve each response's own method."""
+    test: derive `method_by_id` from the SENT transcript to resolve each response's own method.
+    Unwraps every transcript line via `iter_messages` rather than requiring
+    `isinstance(entry.parsed, dict)` (review-v2-slices-1b-6 finding 5): a message delivered inside
+    a batch-array line must not silently escape this scan."""
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         await run_prompt(
@@ -216,9 +223,11 @@ async def test_full_exchange_has_no_unknown_root_keys(agent_launch, tmp_path):
 
     method_by_id: dict[Any, str] = {}
     for entry in agent.transcript:
-        msg = entry.parsed
-        if entry.direction is Direction.SENT and isinstance(msg, dict) and "method" in msg and "id" in msg:
-            method_by_id[msg["id"]] = msg["method"]
+        if entry.direction is not Direction.SENT:
+            continue
+        for msg in iter_messages(entry):
+            if "method" in msg and "id" in msg:
+                method_by_id[msg["id"]] = msg["method"]
 
     response_defs = validation._response_method_defs()
     request_and_notification_defs = validation._request_and_notification_method_defs()
@@ -227,27 +236,24 @@ async def test_full_exchange_has_no_unknown_root_keys(agent_launch, tmp_path):
     for entry in agent.transcript:
         if entry.direction is not Direction.RECEIVED:
             continue
-        msg = entry.parsed
-        if not isinstance(msg, dict):
-            continue
+        for msg in iter_messages(entry):
+            method = msg.get("method")
+            if isinstance(method, str):
+                if method.startswith("_") or method.startswith("$/"):
+                    continue  # extension/protocol methods carry no fixed shape by design
+                def_name = request_and_notification_defs.get(method)
+                if def_name is not None:
+                    extras = validation.find_unknown_root_keys(def_name, msg.get("params"))
+                    if extras:
+                        unknown.append(f"{method} params: {extras}")
+                continue
 
-        method = msg.get("method")
-        if isinstance(method, str):
-            if method.startswith("_") or method.startswith("$/"):
-                continue  # extension/protocol methods carry no fixed shape by design
-            def_name = request_and_notification_defs.get(method)
-            if def_name is not None:
-                extras = validation.find_unknown_root_keys(def_name, msg.get("params"))
-                if extras:
-                    unknown.append(f"{method} params: {extras}")
-            continue
-
-        if "result" in msg:
-            response_method = method_by_id.get(msg.get("id"))
-            def_name = response_defs.get(response_method) if response_method is not None else None
-            if def_name is not None:
-                extras = validation.find_unknown_root_keys(def_name, msg.get("result"))
-                if extras:
-                    unknown.append(f"{response_method} result: {extras}")
+            if "result" in msg:
+                response_method = method_by_id.get(msg.get("id"))
+                def_name = response_defs.get(response_method) if response_method is not None else None
+                if def_name is not None:
+                    extras = validation.find_unknown_root_keys(def_name, msg.get("result"))
+                    if extras:
+                        unknown.append(f"{response_method} result: {extras}")
 
     assert not unknown, f"unknown root-level key(s) found: {unknown!r}"

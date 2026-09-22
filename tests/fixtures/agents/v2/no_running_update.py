@@ -8,7 +8,7 @@ satisfied -- it is not vacuous -- and the assertion that a `running` update prec
 `running_seen`, which this fixture never sets, so they are never asserted at all -- this is the
 whole reason `ACP-STATE-201` needed its own, different gate (see
 `tck.v2.requirements`'s `ACP-STATE-201` docstring). `ACP-PROMPT-201`/`ACP-PROMPT-203`/
-`ACP-PROMPT-002` are unaffected: the response and the `user_message` update are unchanged.
+`ACP-PROMPT-205` are unaffected: the response and the `user_message` update are unchanged.
 """
 
 import sys

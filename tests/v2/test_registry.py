@@ -147,6 +147,59 @@ def test_registry_has_exactly_the_expected_requirements():
     }
 
 
+def test_advisory_tier_is_exactly_these_ids():
+    """Pins the ADVISORY set (review-v2-slices-1b-6 finding 17: the registry meta-tests checked
+    shape invariants but never the actual tier membership, so a re-tiering mistake -- e.g. this
+    slice's own ADVISORY -> INFORMATIONAL moves for `ACP-BATCH-206/207/208`/`ACP-CANCEL-204` --
+    could silently regress without any test catching it)."""
+    assert {req.id for req in REGISTRY.values() if req.tier is Tier.ADVISORY} == {
+        "ACP-AUTH-201",
+        "ACP-AUTH-205",
+        "ACP-BATCH-203",
+        "ACP-BATCH-204",
+        "ACP-BATCH-205",
+        "ACP-DELETE-203",
+        "ACP-ENUM-202",
+        "ACP-ENUM-203",
+        "ACP-ERROR-001",
+        "ACP-EXT-201",
+        "ACP-EXT-202",
+        "ACP-JSONRPC-004",
+        "ACP-JSONRPC-005",
+        "ACP-META-001",
+        "ACP-META-201",
+        "ACP-PATCH-208",
+        "ACP-PATCH-209",
+        "ACP-PROMPT-003",
+        "ACP-SCHEMA-002",
+        "ACP-SHUTDOWN-001",
+    }
+
+
+def test_informational_tier_is_exactly_these_ids():
+    """Pins the INFORMATIONAL set -- see `test_advisory_tier_is_exactly_these_ids` above.
+    `ACP-BATCH-206/207/208` and `ACP-CANCEL-204` are here (not ADVISORY): each is always SKIPped,
+    never PASS/FAIL, so per review-v2-slices-1b-6 they belong in the record-only tier."""
+    assert {req.id for req in REGISTRY.values() if req.tier is Tier.INFORMATIONAL} == {
+        "ACP-BATCH-206",
+        "ACP-BATCH-207",
+        "ACP-BATCH-208",
+        "ACP-CANCEL-204",
+        "ACP-EXT-203",
+        "ACP-INFO-BATCH-201",
+        "ACP-INFO-BATCH-202",
+        "ACP-INFO-CANCEL-201",
+        "ACP-INFO-CANCEL-202",
+        "ACP-INFO-CONCURRENT-201",
+        "ACP-INFO-INVALIDREQ-001",
+        "ACP-INFO-PARSE-001",
+        "ACP-INFO-UNKNOWNSESSION-001",
+        "ACP-MCP-201",
+        "ACP-MCP-202",
+        "ACP-STDERR-001",
+    }
+
+
 def test_capability_field_set_iff_capability_tier():
     for requirement in REGISTRY.values():
         if requirement.tier is Tier.CAPABILITY:

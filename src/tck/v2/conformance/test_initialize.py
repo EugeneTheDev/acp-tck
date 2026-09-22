@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from tck.common.harness import Direction
-from tck.common.report import current_tck_version
+from tck.v2 import SPEC
 from tck.v2.protocol import PROTOCOL_VERSION
 from tck.v2.validation import validate_agent_message, validate_agent_response
 
@@ -29,10 +29,7 @@ async def test_initialize_succeeds(agent_launch):
     `ACP-INIT-204`, all of which are version-mismatch-aware.
     """
     async with connected_agent(agent_launch, handshake=False) as agent:
-        req_id = await agent.send_request(
-            "initialize",
-            {"protocolVersion": PROTOCOL_VERSION, "info": {"name": "acp-tck", "version": "0"}},
-        )
+        req_id = await agent.send_request("initialize", SPEC.initialize_params())
         entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
         msg = entry.parsed
         assert isinstance(msg, dict) and "result" in msg, f"initialize did not succeed: {msg!r}"
@@ -62,10 +59,7 @@ async def test_version_negotiation_follows_the_two_branch_rule(agent_launch):
     violates the rule.
     """
     async with connected_agent(agent_launch, handshake=False) as agent_a:
-        req_id = await agent_a.send_request(
-            "initialize",
-            {"protocolVersion": PROTOCOL_VERSION, "info": {"name": "acp-tck", "version": "0"}},
-        )
+        req_id = await agent_a.send_request("initialize", SPEC.initialize_params())
         entry_a = await agent_a.wait_for_response(req_id, timeout=agent_launch.default_timeout)
         msg_a = entry_a.parsed
         assert isinstance(msg_a, dict) and isinstance(msg_a.get("result"), dict), (
@@ -79,8 +73,7 @@ async def test_version_negotiation_follows_the_two_branch_rule(agent_launch):
 
     async with connected_agent(agent_launch, handshake=False) as agent_b:
         req_id = await agent_b.send_request(
-            "initialize",
-            {"protocolVersion": 65535, "info": {"name": "acp-tck", "version": "0"}},
+            "initialize", {**SPEC.initialize_params(), "protocolVersion": 65535}
         )
         entry_b = await agent_b.wait_for_response(req_id, timeout=agent_launch.default_timeout)
         msg_b = entry_b.parsed
@@ -116,10 +109,7 @@ async def test_unsupported_version_still_succeeds(agent_launch):
     process per handshake" pattern.
     """
     async with connected_agent(agent_launch, handshake=False) as reference_agent:
-        ref_req_id = await reference_agent.send_request(
-            "initialize",
-            {"protocolVersion": PROTOCOL_VERSION, "info": {"name": "acp-tck", "version": "0"}},
-        )
+        ref_req_id = await reference_agent.send_request("initialize", SPEC.initialize_params())
         ref_entry = await reference_agent.wait_for_response(
             ref_req_id, timeout=agent_launch.default_timeout
         )
@@ -135,11 +125,7 @@ async def test_unsupported_version_still_succeeds(agent_launch):
 
     async with connected_agent(agent_launch, handshake=False) as agent:
         req_id = await agent.send_request(
-            "initialize",
-            {
-                "protocolVersion": 65535,
-                "info": {"name": "acp-tck", "version": current_tck_version()},
-            },
+            "initialize", {**SPEC.initialize_params(), "protocolVersion": 65535}
         )
         entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
         msg = entry.parsed
@@ -171,7 +157,7 @@ async def test_downgrade_request_still_succeeds(agent_launch):
     """
     async with connected_agent(agent_launch, handshake=False) as agent:
         req_id = await agent.send_request(
-            "initialize", {"protocolVersion": 1, "info": {"name": "acp-tck", "version": "0"}}
+            "initialize", {**SPEC.initialize_params(), "protocolVersion": 1}
         )
         entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
         msg = entry.parsed
@@ -196,10 +182,7 @@ async def test_info_is_required_and_well_formed(agent_launch):
     SKIPs with the `VERSION-MISMATCH:` marker in that case instead of FAILing.
     """
     async with connected_agent(agent_launch, handshake=False) as agent:
-        req_id = await agent.send_request(
-            "initialize",
-            {"protocolVersion": PROTOCOL_VERSION, "info": {"name": "acp-tck", "version": "0"}},
-        )
+        req_id = await agent.send_request("initialize", SPEC.initialize_params())
         entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
         msg = entry.parsed
         assert isinstance(msg, dict) and isinstance(msg.get("result"), dict), (
@@ -227,10 +210,7 @@ async def test_capabilities_markers_are_objects_not_booleans(agent_launch):
     see `test_info_is_required_and_well_formed` (`ACP-INIT-203`) above for the rationale.
     """
     async with connected_agent(agent_launch, handshake=False) as agent:
-        req_id = await agent.send_request(
-            "initialize",
-            {"protocolVersion": PROTOCOL_VERSION, "info": {"name": "acp-tck", "version": "0"}},
-        )
+        req_id = await agent.send_request("initialize", SPEC.initialize_params())
         entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
         msg = entry.parsed
         assert isinstance(msg, dict) and isinstance(msg.get("result"), dict), (
@@ -276,10 +256,7 @@ async def test_initialize_exchange_validates_against_schema(agent_launch, tmp_pa
     marker in that case instead.
     """
     async with connected_agent(agent_launch, handshake=False) as agent:
-        req_id = await agent.send_request(
-            "initialize",
-            {"protocolVersion": PROTOCOL_VERSION, "info": {"name": "acp-tck", "version": "0"}},
-        )
+        req_id = await agent.send_request("initialize", SPEC.initialize_params())
         entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)
         msg = entry.parsed
         assert isinstance(msg, dict) and isinstance(msg.get("result"), dict), (
