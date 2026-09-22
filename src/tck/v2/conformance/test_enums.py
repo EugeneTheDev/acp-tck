@@ -9,13 +9,12 @@ passages bind the *emitter* anyway: a value must be a defined constant OR begin 
 
 The re-worded v1 `ACP-PROMPT-001` ("the idle's `stopReason` is a defined constant or `_`-prefixed")
 is deliberately **not** re-registered here: it is already fully covered by `ACP-STATE-203`, which
-already combines "carries a `stopReason`" with exactly this value-legality check -- see
-`tck.v2.requirements`'s module docstring for the D3 reasoning.
+already combines "carries a `stopReason`" with exactly this value-legality check.
 
 `ACP-ENUM-201` covers the sites the report's B.2 table says carry *dedicated* per-site MUST prose
 (a curated, not exhaustive, subset of the full 30-site B.1/B.2 inventory -- classifying every
-single site's prose strength individually is disproportionate for one slice; this subset is
-directly traceable to the report's own citations and is the highest-value one to automate):
+single site's prose strength individually is out of scope; this subset is directly traceable to
+the report's own citations and is the highest-value one to automate):
 `ToolKind` (`tool_call_update.kind`), `ToolCallStatus` (`tool_call_update.status`),
 `PlanEntryPriority`/`PlanEntryStatus` (plan entries). Turn-observable, so `Tier.CAPABILITY`,
 `capability="capabilities.session"` per the session-baseline tiering rule (promoted from the

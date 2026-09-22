@@ -187,7 +187,7 @@ async def test_terminating_idle_carries_a_valid_stop_reason(agent_launch, tmp_pa
 async def test_updates_validate_and_carry_the_right_session_id(agent_launch, tmp_path):
     """ACP-PROMPT-205 (NOT a reuse of v1's ACP-PROMPT-002: same check, but v1's was
     `Tier.MANDATORY` and this one is `Tier.CAPABILITY` -- a changed tier is a changed
-    requirement under D3, so it gets its own id; see `tck.v2.requirements`'s module docstring).
+    requirement, so it gets its own id; see `tck.v2.requirements`'s module docstring).
 
     Vacuous pass when `turn.updates` is empty (a conforming agent is not required to send any
     updates at all -- see v1's identically-scoped test for the same rationale); only fails when

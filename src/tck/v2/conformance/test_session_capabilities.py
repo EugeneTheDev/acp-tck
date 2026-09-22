@@ -1,4 +1,4 @@
-"""V2-4 session management: `session/resume` (ACP-SESSION-203, ACP-RESUME-201..205),
+"""Session management: `session/resume` (ACP-SESSION-203, ACP-RESUME-201..205),
 `session/list` (ACP-LIST-201..204), `session/close`'s own baseline contract (ACP-CLOSE-201 --
 `ACP-CLOSE-202` is covered by `test_cancel.py`'s `test_close_cancels_foreground_work`, see
 `tck.v2.requirements`'s module docstring), `session/delete` (ACP-DELETE-201..203), the

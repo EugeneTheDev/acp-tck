@@ -16,7 +16,7 @@ carries a capability marker.
 `ACP-META-201` and `ACP-SCHEMA-002` both sweep an entire `session/new` + `session/prompt`
 exchange (the former for every `_meta` value in the transcript, the latter for unknown root
 keys), so both need the same `@pytest.mark.capability("capabilities.session")` marker as any
-other turn-driving test in this slice -- registry `capability` stays `None` for both (re-cited
+other turn-driving test -- registry `capability` stays `None` for both (re-cited
 unchanged for `ACP-SCHEMA-002`; not promoted for `ACP-META-201`, per the "v2 tiering rule for
 session-baseline rows"), but the *test* still needs the marker so the autouse version-mismatch/
 capability gate skips it cleanly instead of driving `run_prompt` against an agent that never
@@ -43,7 +43,7 @@ async def test_unknown_custom_method_receives_a_response(agent_launch):
     """ACP-EXT-001 (MANDATORY, re-cited from v1 unchanged --
     `docs/protocol/v2/extensibility.mdx:43,52,65,109`). *Some* response -- a result, or an error
     with any code -- must arrive for a `_`-prefixed custom method; the `-32601` code specifically
-    remains `ACP-JSONRPC-004`'s ADVISORY concern (D2), not re-checked here."""
+    remains `ACP-JSONRPC-004`'s ADVISORY concern, not re-checked here."""
     async with connected_agent(agent_launch) as agent:
         req_id = await agent.send_request("_tck/unknown")
         try:

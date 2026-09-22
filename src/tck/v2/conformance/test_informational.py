@@ -10,7 +10,7 @@ the probed behaviour itself -- each records what the agent actually does via `re
 for a human reading the report. (They can still FAIL if the prerequisite handshake --
 `initialize`/`session/new` -- itself fails; that is a real conformance problem the probe correctly
 surfaces, not a probe bug.) ACP-INFO-CONCURRENT-201/ACP-INFO-UNKNOWNSESSION-001 are gated on
-`capabilities.session` like every other prompt-turn requirement in this slice, even though the
+`capabilities.session` like every other prompt-turn requirement, even though the
 `Requirement` itself is INFORMATIONAL (`capability=None` on the registry entry -- see
 `tck.v2.requirements`'s module docstring for why the test marker and the registry's own
 tier/capability fields are independent). ACP-INFO-PARSE-001/ACP-INFO-INVALIDREQ-001 carry no such

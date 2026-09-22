@@ -5,7 +5,7 @@
 `user_message_chunk` updates' own `messageId`) is deliberately **not** registered here: it is
 already fully covered by the combination of `ACP-PROMPT-201` (response shape: `{messageId:
 <non-empty string>}`) and `ACP-PROMPT-203` (the response's `messageId` matches the echoed
-`user_message`'s own id) -- see `tck.v2.requirements`'s module docstring for the D3 reasoning.
+`user_message`'s own id).
 
 Every id here is turn-observable, so each is `Tier.CAPABILITY`, `capability="capabilities.session"`
 (ACP-PATCH-201/203/204/205/206/207) or `Tier.ADVISORY`, `capability=None` with only the *test*
@@ -15,8 +15,8 @@ for session-baseline rows" (MANDATORY-observed rows promote to CAPABILITY; ADVIS
 Per the report's own testability notes (A12-A15/`ACP-PATCH-204/205/206/207`), most of these are
 pure shape checks over whatever the agent happens to emit during one driven turn: SKIP "no
 <variant> observed" whenever the relevant update kind never appears at all, rather than either a
-vacuous PASS or an unjustified FAIL -- judging only what was actually observed, per this slice's
-own instructions. Neither reference SDK exercises tool calls/plans/terminals over v2 yet (report
+vacuous PASS or an unjustified FAIL -- judging only what was actually observed. Neither reference
+SDK exercises tool calls/plans/terminals over v2 yet (report
 D5), so these rows SKIP against `testy`/`echo_agent` and only PASS for real against the repo's own
 `conforming_full.py` (opted in via `emit_rich_turn_updates=True`) and its defect fixtures.
 """

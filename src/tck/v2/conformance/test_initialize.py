@@ -255,12 +255,12 @@ async def test_capabilities_markers_are_objects_not_booleans(agent_launch):
 
 @pytest.mark.requirement("ACP-SCHEMA-001")
 async def test_initialize_exchange_validates_against_schema(agent_launch, tmp_path):
-    """ACP-SCHEMA-001. Slice V2-2a extends this from the `initialize` exchange alone to also
-    drive a `session/new` + `session/prompt` turn on the same connection, once the v2 mock-
-    client prompt driver exists (mirrors `tck.v1.conformance.test_initialize
-    .test_full_exchange_validates_against_schema`'s "full exchange" scope). `method_by_id` is
-    derived by scanning the SENT transcript rather than threaded by hand, so it picks up
-    `session/new`/`session/prompt` alongside `initialize` for free.
+    """ACP-SCHEMA-001. Extends beyond the `initialize` exchange alone to also drive a
+    `session/new` + `session/prompt` turn on the same connection (mirrors
+    `tck.v1.conformance.test_initialize.test_full_exchange_validates_against_schema`'s "full
+    exchange" scope). `method_by_id` is derived by scanning the SENT transcript rather than
+    threaded by hand, so it picks up `session/new`/`session/prompt` alongside `initialize` for
+    free.
 
     The session/prompt-turn portion only runs when the negotiated result actually advertises
     `capabilities.session` (an object marker, checked manually here rather than via

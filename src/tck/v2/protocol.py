@@ -3,9 +3,9 @@
 Everything here is derived from the vendored spec artifacts in `tck/v2/schema/` (see
 `tck/v2/schema/VENDORED.md` for provenance) rather than hand-copied from documentation, so a
 schema refresh re-derives these automatically. Deliberately duplicated from `tck.v1.protocol`
-rather than imported (`.agents/research/common-v1-v2-split-analysis.md` D6: each version's own
-schema-derivation code is honest duplication, not shared machinery that would couple the two
-versions' schema shapes together) -- the two modules will drift as v2 (still Draft) evolves.
+rather than imported -- each version's schema-derivation code is honest duplication, not shared
+machinery that would couple the two versions' schema shapes together, since the two will drift
+as v2 (still Draft) evolves.
 """
 
 from __future__ import annotations
