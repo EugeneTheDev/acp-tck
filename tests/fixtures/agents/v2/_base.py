@@ -46,6 +46,33 @@ unaffected:
   as outside a batch) and a `_write_line` staticmethod that actually emits a line; this makes
   `_handle_batch`/`_handle_batch_entry` able to reuse every existing `_handle_request`/
   `_handle_cancel` method unchanged, just redirecting where their replies land.
+
+Slice V2-4 adds session management (`.agents/research/acp-v2-session-management.md`):
+
+- `session/resume` now actually replays: every `session/update` is recorded into a per-session
+  history (`_record_history`, called from `_send_update`) as it is sent, and
+  `_handle_resume_session` replays that history verbatim (via `_notify` directly, bypassing
+  `_record_history` so a replay is never itself re-recorded) when `replayFrom` is
+  `{"type": "start"}`; `replayFrom` omitted/`null` replays nothing (R2/R3). A `*_chunk` update is
+  preceded, the first time its `messageId` is seen, by a synthesized whole-message primer
+  (`content: []`) for the same id (R9's "chunks build on a preceding whole message" shape) --
+  this fixture itself only ever sends whole (non-chunked) updates, but the primer logic exists so
+  a chunk-emitting subclass/defect-fixture still produces schema-correct history.
+  `_handle_resume_session` accepts *any* `sessionId`, even one this process never created --
+  deliberately, so every route `_helpers.obtain_resumable_session` tries succeeds against this
+  fixture and `ACP-RESUME-201` never SKIPs here for lack of a resumable id.
+- `session/delete` (`_handle_delete_session`) removes the session the same way `session/close`
+  does, but is *not* itself gated on any hanging-prompt cancellation (D-series carries no such
+  side effect); deleting an unknown/already-deleted id still succeeds silently (`ACP-DELETE-203`).
+- `session/set_config_option` (`_handle_set_config_option`) looks up `configId` among whatever
+  `config_options` the constructor was given, updates its `currentValue`, and replies with the
+  complete, updated list (`ACP-CONFIG-202`). `session/new`/`session/resume` both include
+  `configOptions` in their result whenever any are configured (`ACP-CONFIG-201`/`203`).
+  `additionalDirectories`/`mcpServers` need no new handling at all: `_handle_new_session`/
+  `_handle_resume_session` already only ever read `cwd`/`sessionId` out of `params` and ignore
+  every other key, so both are already "accepted" in the sense `ACP-ADDDIRS-201/202`/
+  `ACP-MCP-201/202` check (never rejected) -- there is nothing to actively support beyond not
+  erroring.
 """
 
 from __future__ import annotations
@@ -75,11 +102,17 @@ class ConformingAgent:
     vendored schema's own description text on `AgentCapabilities.session`).
     """
 
+    # Session-history bookkeeping (V2-4): `sessionUpdate` kinds that belong to the replayable
+    # conversation history, split into whole-message and their `_chunk` counterparts.
+    _WHOLE_MESSAGE_KINDS = {"user_message", "agent_message", "agent_thought"}
+    _CHUNK_MESSAGE_KINDS = {"user_message_chunk", "agent_message_chunk", "agent_thought_chunk"}
+
     def __init__(
         self,
         *,
         capabilities: dict[str, Any] | None = None,
         agent_name: str = "tck-fixture-conforming-v2",
+        config_options: list[dict[str, Any]] | None = None,
     ) -> None:
         self._session_count = 0
         self._message_count = 0
@@ -88,6 +121,12 @@ class ConformingAgent:
         self._sessions: dict[str, str] = {}  # sessionId -> cwd
         self._hanging_sessions: dict[Any, bool] = {}  # sessionId -> awaiting session/cancel
         self._batch_collector: list[Any] | None = None  # non-None while inside `_handle_batch`
+        # `session/new`/`session/resume`'s `configOptions`, mutated in place by
+        # `session/set_config_option` (each entry's own dict, deep-copied from the constructor
+        # argument so callers can safely reuse the same literal across several agent instances).
+        self._config_options: list[dict[str, Any]] = [dict(opt) for opt in (config_options or [])]
+        self._history: dict[str, list[dict[str, Any]]] = {}  # sessionId -> replayable updates
+        self._primed_message_ids: dict[str, set[Any]] = {}  # sessionId -> messageIds already primed
 
     def run(self) -> None:
         for raw_line in sys.stdin:
@@ -173,6 +212,10 @@ class ConformingAgent:
             self._handle_resume_session(msg_id, params)
         elif method == "session/close":
             self._handle_close_session(msg_id, params)
+        elif method == "session/delete":
+            self._handle_delete_session(msg_id, params)
+        elif method == "session/set_config_option":
+            self._handle_set_config_option(msg_id, params)
         elif method == "session/prompt":
             self._handle_prompt(msg_id, params)
         else:
@@ -191,7 +234,10 @@ class ConformingAgent:
         self._session_count += 1
         session_id = f"sess-{self._session_count:04d}"
         self._sessions[session_id] = params.get("cwd", "")
-        self._reply(msg_id, {"sessionId": session_id})
+        result: dict[str, Any] = {"sessionId": session_id}
+        if self._config_options:
+            result["configOptions"] = self._current_config_options()
+        self._reply(msg_id, result)
 
     def _handle_list_sessions(self, msg_id: Any, params: dict[str, Any]) -> None:
         # `.agents/research/acp-v2-session-management.md` L1/L5: all params optional;
@@ -206,11 +252,25 @@ class ConformingAgent:
         self._reply(msg_id, {"sessions": sessions})
 
     def _handle_resume_session(self, msg_id: Any, params: dict[str, Any]) -> None:
-        # R2: `replayFrom` omitted/`null` -> MUST NOT replay history before responding. This
-        # fixture never retains history, so there is nothing to replay in the `{"type":"start"}`
-        # case either -- both branches respond immediately with the documented empty form `{}`
-        # (R12).
-        self._reply(msg_id, {})
+        # R2/R3: `replayFrom` omitted/`null` -> MUST NOT replay history before responding;
+        # `{"type": "start"}` -> replay the session's full retained history first. Accepts *any*
+        # `sessionId`, even one this process never created -- see the module docstring's
+        # `_helpers.obtain_resumable_session` note -- registering it as live if it wasn't
+        # already, so a later `session/close`/`session/list`/`session/prompt` on it behaves
+        # normally too.
+        session_id = params.get("sessionId")
+        if session_id not in self._sessions:
+            self._sessions[session_id] = params.get("cwd", "")
+        replay_from = params.get("replayFrom")
+        if isinstance(replay_from, dict) and replay_from.get("type") == "start":
+            for update in self._history.get(session_id, []):
+                # Replay via `_notify` directly (not `_send_update`): a replayed update must not
+                # itself be re-recorded into history.
+                self._notify("session/update", {"sessionId": session_id, "update": update})
+        result: dict[str, Any] = {}
+        if self._config_options:
+            result["configOptions"] = self._current_config_options()
+        self._reply(msg_id, result)
 
     def _handle_close_session(self, msg_id: Any, params: dict[str, Any]) -> None:
         # ACP-CANCEL-208: closing a session with a still-hanging `__hang__` prompt MUST cancel
@@ -221,6 +281,32 @@ class ConformingAgent:
             self._finish_turn(session_id, "cancelled")
         self._sessions.pop(session_id, None)
         self._reply(msg_id, {})
+
+    def _handle_delete_session(self, msg_id: Any, params: dict[str, Any]) -> None:
+        # ACP-DELETE-201/202: removes the session from `session/list`'s visibility, same as
+        # close, but with no cancellation side effect of its own (D-series carries none).
+        # ACP-DELETE-203: an unknown/already-deleted sessionId still succeeds silently.
+        session_id = params.get("sessionId")
+        self._sessions.pop(session_id, None)
+        self._history.pop(session_id, None)
+        self._reply(msg_id, {})
+
+    def _current_config_options(self) -> list[dict[str, Any]]:
+        return [dict(option) for option in self._config_options]
+
+    def _handle_set_config_option(self, msg_id: Any, params: dict[str, Any]) -> None:
+        # ACP-CONFIG-202: replies with the *complete*, updated `configOptions` list, not just
+        # the entry that changed.
+        config_id = params.get("configId")
+        value = params.get("value")
+        for option in self._config_options:
+            if option.get("configId") == config_id:
+                option["currentValue"] = value
+                break
+        else:
+            self._error(msg_id, -32602, "Invalid params: unknown configId")
+            return
+        self._reply(msg_id, {"configOptions": self._current_config_options()})
 
     def _handle_prompt(self, msg_id: Any, params: dict[str, Any]) -> None:
         # `.agents/research/acp-v2-prompt-lifecycle.md` §5 minimal conforming sequence:
@@ -324,7 +410,28 @@ class ConformingAgent:
             update["stopReason"] = stop_reason
         self._send_update(session_id, update)
 
+    def _record_history(self, session_id: Any, update: dict[str, Any]) -> None:
+        """Append `update` to `session_id`'s replayable history (V2-4, R9), primed with a
+        synthetic whole-message entry (`content: []`) the first time a `*_chunk` update's
+        `messageId` is seen -- so a replay of chunk-built history is itself schema-shaped, even
+        though this fixture never actually emits a chunk itself."""
+        kind = update.get("sessionUpdate")
+        if kind not in self._WHOLE_MESSAGE_KINDS and kind not in self._CHUNK_MESSAGE_KINDS:
+            return
+        history = self._history.setdefault(session_id, [])
+        if kind in self._CHUNK_MESSAGE_KINDS:
+            message_id = update.get("messageId")
+            primed = self._primed_message_ids.setdefault(session_id, set())
+            if message_id not in primed:
+                primed.add(message_id)
+                whole_kind = kind[: -len("_chunk")]
+                history.append(
+                    {"sessionUpdate": whole_kind, "messageId": message_id, "content": []}
+                )
+        history.append(dict(update))
+
     def _send_update(self, session_id: Any, update: dict[str, Any]) -> None:
+        self._record_history(session_id, update)
         self._notify("session/update", {"sessionId": session_id, "update": update})
 
     def _reply(self, msg_id: Any, result: dict[str, Any]) -> None:

@@ -10,6 +10,18 @@ acceptance receipt (`{messageId}`) sent at insertion time, and the turn's end is
 from a `session/update` `state_update {state: "idle"}` notification
 (`.agents/research/acp-v2-prompt-lifecycle.md` "Answer", §4). No v2 auth flow is in scope yet
 either (`skip_if_auth_gated`'s v1 counterpart still has no v2 twin).
+
+Slice V2-4 adds the session-management wire helpers (`resume_session`, `list_sessions`,
+`close_session`, `delete_session`, `set_config_option`) and `obtain_resumable_session`, which
+implements `.agents/research/acp-v2-session-management.md`'s "Recommended harness strategy" for
+the "hard problem" it flags: there is no spec-guaranteed way for a black-box client to obtain a
+session id it is entitled to `session/resume`. It tries, in order: (1) resuming the session just
+created on this connection; (3) `session/list` then resuming its first entry; (2)
+`session/close` then resume -- recording every route's error -- and raises `pytest.skip.Exception`
+with all three recorded errors if none succeeds, *unless* `session/resume` itself answered
+`-32601` (Method not found) on any attempt, which is instead surfaced as a hard failure (`B3`
+makes `session/resume` a baseline-mandatory method once `capabilities.session` is advertised at
+all, so `-32601` is unambiguously non-conformant, never just "this particular id didn't work").
 """
 
 from __future__ import annotations
@@ -93,6 +105,250 @@ async def new_session(agent: AgentProcess, cwd: Any, *, timeout: float | None = 
         f"session/new result.sessionId must be a non-empty string, got {session_id!r}"
     )
     return session_id
+
+
+async def resume_session(
+    agent: AgentProcess,
+    session_id: str,
+    cwd: Any,
+    *,
+    replay_from: dict[str, Any] | None = None,
+    additional_directories: list[str] | None = None,
+    mcp_servers: list[dict[str, Any]] | None = None,
+    timeout: float | None = None,
+) -> tuple[TranscriptEntry, list[tuple[int, TranscriptEntry]]]:
+    """Send `session/resume` and collect every `session/update` notification observed on the
+    wire before its response arrives, in wire order -- this *is* the replay stream
+    `ACP-RESUME-202..205` need to inspect. `session/resume`'s response is not an acceptance
+    receipt (unlike `session/prompt`'s): it carries the actual result directly, so unlike
+    `run_prompt` there is no separate turn-end predicate to wait for, just the matching response.
+
+    Returns `(response_entry, updates)`. Any agent -> client request arriving meanwhile (none is
+    expected during `session/resume`) is simply left unanswered in the transcript for the caller
+    to notice -- answering it here would risk masking a genuine defect with an invented outcome.
+    """
+    params: dict[str, Any] = {"sessionId": session_id, "cwd": str(cwd)}
+    if replay_from is not None:
+        params["replayFrom"] = replay_from
+    if additional_directories is not None:
+        params["additionalDirectories"] = additional_directories
+    if mcp_servers is not None:
+        params["mcpServers"] = mcp_servers
+    req_id = await agent.send_request("session/resume", params)
+
+    updates: list[tuple[int, TranscriptEntry]] = []
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout if timeout is not None else None
+    while True:
+        remaining = (deadline - loop.time()) if deadline is not None else None
+        if remaining is not None and remaining <= 0:
+            raise AgentTimeout(
+                f"session/resume {req_id!r} for session {session_id!r} did not respond within "
+                f"{timeout}s",
+                agent.transcript,
+                stderr=agent.stderr_text(),
+            )
+        entry = await agent.read_line(timeout=remaining)
+        msg = entry.parsed
+        if isinstance(msg, dict) and entry.matches_id(req_id):
+            return entry, updates
+        if isinstance(msg, dict) and msg.get("method") == "session/update":
+            updates.append((agent.transcript.index(entry), entry))
+        # Anything else observed on the wire while waiting (an unrelated notification, a
+        # malformed line) is not this helper's concern; keep waiting for the response.
+
+
+async def drain_quiet(agent: AgentProcess, quiet: float) -> list[TranscriptEntry]:
+    """Read whatever the agent sends for up to `quiet` seconds and return everything observed
+    (`session/update` notifications and anything else alike) -- the generic "nothing more is
+    coming" drain `ACP-RESUME-202` uses to confirm no replay update trails the response."""
+    collected: list[TranscriptEntry] = []
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + quiet
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            break
+        try:
+            entry = await agent.read_line(timeout=remaining)
+        except AgentTimeout:
+            break
+        collected.append(entry)
+    return collected
+
+
+async def list_sessions(
+    agent: AgentProcess,
+    *,
+    cwd: Any = None,
+    cursor: str | None = None,
+    timeout: float | None = None,
+) -> TranscriptEntry:
+    """Send `session/list` and return its response entry (the caller inspects `.parsed` itself --
+    unlike `new_session`, several tests need to see a raw error response too, e.g. a cursor round
+    trip is out of scope but an empty-list-vs-error check is not)."""
+    params: dict[str, Any] = {}
+    if cwd is not None:
+        params["cwd"] = str(cwd)
+    if cursor is not None:
+        params["cursor"] = cursor
+    req_id = await agent.send_request("session/list", params)
+    return await agent.wait_for_response(req_id, timeout=timeout)
+
+
+async def close_session(
+    agent: AgentProcess, session_id: str, *, timeout: float | None = None
+) -> TranscriptEntry:
+    """Send `session/close` for `session_id` and return its response entry."""
+    req_id = await agent.send_request("session/close", {"sessionId": session_id})
+    return await agent.wait_for_response(req_id, timeout=timeout)
+
+
+async def delete_session(
+    agent: AgentProcess, session_id: str, *, timeout: float | None = None
+) -> TranscriptEntry:
+    """Send `session/delete` for `session_id` and return its response entry."""
+    req_id = await agent.send_request("session/delete", {"sessionId": session_id})
+    return await agent.wait_for_response(req_id, timeout=timeout)
+
+
+async def set_config_option(
+    agent: AgentProcess,
+    session_id: str,
+    config_id: str,
+    *,
+    type: str,
+    value: Any,
+    timeout: float | None = None,
+) -> TranscriptEntry:
+    """Send `session/set_config_option` (`schema/v2/schema.json` `SetSessionConfigOptionRequest`:
+    `sessionId`+`configId` plus a `type`/`value` pair, e.g. `type="boolean", value=True` or
+    `type="id", value=<SessionConfigValueId>`) and return its response entry."""
+    params = {"sessionId": session_id, "configId": config_id, "type": type, "value": value}
+    req_id = await agent.send_request("session/set_config_option", params)
+    return await agent.wait_for_response(req_id, timeout=timeout)
+
+
+async def _route_just_created(agent: AgentProcess, cwd: Any, timeout: float | None) -> str:
+    """Route (1): the session `session/new` just created on this same fresh connection."""
+    return await new_session(agent, cwd, timeout=timeout)
+
+
+async def _route_from_list(agent: AgentProcess, cwd: Any, timeout: float | None) -> str:
+    """Route (3): the first entry `session/list` reports on this fresh connection. Raises if the
+    list is empty or malformed -- a fresh, just-opened connection has no session of its own yet,
+    so this route only ever helps against an agent that persists sessions across connections."""
+    entry = await list_sessions(agent, timeout=timeout)
+    msg = entry.parsed
+    result = msg.get("result") if isinstance(msg, dict) else None
+    sessions = result.get("sessions") if isinstance(result, dict) else None
+    if not sessions:
+        raise RuntimeError(f"session/list returned no sessions to resume: {entry.text!r}")
+    first = sessions[0]
+    session_id = first.get("sessionId") if isinstance(first, dict) else None
+    if not isinstance(session_id, str) or not session_id:
+        raise RuntimeError(f"session/list's first entry has no usable sessionId: {first!r}")
+    return session_id
+
+
+async def _route_after_close(agent: AgentProcess, cwd: Any, timeout: float | None) -> str:
+    """Route (2): create a session, `session/close` it, then attempt to resume the closed id."""
+    session_id = await new_session(agent, cwd, timeout=timeout)
+    await close_session(agent, session_id, timeout=timeout)
+    return session_id
+
+
+async def _attempt_resumable_route(
+    launch: AgentLaunch,
+    cwd: Any,
+    timeout: float | None,
+    errors: list[str],
+    route_setup: Callable[[AgentProcess, Any, float | None], Awaitable[str]],
+) -> tuple[AgentProcess, str, TranscriptEntry, contextlib.AsyncExitStack] | None:
+    """Try one route of `obtain_resumable_session` on its own fresh connection. Returns
+    `(agent, session_id, resume_response_entry, stack)` -- with the connection detached from
+    local cleanup via `stack.pop_all()` -- on success, so the caller can keep it open; `None` on
+    any failure, with the connection already closed and the failure appended to `errors`.
+
+    A `-32601` from `session/resume` itself is not a route failure to record and move past: `B3`
+    makes `session/resume` baseline-mandatory once `capabilities.session` is advertised at all,
+    so this is unconditionally a conformance failure and is raised via `pytest.fail(...)`
+    immediately, regardless of which route surfaced it.
+    """
+    attempt_stack = contextlib.AsyncExitStack()
+    try:
+        agent = await attempt_stack.enter_async_context(connected_agent(launch))
+        session_id = await route_setup(agent, cwd, timeout)
+        req_id = await agent.send_request(
+            "session/resume", {"sessionId": session_id, "cwd": str(cwd)}
+        )
+        entry = await agent.wait_for_response(req_id, timeout=timeout)
+    except pytest.skip.Exception:
+        await attempt_stack.aclose()
+        raise
+    except Exception as exc:  # noqa: BLE001 -- record and let the next route try
+        errors.append(repr(exc))
+        await attempt_stack.aclose()
+        return None
+
+    msg = entry.parsed
+    if isinstance(msg, dict) and isinstance(msg.get("result"), dict):
+        return agent, session_id, entry, attempt_stack.pop_all()
+
+    if isinstance(msg, dict) and isinstance(msg.get("error"), dict):
+        code = msg["error"].get("code")
+        await attempt_stack.aclose()
+        if code == METHOD_NOT_FOUND:
+            pytest.fail(
+                "session/resume answered -32601 Method not found -- session/resume is "
+                "baseline-mandatory once capabilities.session is advertised at all (B3), so "
+                "this is a hard failure of ACP-RESUME-201, not a route-specific SKIP"
+            )
+        errors.append(f"session/resume error: {msg['error']!r}")
+        return None
+
+    await attempt_stack.aclose()
+    errors.append(f"malformed session/resume response: {entry.text!r}")
+    return None
+
+
+@contextlib.asynccontextmanager
+async def obtain_resumable_session(
+    launch: AgentLaunch, cwd: Any, *, timeout: float | None = None
+) -> AsyncIterator[tuple[AgentProcess, str, TranscriptEntry]]:
+    """Yield `(agent, session_id, resume_response_entry)` for a connected, initialized agent, a
+    session id this helper found `session/resume` accepts for `cwd`, and the response entry from
+    the successful probe call that proved it (`ACP-RESUME-201` uses this directly rather than
+    issuing a second, redundant `session/resume` for the same id).
+
+    Implements `.agents/research/acp-v2-session-management.md`'s "hard problem": no route for
+    obtaining a legally resumable session id is spec-guaranteed. Tries, in order, each on its own
+    fresh connection: (1) resuming the session `session/new` just created on this same
+    connection; (3) `session/list`'s first entry; (2) creating a session, `session/close`-ing it,
+    then resuming it. `pytest.skip(...)`s with all three routes' recorded errors if none
+    succeeds -- *unless* `session/resume` itself ever answered `-32601`, which is instead a hard
+    `pytest.fail(...)` (see `_attempt_resumable_route`).
+
+    The yielded connection is whichever attempt succeeded; a caller that needs a *second*
+    `session/resume` call with different params (e.g. a specific `replayFrom`) is free to issue
+    one against the same session/connection.
+    """
+    errors: list[str] = []
+    result = None
+    for route_setup in (_route_just_created, _route_from_list, _route_after_close):
+        result = await _attempt_resumable_route(launch, cwd, timeout, errors, route_setup)
+        if result is not None:
+            break
+    if result is None:
+        pytest.skip(
+            "no resumable session obtainable via any of the three routes (create-then-resume, "
+            "list-then-resume, close-then-resume): " + "; ".join(errors)
+        )
+    agent, session_id, entry, stack = result
+    try:
+        yield agent, session_id, entry
+    finally:
+        await stack.aclose()
 
 
 def skip_if_version_mismatch(init_result: dict[str, Any]) -> None:

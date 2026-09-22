@@ -4,6 +4,11 @@ every turn: `capabilities.session.prompt.{image,audio,embeddedContext}` (ACP-PRO
 003) plus the plain `session: {}` baseline. Built on `AsksPermissionAgent`, so every turn also
 exercises `ACP-PERM-201`'s permission-request shape.
 
+Slice V2-4 adds `capabilities.session.delete`/`additionalDirectories`/`mcp: {stdio, http}` and
+one `select`-type `configOptions` entry (`_base.ConformingAgent`'s `config_options` param) --
+every new V2-4 CAPABILITY/INFORMATIONAL id this fixture's capabilities advertise must PASS (see
+`tests/v2/test_cli.py`).
+
 Must PASS every V2-2b id: PROMPTCAP-001/002/003 (this fixture never rejects any content block
 type), PROMPT-003 (accepts `resource_link` too), PERM-201 (every turn asks permission with a
 well-formed request, and the turn still reaches idle once answered), CLIENTCAP-201/202 (never
@@ -24,8 +29,24 @@ def main() -> None:
         capabilities={
             "session": {
                 "prompt": {"image": {}, "audio": {}, "embeddedContext": {}},
+                "delete": {},
+                "additionalDirectories": {},
+                "mcp": {"stdio": {}, "http": {}},
             },
-        }
+        },
+        config_options=[
+            {
+                "configId": "verbosity",
+                "name": "Verbosity",
+                "type": "select",
+                "currentValue": "normal",
+                "options": [
+                    {"value": "quiet", "name": "Quiet"},
+                    {"value": "normal", "name": "Normal"},
+                    {"value": "verbose", "name": "Verbose"},
+                ],
+            },
+        ],
     ).run()
 
 

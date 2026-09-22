@@ -8,7 +8,10 @@ driver's core prompt-turn requirements. Slice V2-2b added prompt content capabil
 permission-request shape, the agent->client method rules, reused `ACP-PROMPT-003`, and two
 INFORMATIONAL prompt-lifecycle probes. Slice V2-3 added cancellation, stdio transport, the
 JSON-RPC envelope, and batching (see `tck.v2.requirements`'s module docstring for the
-id-namespacing decisions).
+id-namespacing decisions). Slice V2-4 added session management: `session/resume` (including
+replay), `session/list`, `session/close`'s own contract (`ACP-CLOSE-202` reuses the same test as
+`ACP-CANCEL-208`), `session/delete`, `additionalDirectories`, MCP server config, and
+`configOptions`.
 """
 
 from __future__ import annotations
@@ -36,16 +39,22 @@ def test_ids_are_unique_and_well_formed():
         assert _ID_PATTERN.match(req_id), f"{req_id!r} does not match ACP-<AREA>-<NNN>"
 
 
-def test_registry_has_exactly_the_v2_3_requirements():
+def test_registry_has_exactly_the_v2_4_requirements():
     """This slice's registry covers the `initialize` handshake, the `session/new` baseline,
     (V2-2a) the mock-client prompt driver's core prompt-turn requirements, (V2-2b) prompt
     content capabilities, the permission-request shape, the agent->client method rules, reused
-    `ACP-PROMPT-003`, and the two INFORMATIONAL prompt-lifecycle probes, and (V2-3) cancellation
+    `ACP-PROMPT-003`, and the two INFORMATIONAL prompt-lifecycle probes, (V2-3) cancellation
     (`ACP-CANCEL-201..208`, `ACP-INFO-CANCEL-201/202`), stdio transport (`ACP-TRANSPORT-002`,
     reused from v1; `ACP-TRANSPORT-201`/`203`, new/widened), the JSON-RPC envelope
     (`ACP-JSONRPC-001..005`, all reused from v1 -- only the evidence-gathering probe widens to
-    cover batches), and batching (`ACP-BATCH-201..208`, `ACP-INFO-BATCH-201/202`) -- see
-    `tck.v2.requirements`'s module docstring for the full id-namespacing rationale."""
+    cover batches), and batching (`ACP-BATCH-201..208`, `ACP-INFO-BATCH-201/202`), and (V2-4)
+    session management: `session/resume` (`ACP-SESSION-203`, `ACP-RESUME-201..205`),
+    `session/list` (`ACP-LIST-201..204`), `session/close` (`ACP-CLOSE-201`; `ACP-CLOSE-202`
+    reuses `test_cancel.py`'s `ACP-CANCEL-208` test rather than adding a second probe),
+    `session/delete` (`ACP-DELETE-201..203`), `additionalDirectories` (`ACP-ADDDIRS-201/202`),
+    MCP server config (`ACP-MCP-201/202`, INFORMATIONAL), and `configOptions`
+    (`ACP-CONFIG-201..204,206`) -- see `tck.v2.requirements`'s module docstring for the full
+    id-namespacing rationale."""
     assert set(REGISTRY) == {
         "ACP-INIT-001",
         "ACP-INIT-003",
@@ -99,6 +108,30 @@ def test_registry_has_exactly_the_v2_3_requirements():
         "ACP-INFO-BATCH-202",
         "ACP-INFO-CANCEL-201",
         "ACP-INFO-CANCEL-202",
+        "ACP-SESSION-203",
+        "ACP-RESUME-201",
+        "ACP-RESUME-202",
+        "ACP-RESUME-203",
+        "ACP-RESUME-204",
+        "ACP-RESUME-205",
+        "ACP-LIST-201",
+        "ACP-LIST-202",
+        "ACP-LIST-203",
+        "ACP-LIST-204",
+        "ACP-CLOSE-201",
+        "ACP-CLOSE-202",
+        "ACP-DELETE-201",
+        "ACP-DELETE-202",
+        "ACP-DELETE-203",
+        "ACP-ADDDIRS-201",
+        "ACP-ADDDIRS-202",
+        "ACP-MCP-201",
+        "ACP-MCP-202",
+        "ACP-CONFIG-201",
+        "ACP-CONFIG-202",
+        "ACP-CONFIG-203",
+        "ACP-CONFIG-204",
+        "ACP-CONFIG-206",
     }
 
 
