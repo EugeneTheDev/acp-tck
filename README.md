@@ -6,8 +6,9 @@ A Test Compatibility Kit for the [Agent Client Protocol](https://agentclientprot
 Targets **v1** by default, with an opt-in **v2** (Draft) suite via `--protocol-version 2` that so
 far covers the `initialize` handshake, `session/new`, the core `session/prompt`
 turn/`state_update` lifecycle, prompt content capabilities, the permission flow, the
-agent -> client method rules, and cancellation/stdio-transport/JSON-RPC-envelope/batching --
-still well short of v1 parity. It launches an agent
+agent -> client method rules, cancellation/stdio-transport/JSON-RPC-envelope/batching, and
+session management (`session/resume`/`list`/`close`/`delete`, `additionalDirectories`, MCP
+server config, config options) -- still well short of v1 parity. It launches an agent
 implementation as a stdio subprocess, drives it through the protocol
 -- initialize, session lifecycle, prompt turns, cancellation, error handling, transport hygiene --
 and reports which requirements pass, fail, don't apply, or were never exercised.
@@ -31,9 +32,10 @@ process per test, so one crash can't cascade into unrelated failures.
 - `--protocol-version {1,2}` -- which protocol version's conformance suite to run (default 1).
   `2` runs the ACP v2 (Draft) suite, which so far covers the `initialize` handshake, the
   `session/new` baseline, the core `session/prompt` turn/`state_update` lifecycle, prompt
-  content capabilities, the permission flow, the agent -> client method rules, and
-  cancellation/stdio transport/the JSON-RPC envelope/batching -- see `AGENTS.md`'s
-  `src/tck/v2/` layout entry. If the agent under
+  content capabilities, the permission flow, the agent -> client method rules,
+  cancellation/stdio transport/the JSON-RPC envelope/batching, and session management
+  (`session/resume`/`list`/`close`/`delete`, `additionalDirectories`, MCP server config, config
+  options) -- see `AGENTS.md`'s `src/tck/v2/` layout entry. If the agent under
   test never actually negotiates the requested version, version-dependent tests are `SKIPPED`
   with a `VERSION-MISMATCH` hint and the run is forced `NOT CONFORMANT`.
 - `--agent-cwd DIR` -- working directory for the agent (default: inherit).
@@ -133,10 +135,11 @@ ACP **v2** (Draft, schema version `2.0.0-alpha.5` at the vendored pin) is availa
 `session/new` baseline, the core `session/prompt` turn/`state_update` lifecycle, prompt content
 capabilities (`image`/`audio`/`embeddedContext`), the `session/request_permission` flow, the
 agent -> client method rules, cancellation (confirmed via a terminating `cancelled` idle
-`state_update`, not the prompt response), stdio transport, the JSON-RPC envelope, and batching
-(52 requirements in all) -- still well short of v1 parity (no `session/close` mid-turn beyond
-cancellation, no auth flow yet) -- see `src/tck/v2/`'s entry in `AGENTS.md`'s "Layout" for
-exactly what's covered.
+`state_update`, not the prompt response), stdio transport, the JSON-RPC envelope, batching, and
+session management (`session/resume` including replay ordering, `session/list`, `session/close`/
+`delete`, `additionalDirectories`, MCP server config, and `session/set_config_option`/
+`configOptions`) (76 requirements in all) -- still well short of v1 parity (no auth flow yet) --
+see `src/tck/v2/`'s entry in `AGENTS.md`'s "Layout" for exactly what's covered.
 
 Also covered: `MANDATORY` negative tests asserting the agent never calls `fs/*`, `terminal/*`, or
 `elicitation/create` during a prompt turn when the client didn't advertise the matching capability

@@ -296,13 +296,18 @@ family gets fresh `2xx` ids per the report's own §C table.
   same as INFORMATIONAL.
 - `ACP-CANCEL-208` (`session/close` on a session with foreground work MUST cancel it first) is
   registered and tested this slice, per `.agents/plan.md`'s explicit, inclusive V2-3 scope line
-  ("CANCEL-201..208"). It does **not** duplicate V2-4's future `CLOSE-201/202` rows ("idle
-  cancelled" per that slice's own bullet): `ACP-CANCEL-208` is specifically the
+  ("CANCEL-201..208"). **Superseded note** (V2-4 corrected this once that slice actually landed --
+  see "V2-4: session management" below): the text below originally speculated that V2-4's
+  `CLOSE-201/202` would instead cover `session/close`'s own basic contract (response shape,
+  idempotency, post-close session state) as a concern *distinct* from cancellation. V2-4's own
+  input report and `.agents/plan.md`'s literal "CLOSE-201/202 (idle cancelled)" bullet both
+  confirm the opposite: `ACP-CLOSE-202` *is* the idle-cancelled/cancel-side-effect row, and it
+  deliberately reuses this same test's evidence via a second `@pytest.mark.requirement(...)` id
+  rather than a distinct probe. `ACP-CLOSE-201` (not `202`) is the one that covers
+  `session/close`'s own baseline response-shape contract. `ACP-CANCEL-208` is specifically the
   *cancel-side-effect-of-close* assertion, reusing the same `stopReason: "cancelled"` evidence
   `ACP-CANCEL-201` checks, just triggered by a different wire event (`session/close` instead of
-  `session/cancel`); V2-4's `CLOSE-201/202` will instead cover `session/close`'s own basic
-  contract (response shape, idempotency, post-close session state) -- a distinct concern that
-  this slice does not touch.
+  `session/cancel`).
 - `ACP-INFO-CANCEL-201`/`202` are `Tier.INFORMATIONAL`, `capability=None` (unknown-`sessionId`/
   no-foreground-work behavior, and whether the agent sends `$/cancel_request` for its own pending
   requests -- both explicitly spec-silent or MAY-at-best per the report's own table).
@@ -356,6 +361,98 @@ tags every row a bare MUST/SHOULD/MAY without ACP-TCK tiers):
 - `ACP-INFO-BATCH-201`/`202` are `Tier.INFORMATIONAL`, `capability=None` (invalid-JSON-batch-line
   error code, and call/response batch-kind mixing) -- both explicitly SDK-disagreement/schema-
   only-restriction rows per the report.
+
+## V2-4: session management (`ACP-SESSION-203`, `ACP-RESUME-20x`, `ACP-LIST-20x`,
+## `ACP-CLOSE-201/202`, `ACP-DELETE-20x`, `ACP-ADDDIRS-20x`, `ACP-MCP-201/202`, `ACP-CONFIG-20x`)
+
+Input: `.agents/research/acp-v2-session-management.md`. Every row about a method in the
+`capabilities.session` 7-method baseline (`session/new`, `session/list`, `session/resume`,
+`session/close`, `session/prompt`, `session/cancel`, `session/update`) is `Tier.CAPABILITY`,
+`capability="capabilities.session"` -- per the orchestrator's v2 session-baseline tiering rule
+(slice V2-2a), never `Tier.MANDATORY`, regardless of the underlying spec obligation's own
+MUST-strength wording. `delete`/`additionalDirectories`/`mcp.{stdio,http}` are each their own
+optional capability, gated on their own path per `.agents/plan.md`.
+
+- `ACP-SESSION-203` (new): `mcpServers` omitted vs. `mcpServers: []` on `session/new` are
+  equivalent forms in v2 (the field is optional, unlike v1's required-even-if-empty shape) --
+  a genuine new requirement, not a re-cite.
+- `ACP-RESUME-201..205` re-mint v1's `ACP-LOAD-001/002`/`ACP-RESUME-001/002` (retired below):
+  the capability gate changed from `agentCapabilities.sessionCapabilities.{resume,load}` to a
+  baseline-mandatory method, and `session/resume` itself unifies v1's `session/load` +
+  `session/resume` behind one `replayFrom` cursor, so none of the old ids' text matches closely
+  enough to reuse bare (D3's fallback: new 2xx ids). **Obtaining a legally resumable session id**
+  is the hard problem this area's report flags: no route is spec-guaranteed. Per the report's own
+  explicit recommended harness strategy, `_helpers.obtain_resumable_session` tries, in order,
+  (1) resuming the session just created on this connection, then (3) `session/list` then resume
+  its first entry, then (2) `session/close` then resume -- recording each route's error -- and
+  treats `-32601` from `session/resume` itself as a **FAIL** of `ACP-RESUME-201` (B3 makes the
+  method baseline-mandatory), but any other error from all three routes as a **SKIP** with the
+  recorded errors in the message (never a FAIL on `-32602`/`-32002`, since the spec authorizes no
+  interpretation of those). `ACP-RESUME-206` (schema-covered `messageId` presence) is
+  deliberately **not** registered -- the report itself frames it as "keep for report legibility
+  only; already caught by schema validation", i.e. a pure duplicate of validation this slice's
+  tests already run via `validate_agent_response`, not a distinct assertion.
+- `ACP-LIST-201..204` re-mint v1's `ACP-LIST-001/002` (capability gate changed: list is now
+  baseline, not `sessionCapabilities.list`). `ACP-LIST-205..208` (ADVISORY/INFORMATIONAL:
+  `updatedAt` format, sessionId uniqueness, invalid-cursor handling, new/closed-session list
+  visibility) are **not** registered this slice -- scope control; the task's "Cover:" text does
+  not call for them, and each would need its own fixture support with no MANDATORY/CAPABILITY
+  payoff.
+- `ACP-CLOSE-201` re-mints v1's `ACP-CLOSE-001` (capability gate changed: close is now baseline)
+  and covers only `session/close`'s own contract -- response shape, on a session with no
+  foreground work in flight. `ACP-CLOSE-202` is the *cancellation side effect* of `session/close`
+  on in-flight foreground work, and is a **deliberate, documented duplicate** of the evidence
+  `ACP-CANCEL-208` (slice V2-3) already gathers -- both are satisfied by the exact same
+  `run_prompt(..., on_action=<session/close>)` probe in `test_cancel.py`, which now carries
+  `@pytest.mark.requirement("ACP-CANCEL-208", "ACP-CLOSE-202")`. This supersedes that module's
+  own earlier docstring note (written before this slice existed) speculating that `CLOSE-201`/
+  `202` would instead cover "response shape, idempotency, post-close session state" as a
+  concern distinct from cancellation -- `.agents/plan.md`'s binding V2-4 bullet ("CLOSE-201/202
+  (idle cancelled)") and this report's own candidate-row/retirement tables (`ACP-CLOSE-002`:
+  "replaced by `ACP-CLOSE-202`") both independently confirm the idle-cancelled framing instead.
+  Precedent for one test backing two ids: `ACP-CANCEL-201`/`ACP-CANCEL-207`.
+- `ACP-DELETE-201`/`202` re-mint v1's `ACP-DELETE-001`/(part of `-002`)'s "no longer listed"
+  half, both `Tier.CAPABILITY`, `capability="capabilities.session.delete"`. `ACP-DELETE-203` is
+  the ADVISORY, `capability=None` "silent double-delete" half, a verbatim re-cite of v1's
+  `ACP-DELETE-002` (same tier/encoding) -- its *test* still carries
+  `@pytest.mark.capability("capabilities.session.delete")` purely for the SKIP gate (the same
+  independence between `Requirement.capability` and the pytest marker used throughout this
+  registry, e.g. `ACP-CANCEL-204`).
+- `ACP-ADDDIRS-201` re-mints v1's `ACP-ADDDIRS-001` (same requirement, new capability path).
+  `ACP-ADDDIRS-202` is new in v2: v1 had no `session/resume` (nee `session/load`) carrier
+  statement for `additionalDirectories` at all.
+- `ACP-MCP-201`/`202`: **`Tier.INFORMATIONAL`, not `Tier.CAPABILITY`**, following the source
+  report's own explicit, twice-stated recommendation ("Consider INFORMATIONAL rather than
+  CAPABILITY") rather than its candidate table's default CAPABILITY tagging -- a connect failure
+  against a harmless stdio/http entry is the agent's own business (M6, "Agents SHOULD connect",
+  has no client-observable surface in stable v2), so FAILing `session/new` outright for it is not
+  provably non-conformant. No `.agents/plan.md` text was found overriding this either way (grepped
+  for "mcp", no hits) -- **this tiering choice is flagged to the orchestrator as a judgment call**,
+  made in the report's own favored direction; `capability=None` per the `Tier.INFORMATIONAL`
+  invariant, with each test still carrying `@pytest.mark.capability("capabilities.session.mcp.
+  stdio"/"...http")` purely for the SKIP gate. `ACP-MCP-203` (custom/unknown transport type,
+  INFORMATIONAL) is **not** registered this slice -- scope control, not explicitly requested.
+- `ACP-CONFIG-201..204,206` mirror v1's `inferred:` pattern exactly (`ACP-MODES-001`/
+  `ACP-CONFIG-001..002`'s own precedent): `Tier.CAPABILITY`, `capability="inferred:configOptions"`
+  -- a documentation-only string that satisfies `Requirement.__post_init__`'s invariant but is
+  **not** looked up by `@pytest.mark.capability(...)`; the tests instead `pytest.skip(...)`
+  manually when `session/new`'s own result carries no `configOptions` at all, since v2 provides
+  no `initialize`-result marker for this (C12: "No capability gates `session/set_config_option`
+  ... unstated"). `ACP-CONFIG-201` supersedes v1's `ACP-CONFIG-001` (field renamed `id` ->
+  `configId`); `ACP-CONFIG-202` supersedes v1's `ACP-CONFIG-002` (same requirement, new
+  citation); `ACP-CONFIG-203`/`204`/`206` are new in v2 (resume carrier, the derived
+  `currentValue` membership check, and `config_option_update`'s completeness rule -- none of
+  which v1's modes/config API had a matching id for). `ACP-CONFIG-205` (ADVISORY: set-value
+  reflection) is **not** registered -- the report itself flags it as weaker/optional ("keep
+  ADVISORY ... an agent may legitimately reflect a dependent adjustment").
+
+### v1 ids retired by this slice (no v2 successor registered under the old id)
+
+`ACP-LOAD-001/002/003`, `ACP-RESUME-001/002`, `ACP-LIST-001/002`, `ACP-CLOSE-002` (rewritten, not
+re-cited -- v2's `PromptResponse` has no `stopReason` to resolve with), `ACP-MODES-001/002`,
+`ACP-CONFIG-003` (retired outright: v2 has no `clientCapabilities.session.configOptions.boolean`
+gate at all, so there is no v2 rule restricting `type: "boolean"` options to re-cite). See the
+report's own "v1 ids to retire" table for the full citation-by-citation rationale.
 """
 
 from __future__ import annotations
@@ -1110,7 +1207,340 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         citation=_cite("schema/v2/schema.json:82-124 vs :125-288"),
         source_report="acp-v2-cancellation-and-batching.md",
     ),
+    Requirement(
+        id="ACP-SESSION-203",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "`session/new` is accepted whether `mcpServers` is omitted entirely or sent as `[]` "
+            "-- the two forms are equivalent in v2 (unlike v1, where the field was required-"
+            "even-if-empty)."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/migration.mdx:598; schema/v2/schema.json:6032-6040,6048"
+        ),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-RESUME-201",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "`session/resume` (no `replayFrom`) of a session obtained via the harness's "
+            "three-route strategy succeeds with a schema-valid object result. `-32601` FAILs "
+            "(B3 makes `session/resume` a baseline-mandatory method); any other error from all "
+            "three routes SKIPs -- no route is spec-guaranteed to work."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/session-setup.mdx:83-84; "
+            "schema/v2/schema.json:6274-6334,4036-4058"
+        ),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-RESUME-202",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "With `replayFrom: {\"type\": \"start\"}`, every `session/update` for the resumed "
+            "session arrives before the `session/resume` response, and none arrives within a "
+            "quiet period after it. Zero replayed updates is conforming (R5's retention escape "
+            "hatch) and is recorded, never FAILed."
+        ),
+        citation=_cite("docs/protocol/v2/session-setup.mdx:144-145,221-222"),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-RESUME-203",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "With `replayFrom` omitted (or `null`), no conversation-history `session/update` for "
+            "the resumed session arrives before the response. Vacuous -- and recorded, never "
+            "FAILed on that account -- for an agent that retains no history to replay."
+        ),
+        citation=_cite("docs/protocol/v2/session-setup.mdx:118-119"),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-RESUME-204",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "A retained user message inserted by `session/prompt` replays, if it replays at all, "
+            "with the same `messageId` that prompt's response returned. A narrow, conditional "
+            "trigger: absence of the message from replay is conforming (R5) and SKIPs this "
+            "check rather than FAILing it."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/session-setup.mdx:199-201; docs/protocol/v2/prompt-lifecycle."
+            "mdx:153; schema/v2/schema.json:4102"
+        ),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-RESUME-205",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "During replay, a `*_chunk` update for a `messageId` is preceded, within the same "
+            "replay window, by the matching whole-message update (`content: []`) for that id. "
+            "Vacuous -- recorded, never FAILed -- for an agent whose replay uses only whole-"
+            "message updates."
+        ),
+        citation=_cite("docs/protocol/v2/session-setup.mdx:208-212"),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-LIST-201",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "`session/list` with `params: {}` succeeds; the result's `sessions` field is "
+            "present as an array, and the response validates against the v2 schema."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/session-list.mdx:10,73,108; schema/v2/schema.json:3933-3968"
+        ),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-LIST-202",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "`session/list` filtered by a `cwd` no session plausibly uses returns "
+            "`sessions: []` -- never `null`, never an error."
+        ),
+        citation=_cite("docs/protocol/v2/session-list.mdx:145"),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-LIST-203",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "When `session/list` is filtered by a real `cwd`, every returned `SessionInfo.cwd` "
+            "equals the requested `cwd` (a per-entry check only; the reverse direction -- that a "
+            "session at that `cwd` is returned at all -- is not asserted, since no upstream "
+            "statement guarantees a freshly created session appears in `session/list`)."
+        ),
+        citation=_cite("docs/protocol/v2/session-list.mdx:63-66"),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-LIST-204",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text="Every returned `SessionInfo.cwd` is an absolute path.",
+        citation=_cite(
+            "docs/protocol/v2/session-list.mdx:115-117; docs/protocol/v2/overview.mdx:176"
+        ),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-CLOSE-201",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "`session/close` of a live, idle session succeeds with a schema-valid empty-object "
+            "result -- `session/close`'s own baseline contract, distinct from the cancellation "
+            "side effect `ACP-CLOSE-202`/`ACP-CANCEL-208` covers (see the module docstring)."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/session-setup.mdx:237-239,258-268; schema/v2/schema.json:"
+            "6401-6423,4059-4072"
+        ),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-CLOSE-202",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session",
+        text=(
+            "`session/close` on a session with foreground work in flight cancels that work as "
+            "if `session/cancel` had been sent -- the same idle `state_update` with "
+            "`stopReason: \"cancelled\"` evidence `ACP-CANCEL-208` already checks, deliberately "
+            "reused verbatim (see the module docstring's id-namespacing decision) rather than "
+            "gathered by a second, near-identical probe. `Requirement.capability` and the id are "
+            "registered separately from `ACP-CANCEL-208` purely for V2-4's own report legibility."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/session-setup.mdx:258; docs/protocol/v2/prompt-lifecycle.mdx:"
+            "519,526"
+        ),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-DELETE-201",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session.delete",
+        text="`session/delete` of an existing session succeeds with an empty-object result.",
+        citation=_cite("docs/protocol/v2/session-delete.mdx:35,57,74-86"),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-DELETE-202",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session.delete",
+        text=(
+            "After a successful `session/delete`, the session no longer appears in "
+            "`session/list` results. SKIPs when the session was never observed in "
+            "`session/list` in the first place (nothing to compare against)."
+        ),
+        citation=_cite("docs/protocol/v2/session-delete.mdx:90"),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-DELETE-203",
+        tier=Tier.ADVISORY,
+        capability=None,
+        text=(
+            "Deleting an already-deleted or never-created `sessionId` SHOULD succeed silently, "
+            "rather than erroring -- verbatim re-cite of v1's `ACP-DELETE-002`, new capability "
+            "path."
+        ),
+        citation=_cite("docs/protocol/v2/session-delete.mdx:91"),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-ADDDIRS-201",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session.additionalDirectories",
+        text="`session/new` with an absolute `additionalDirectories` entry is accepted.",
+        citation=_cite(
+            "docs/protocol/v2/session-setup.mdx:274-302; schema/v2/schema.json:6023-6031"
+        ),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-ADDDIRS-202",
+        tier=Tier.CAPABILITY,
+        capability="capabilities.session.additionalDirectories",
+        text=(
+            "`session/resume` with an absolute `additionalDirectories` entry (matching the "
+            "session's own `cwd`) is accepted -- a new carrier statement in v2; v1 had no "
+            "`session/resume`/`session/load` analogue to this rule at all."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/session-setup.mdx:276-277,300; schema/v2/schema.json:6294-6302"
+        ),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-MCP-201",
+        tier=Tier.INFORMATIONAL,
+        capability=None,
+        text=(
+            "INFORMATIONAL, not CAPABILITY, despite the underlying `capabilities.session.mcp."
+            "stdio` marker (per the source report's own explicit recommendation, flagged to the "
+            "orchestrator -- see the module docstring): records whether `session/new` accepts a "
+            "well-formed stdio MCP server entry when the marker is advertised. A connect failure "
+            "against a harmless, possibly-nonexistent command is the agent's own business "
+            "(M6 is only a SHOULD, with no client-observable surface in stable v2) and is not "
+            "provably non-conformant, so this never asserts on the outcome."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/session-setup.mdx:336-386,440,465; schema/v2/schema.json:"
+            "6176-6214"
+        ),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-MCP-202",
+        tier=Tier.INFORMATIONAL,
+        capability=None,
+        text=(
+            "INFORMATIONAL, not CAPABILITY, same reasoning as `ACP-MCP-201`: records whether "
+            "`session/new` accepts a well-formed http MCP server entry when `capabilities."
+            "session.mcp.http` is advertised. Never asserts on the outcome."
+        ),
+        citation=_cite("docs/protocol/v2/session-setup.mdx:388-436; schema/v2/schema.json:6147-6175"),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-CONFIG-201",
+        tier=Tier.CAPABILITY,
+        capability="inferred:configOptions",
+        text=(
+            "Every `configOptions` entry in `session/new`'s result validates: `configId` and "
+            "`name` are present, `type` selects the right shape (`select` requires `currentValue`"
+            "+`options`; `boolean` requires `currentValue`), and a `select` entry's `options` is "
+            "either a flat `SessionConfigSelectOption[]` or a grouped "
+            "`SessionConfigSelectGroup[]`, never mixed. Inferred support, same encoding as v1's "
+            "`ACP-MODES-001`/`ACP-CONFIG-001` -- `capability=\"inferred:configOptions\"` is "
+            "documentation-only."
+        ),
+        citation=_cite(
+            "schema/v2/schema.json:3659-3932; docs/protocol/v2/session-config-options.mdx:"
+            "76-129"
+        ),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-CONFIG-202",
+        tier=Tier.CAPABILITY,
+        capability="inferred:configOptions",
+        text=(
+            "`session/set_config_option` responds with the *complete* `configOptions` list -- "
+            "every previously-advertised `configId` is present in the response (a superset "
+            "check: the dependent-changes note permits the response to also add options or "
+            "change other values). Gate is genuinely unstated upstream (C12): SKIP on `-32601` "
+            "when no `configOptions` were ever advertised, rather than FAIL."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/session-config-options.mdx:262,307-312; schema/v2/schema.json:"
+            "4073-4096"
+        ),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-CONFIG-203",
+        tier=Tier.CAPABILITY,
+        capability="inferred:configOptions",
+        text=(
+            "`session/resume`'s `configOptions`, when present, validates the same way as "
+            "`ACP-CONFIG-201` -- a new carrier in v2 (v1's `session/load` had no analogous "
+            "field)."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/session-setup.mdx:232-233; schema/v2/schema.json:4040-4049"
+        ),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-CONFIG-204",
+        tier=Tier.CAPABILITY,
+        capability="inferred:configOptions",
+        text=(
+            "A `select`-type option's `currentValue` is one of its declared `options` values "
+            "(flat or grouped) -- derived from C5's always-a-default-value MUST plus the field "
+            "descriptions, not itself schema-enforced."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/session-config-options.mdx:99-108,197; schema/v2/schema.json:"
+            "3899-3921"
+        ),
+        source_report="acp-v2-session-management.md",
+    ),
+    Requirement(
+        id="ACP-CONFIG-206",
+        tier=Tier.CAPABILITY,
+        capability="inferred:configOptions",
+        text=(
+            "An observed `config_option_update` `session/update` carries the *complete* "
+            "configuration state -- its `configId` set is a superset of the last known set. "
+            "Conditional and vacuous (recorded, never FAILed) when no such update is ever "
+            "observed during a run."
+        ),
+        citation=_cite(
+            "docs/protocol/v2/session-config-options.mdx:314-365; schema/v2/schema.json:"
+            "5538-5559"
+        ),
+        source_report="acp-v2-session-management.md",
+    ),
 )
+
 
 REGISTRY: dict[str, Requirement] = {requirement.id: requirement for requirement in _DECLARATIONS}
 

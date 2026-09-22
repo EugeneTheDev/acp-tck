@@ -1,5 +1,10 @@
 """Cancellation conformance: ACP-CANCEL-201..208, ACP-INFO-CANCEL-201/202 (Slice V2-3).
 
+Slice V2-4 additionally binds `ACP-CLOSE-202` to `test_close_cancels_foreground_work` below, via
+a second `@pytest.mark.requirement(...)` id on the same test -- see `tck.v2.requirements`'s
+module docstring, "V2-4: session management", for why this is a deliberate reuse rather than a
+duplicate probe (precedent: `ACP-CANCEL-201`/`ACP-CANCEL-207`).
+
 v2 moves cancellation's confirmation off the `session/prompt` response (which is only ever an
 acceptance receipt, `{messageId}`) onto a *separate*, terminating `session/update`
 `state_update {state: "idle", stopReason: "cancelled"}` notification
@@ -369,16 +374,18 @@ def _skip_if_close_cancel_not_exercised(agent, turn, record_property, *, race_wi
         )
 
 
-@pytest.mark.requirement("ACP-CANCEL-208")
+@pytest.mark.requirement("ACP-CANCEL-208", "ACP-CLOSE-202")
 @pytest.mark.capability("capabilities.session")
 async def test_close_cancels_foreground_work(
     agent_launch, tmp_path, cancel_prompt_text, record_property
 ):
-    """ACP-CANCEL-208. `session/close` for a session with an in-flight turn must cancel that
-    foreground work first -- the same terminating-idle-with-`stopReason: "cancelled"` evidence as
-    `ACP-CANCEL-201`, but triggered by `session/close` instead of `session/cancel`. Does not
-    duplicate a future `session/close`-own-contract row (its result shape/idempotency): only the
-    cancellation side effect is this slice's concern -- see the module docstring."""
+    """ACP-CANCEL-208 / ACP-CLOSE-202. `session/close` for a session with an in-flight turn must
+    cancel that foreground work first -- the same terminating-idle-with-`stopReason: "cancelled"`
+    evidence as `ACP-CANCEL-201`, but triggered by `session/close` instead of `session/cancel`.
+    `ACP-CLOSE-202` (V2-4) is a deliberate re-mint of the exact same wire evidence, not a second
+    probe -- see the module docstring and `tck.v2.requirements`'s "V2-4: session management".
+    Does not duplicate `ACP-CLOSE-201`, which covers `session/close`'s own result-shape contract
+    on a session with no foreground work in flight."""
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
 

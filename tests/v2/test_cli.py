@@ -81,6 +81,27 @@ _CAPABILITY_IDS = {
     "ACP-CANCEL-206",
     "ACP-CANCEL-207",
     "ACP-CANCEL-208",
+    "ACP-SESSION-203",
+    "ACP-RESUME-201",
+    "ACP-RESUME-202",
+    "ACP-RESUME-203",
+    "ACP-RESUME-204",
+    "ACP-RESUME-205",
+    "ACP-LIST-201",
+    "ACP-LIST-202",
+    "ACP-LIST-203",
+    "ACP-LIST-204",
+    "ACP-CLOSE-201",
+    "ACP-CLOSE-202",
+    "ACP-DELETE-201",
+    "ACP-DELETE-202",
+    "ACP-ADDDIRS-201",
+    "ACP-ADDDIRS-202",
+    "ACP-CONFIG-201",
+    "ACP-CONFIG-202",
+    "ACP-CONFIG-203",
+    "ACP-CONFIG-204",
+    "ACP-CONFIG-206",
 }
 _ADVISORY_IDS = {
     "ACP-PROMPT-003",
@@ -93,6 +114,7 @@ _ADVISORY_IDS = {
     "ACP-BATCH-206",
     "ACP-BATCH-207",
     "ACP-BATCH-208",
+    "ACP-DELETE-203",
 }
 _INFORMATIONAL_IDS = {
     "ACP-INFO-CONCURRENT-201",
@@ -101,6 +123,8 @@ _INFORMATIONAL_IDS = {
     "ACP-INFO-CANCEL-202",
     "ACP-INFO-BATCH-201",
     "ACP-INFO-BATCH-202",
+    "ACP-MCP-201",
+    "ACP-MCP-202",
 }
 _ALL_IDS = _MANDATORY_IDS | _CAPABILITY_IDS | _ADVISORY_IDS | _INFORMATIONAL_IDS
 
@@ -117,7 +141,8 @@ _ALWAYS_SKIPPED_IDS = {
 # sent to be exercised at all -- against a fast fixture with no `--cancel-prompt` override the
 # turn routinely resolves before the TCK can act, so these legitimately SKIP ("cancellation not
 # exercised") rather than PASS. `ACP-CANCEL-205` (no direct response to the cancel notification
-# itself) holds regardless of the race outcome, so it is not in this set.
+# itself) holds regardless of the race outcome, so it is not in this set. `ACP-CLOSE-202` shares
+# `ACP-CANCEL-208`'s exact test (`test_close_cancels_foreground_work`), so it races the same way.
 _CANCEL_RACE_SKIP_IDS = {
     "ACP-CANCEL-201",
     "ACP-CANCEL-202",
@@ -125,6 +150,7 @@ _CANCEL_RACE_SKIP_IDS = {
     "ACP-CANCEL-206",
     "ACP-CANCEL-207",
     "ACP-CANCEL-208",
+    "ACP-CLOSE-202",
 }
 
 # `ACP-PROMPTCAP-001/002/003` SKIP whenever the agent doesn't advertise the corresponding
@@ -137,6 +163,28 @@ _NOT_ADVERTISED_OR_EXERCISED_SKIP_IDS = {
     "ACP-PROMPTCAP-002",
     "ACP-PROMPTCAP-003",
     "ACP-PERM-201",
+}
+
+# Slice V2-4: every pre-V2-4 fixture advertises only the bare `capabilities: {"session": {}}}`
+# baseline (or nothing session-related at all), so the four session-management extras added
+# this slice -- `delete`, `additionalDirectories`, `mcp`, and `configOptions` (inferred from
+# `session/new`'s own result, not a capability marker) -- all legitimately SKIP for any of them,
+# exactly as they do for `conforming.py` itself (see `test_v2_conforming_agent_passes_everything`
+# above). `ACP-SESSION-203`/`ACP-RESUME-*`/`ACP-LIST-*`/`ACP-CLOSE-201` are NOT in this set: they
+# are gated on the baseline `capabilities.session` marker alone, present even as `{}`.
+_SESSION_MGMT_EXTRAS_SKIP_IDS = {
+    "ACP-DELETE-201",
+    "ACP-DELETE-202",
+    "ACP-DELETE-203",
+    "ACP-ADDDIRS-201",
+    "ACP-ADDDIRS-202",
+    "ACP-MCP-201",
+    "ACP-MCP-202",
+    "ACP-CONFIG-201",
+    "ACP-CONFIG-202",
+    "ACP-CONFIG-203",
+    "ACP-CONFIG-204",
+    "ACP-CONFIG-206",
 }
 
 _TABLE_ROW_RE = re.compile(r"^\s*(ACP-\S+)\s+(PASS|FAIL|SKIPPED|NOT TESTED)\b")
@@ -193,7 +241,17 @@ def test_v2_conforming_agent_passes_everything():
     exercised") -- `ACP-CANCEL-205` (no direct response to the cancel notification itself) still
     PASSes regardless of that race, and `_ALWAYS_SKIPPED_IDS` SKIP unconditionally for any
     fixture. Every other id PASSes. See `conforming_full.py`'s own self-test below (with
-    `--cancel-prompt __hang__`) for the "every exercisable id PASSes" fixture."""
+    `--cancel-prompt __hang__`) for the "every exercisable id PASSes" fixture.
+
+    Slice V2-4: `conforming.py` advertises only the plain `session: {}` baseline, no `delete`/
+    `additionalDirectories`/`mcp` marker and no `configOptions` at all -- so `ACP-DELETE-201/202`
+    (`capabilities.session.delete` marker), `ACP-DELETE-203` (ADVISORY, but still gated by the
+    same marker for its own SKIP), `ACP-ADDDIRS-201/202`, `ACP-MCP-201/202`, and
+    `ACP-CONFIG-201..204,206` (`configOptions` absent from `session/new`'s own result -- inferred
+    support, not an `initialize`-result marker) all SKIP too. `ACP-SESSION-203`/`ACP-RESUME-
+    201..205`/`ACP-LIST-201..204`/`ACP-CLOSE-201`/`ACP-CLOSE-202` are gated on the baseline
+    `capabilities.session` marker alone (present even as `{}`), so they PASS -- except
+    `ACP-CLOSE-202`, which shares `ACP-CANCEL-208`'s exact race-prone test."""
     result = _run_cli(FIXTURES_DIR_V2, "conforming.py", protocol_version=2)
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -204,6 +262,18 @@ def test_v2_conforming_agent_passes_everything():
         "ACP-PROMPTCAP-002",
         "ACP-PROMPTCAP-003",
         "ACP-PERM-201",
+        "ACP-DELETE-201",
+        "ACP-DELETE-202",
+        "ACP-DELETE-203",
+        "ACP-ADDDIRS-201",
+        "ACP-ADDDIRS-202",
+        "ACP-MCP-201",
+        "ACP-MCP-202",
+        "ACP-CONFIG-201",
+        "ACP-CONFIG-202",
+        "ACP-CONFIG-203",
+        "ACP-CONFIG-204",
+        "ACP-CONFIG-206",
     } | _CANCEL_RACE_SKIP_IDS | _ALWAYS_SKIPPED_IDS
     for req_id, status in statuses.items():
         if req_id in expected_skips:
@@ -457,7 +527,8 @@ def test_bad_stop_reason_fails_state_203_only():
     with an invalid `stopReason: "done"`) also cascades into every `run_prompt`-driven cancel
     check: the terminating idle never says `"cancelled"`, and `"done"` is not a recognised
     `StopReason` the TCK's race heuristic would excuse as "the agent simply finished on its own"
-    (mirrors v1's `bad_stop_reason.py` cascading into `ACP-CANCEL-001`)."""
+    (mirrors v1's `bad_stop_reason.py` cascading into `ACP-CANCEL-001`). Slice V2-4:
+    `ACP-CLOSE-202` shares `ACP-CANCEL-208`'s exact test, so it FAILs alongside it too."""
     result = _run_cli(FIXTURES_DIR_V2, "bad_stop_reason.py", protocol_version=2)
     assert result.returncode != 0
 
@@ -469,6 +540,7 @@ def test_bad_stop_reason_fails_state_203_only():
         "ACP-CANCEL-206",
         "ACP-CANCEL-207",
         "ACP-CANCEL-208",
+        "ACP-CLOSE-202",
     }, result.stdout
     assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
 
@@ -488,14 +560,25 @@ def test_vendor_stop_reason_passes_everything():
     prerequisite `stopReason: "cancelled"` from `ACP-CANCEL-201` to have actually happened before
     it can check "no further update after it" -- which never occurs here -- so it correctly
     records "prerequisite not met" instead of judging anything. `_ALWAYS_SKIPPED_IDS`
-    (`ACP-CANCEL-204`, `ACP-BATCH-206/207/208`) SKIP unconditionally for any fixture."""
+    (`ACP-CANCEL-204`, `ACP-BATCH-206/207/208`) SKIP unconditionally for any fixture. Slice
+    V2-4: `ACP-CLOSE-202` shares `ACP-CANCEL-208`'s exact test, so it FAILs alongside it too, and
+    `_SESSION_MGMT_EXTRAS_SKIP_IDS` SKIP ("not advertised") since this fixture predates them."""
     result = _run_cli(FIXTURES_DIR_V2, "vendor_stop_reason.py", protocol_version=2)
     assert result.returncode != 0
 
     statuses = _table_statuses(result.stdout)
-    expected_fails = {"ACP-CANCEL-201", "ACP-CANCEL-206", "ACP-CANCEL-207", "ACP-CANCEL-208"}
+    expected_fails = {
+        "ACP-CANCEL-201",
+        "ACP-CANCEL-206",
+        "ACP-CANCEL-207",
+        "ACP-CANCEL-208",
+        "ACP-CLOSE-202",
+    }
     expected_skips = (
-        _NOT_ADVERTISED_OR_EXERCISED_SKIP_IDS | _ALWAYS_SKIPPED_IDS | {"ACP-CANCEL-202"}
+        _NOT_ADVERTISED_OR_EXERCISED_SKIP_IDS
+        | _ALWAYS_SKIPPED_IDS
+        | _SESSION_MGMT_EXTRAS_SKIP_IDS
+        | {"ACP-CANCEL-202"}
     )
     for req_id, status in statuses.items():
         if req_id in expected_fails:
@@ -534,7 +617,10 @@ def test_no_idle_after_running_fails_every_run_prompt_dependent_id():
     ordinary `run_prompt` turn to gather evidence, which times out here too). Uses the same
     small `--timeout` as the other CLI self-tests -- this fixture never responds at all, so the
     cascade is deterministic regardless of how short the wait is; a shorter wait just means the
-    TCK gives up sooner."""
+    TCK gives up sooner. Slice V2-4: `ACP-RESUME-202..205` also FAIL -- their own tests drive a
+    `run_prompt` turn via `_session_with_history` to have something to (optionally) replay, and
+    that turn also never resolves. `ACP-RESUME-201` is unaffected (no prompt turn needed), and
+    `ACP-CLOSE-202` FAILs alongside `ACP-CANCEL-208` since they share the same test."""
     result = _run_cli(FIXTURES_DIR_V2, "no_idle_after_running.py", protocol_version=2)
     assert result.returncode != 0
 
@@ -560,6 +646,11 @@ def test_no_idle_after_running_fails_every_run_prompt_dependent_id():
         "ACP-CANCEL-207",
         "ACP-CANCEL-208",
         "ACP-CANCEL-204",
+        "ACP-CLOSE-202",
+        "ACP-RESUME-202",
+        "ACP-RESUME-203",
+        "ACP-RESUME-204",
+        "ACP-RESUME-205",
         "ACP-INFO-CANCEL-202",
         "ACP-TRANSPORT-201",
         "ACP-TRANSPORT-002",
@@ -585,13 +676,17 @@ def test_idle_before_running_passes_everything():
     -- so that notification line lands on stdout ahead of the batch's own response array, and the
     test's single `read_line()` sees the notification instead. Both ids FAIL as a result; since
     both are ADVISORY, this does not flip the overall verdict away from CONFORMANT (only a
-    MANDATORY/CAPABILITY FAIL would)."""
+    MANDATORY/CAPABILITY FAIL would). Slice V2-4: `_SESSION_MGMT_EXTRAS_SKIP_IDS` SKIP too, since
+    this fixture predates them and advertises only the bare `session: {}}` baseline."""
     result = _run_cli(FIXTURES_DIR_V2, "idle_before_running.py", protocol_version=2)
     assert result.returncode == 0, result.stdout + result.stderr
 
     expected_fails = {"ACP-BATCH-204", "ACP-BATCH-205"}
     expected_skips = (
-        _NOT_ADVERTISED_OR_EXERCISED_SKIP_IDS | _CANCEL_RACE_SKIP_IDS | _ALWAYS_SKIPPED_IDS
+        _NOT_ADVERTISED_OR_EXERCISED_SKIP_IDS
+        | _CANCEL_RACE_SKIP_IDS
+        | _ALWAYS_SKIPPED_IDS
+        | _SESSION_MGMT_EXTRAS_SKIP_IDS
     )
     statuses = _table_statuses(result.stdout)
     for req_id, status in statuses.items():
@@ -604,13 +699,19 @@ def test_idle_before_running_passes_everything():
     assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
 
 
-def test_echo_wrong_message_id_fails_prompt_203_only():
+def test_echo_wrong_message_id_fails_prompt_203_and_resume_204():
+    """`echo_wrong_message_id.py` echoes a `"wrong-" + messageId` on the live `user_message`
+    update -- FAILs `ACP-PROMPT-203` directly (the echoed `messageId` must match the response's).
+    Slice V2-4: the same mismatched id is what gets stored and later replayed on
+    `session/resume`, so `ACP-RESUME-204`'s own check (the replayed `user_message`'s `messageId`
+    must include the original prompt response's `messageId`) also FAILs -- a second,
+    independent manifestation of the same underlying defect, not a new bug."""
     result = _run_cli(FIXTURES_DIR_V2, "echo_wrong_message_id.py", protocol_version=2)
     assert result.returncode != 0
 
     statuses = _table_statuses(result.stdout)
     fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
-    assert fails == {"ACP-PROMPT-203"}, result.stdout
+    assert fails == {"ACP-PROMPT-203", "ACP-RESUME-204"}, result.stdout
     assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
 
 
@@ -630,7 +731,10 @@ def test_update_wrong_session_fails_every_run_prompt_dependent_id():
     the same cascade shape as `no_idle_after_running.py` (see that test's docstring for why
     `ACP-CLIENTCAP-201/202`/`ACP-PERM-201`/`ACP-PROMPT-003`/every `ACP-CANCEL-*` row/
     `ACP-INFO-CANCEL-202`/`ACP-TRANSPORT-201/002/203` are included here too), since `run_prompt`
-    never recognizes a matching terminating idle either."""
+    never recognizes a matching terminating idle either. Slice V2-4: also FAILs
+    `ACP-RESUME-202..205` (their own tests drive a `run_prompt` turn via `_session_with_history`
+    first, which never resolves either) and `ACP-CLOSE-202` (shares `ACP-CANCEL-208`'s exact
+    test)."""
     result = _run_cli(FIXTURES_DIR_V2, "update_wrong_session.py", protocol_version=2)
     assert result.returncode != 0
 
@@ -656,6 +760,11 @@ def test_update_wrong_session_fails_every_run_prompt_dependent_id():
         "ACP-CANCEL-207",
         "ACP-CANCEL-208",
         "ACP-CANCEL-204",
+        "ACP-CLOSE-202",
+        "ACP-RESUME-202",
+        "ACP-RESUME-203",
+        "ACP-RESUME-204",
+        "ACP-RESUME-205",
         "ACP-INFO-CANCEL-202",
         "ACP-TRANSPORT-201",
         "ACP-TRANSPORT-002",
@@ -672,8 +781,11 @@ def test_cancel_no_idle_fails_every_cancel_dependent_id():
     silently ignores `session/cancel` -- so every test that drives a turn through `run_prompt` at
     all times out with an uncaught `AgentTimeout`, a FAIL (not a SKIP -- see `AGENTS.md`
     "Statuses"), the same broad cascade shape as `no_idle_after_running.py`/
-    `update_wrong_session.py` above. `ACP-CANCEL-208` is the one exception: `session/close` still
-    rescues the hanging turn via `ConformingAgent`'s inherited default handler, so it PASSes."""
+    `update_wrong_session.py` above. `ACP-CANCEL-208`/`ACP-CLOSE-202` are the one exception (both
+    bound to the same test): `session/close` still rescues the hanging turn via
+    `ConformingAgent`'s inherited default handler, so they PASS. Slice V2-4: also FAILs
+    `ACP-RESUME-202..205` (their own tests drive a `run_prompt` turn via `_session_with_history`
+    first, which never resolves either since this fixture hangs on *every* prompt)."""
     result = _run_cli(FIXTURES_DIR_V2, "cancel_no_idle.py", protocol_version=2)
     assert result.returncode != 0
 
@@ -701,9 +813,14 @@ def test_cancel_no_idle_fails_every_cancel_dependent_id():
         "ACP-STATE-203",
         "ACP-CANCEL-204",
         "ACP-PROMPT-003",
+        "ACP-RESUME-202",
+        "ACP-RESUME-203",
+        "ACP-RESUME-204",
+        "ACP-RESUME-205",
         "ACP-INFO-CANCEL-202",
     }, result.stdout
     assert statuses.get("ACP-CANCEL-208") == "PASS", result.stdout
+    assert statuses.get("ACP-CLOSE-202") == "PASS", result.stdout
     assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
 
 
@@ -715,10 +832,13 @@ def test_cancel_returns_error_fails_cancel_203_and_208_only():
     `ACP-CLIENTCAP-201/202`, `ACP-PERM-201`, `ACP-PROMPT-201/203/205`, `ACP-STATE-201/202/203`,
     and the ADVISORY `ACP-PROMPT-003`. On top of that cascade, cancelling itself resolves the
     prompt with a JSON-RPC error instead of a terminating idle -- FAILs `ACP-CANCEL-203` (the
-    error itself) and `ACP-CANCEL-208` (a `session/close` sent instead has nothing registered to
-    rescue either, since `_handle_prompt` never adds the session to `_hanging_sessions`).
-    `ACP-CANCEL-201`/`202`/`206`/`207` SKIP, deferring to `ACP-CANCEL-203` -- the turn never
-    reaches a terminating idle at all."""
+    error itself) and `ACP-CANCEL-208`/`ACP-CLOSE-202` (dual-bound to the same test: a
+    `session/close` sent instead has nothing registered to rescue either, since `_handle_prompt`
+    never adds the session to `_hanging_sessions`). `ACP-CANCEL-201`/`202`/`206`/`207` SKIP,
+    deferring to `ACP-CANCEL-203` -- the turn never reaches a terminating idle at all. Slice
+    V2-4: also FAILs `ACP-RESUME-202..205` (their own tests drive a `run_prompt` turn via
+    `_session_with_history` first, which never resolves either since this fixture withholds its
+    acceptance receipt on every turn)."""
     result = _run_cli(FIXTURES_DIR_V2, "cancel_returns_error.py", protocol_version=2)
     assert result.returncode != 0
 
@@ -731,6 +851,7 @@ def test_cancel_returns_error_fails_cancel_203_and_208_only():
         "ACP-TRANSPORT-203",
         "ACP-CANCEL-203",
         "ACP-CANCEL-208",
+        "ACP-CLOSE-202",
         "ACP-CLIENTCAP-201",
         "ACP-CLIENTCAP-202",
         "ACP-PERM-201",
@@ -741,6 +862,10 @@ def test_cancel_returns_error_fails_cancel_203_and_208_only():
         "ACP-STATE-202",
         "ACP-STATE-203",
         "ACP-PROMPT-003",
+        "ACP-RESUME-202",
+        "ACP-RESUME-203",
+        "ACP-RESUME-204",
+        "ACP-RESUME-205",
     }, result.stdout
     for req_id in ("ACP-CANCEL-201", "ACP-CANCEL-202", "ACP-CANCEL-206", "ACP-CANCEL-207"):
         assert statuses.get(req_id) == "SKIPPED", f"{req_id}: {result.stdout}"
@@ -758,7 +883,8 @@ def test_cancel_wrong_stop_reason_fails_201_203_206_207_only():
     the wait) before resolving with `stopReason: "end_turn"` instead of `"cancelled"` -- FAILs
     `ACP-CANCEL-201`/`203`/`207` and `ACP-CANCEL-206` (the `_meta`-carrying scenario hits the same
     overridden handler). `ACP-CANCEL-202`/`208` SKIP/PASS respectively, deferring to the rows
-    above."""
+    above. Slice V2-4: also FAILs `ACP-RESUME-202..205` (their own tests drive a `run_prompt`
+    turn via `_session_with_history` first, which hangs the same way)."""
     result = _run_cli(
         FIXTURES_DIR_V2, "cancel_wrong_stop_reason.py", protocol_version=2, timeout="2"
     )
@@ -785,6 +911,10 @@ def test_cancel_wrong_stop_reason_fails_201_203_206_207_only():
         "ACP-STATE-202",
         "ACP-STATE-203",
         "ACP-PROMPT-003",
+        "ACP-RESUME-202",
+        "ACP-RESUME-203",
+        "ACP-RESUME-204",
+        "ACP-RESUME-205",
     }, result.stdout
     assert statuses.get("ACP-CANCEL-202") == "SKIPPED", result.stdout
     assert statuses.get("ACP-CANCEL-208") == "PASS", result.stdout
@@ -973,6 +1103,9 @@ def test_v2_emits_batch_updates_passes_everything():
     this) must not, by itself, break anything the TCK checks. Same "every exercisable id PASSes"
     shape as `conforming_full.py`'s own self-test above -- run with `--cancel-prompt __hang__`
     so every CAPABILITY-tier `ACP-CANCEL-*` id is actually exercised, not just skipped by a race.
+    Slice V2-4: this fixture predates the session-management extras and advertises only the bare
+    `capabilities.session.prompt.*` baseline, so `_SESSION_MGMT_EXTRAS_SKIP_IDS` legitimately
+    SKIP too, exactly as they do for `conforming.py` itself.
     """
     result = _run_cli(
         FIXTURES_DIR_V2, "emits_batch_updates.py", protocol_version=2, cancel_prompt="__hang__"
@@ -981,14 +1114,135 @@ def test_v2_emits_batch_updates_passes_everything():
 
     statuses = _table_statuses(result.stdout)
     assert set(statuses) == _ALL_IDS, f"requirement table missing/extra ids: {result.stdout}"
+    expected_skips = _ALWAYS_SKIPPED_IDS | _SESSION_MGMT_EXTRAS_SKIP_IDS
     for req_id, status in statuses.items():
-        if req_id in _ALWAYS_SKIPPED_IDS:
+        if req_id in expected_skips:
             assert status == "SKIPPED", f"{req_id} is {status}, expected SKIPPED:\n{result.stdout}"
         else:
             assert status == "PASS", (
                 f"{req_id} is {status}, expected PASS for emits_batch_updates.py:\n{result.stdout}"
             )
     assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
+
+
+# --- V2-4: session management -- defect fixtures ---
+
+
+def test_resume_replays_when_not_asked_fails_resume_203_only():
+    """`resume_replays_when_not_asked.py` replays the session's full retained history on every
+    `session/resume`, even when `replayFrom` is omitted/`null` -- FAILs exactly `ACP-RESUME-203`
+    (the "MUST NOT replay when not asked" rule). `ACP-RESUME-201` (resume itself still succeeds)
+    and `ACP-RESUME-202`/`204`/`205` (the replay-`{"type": "start"}` scenarios, answered
+    identically to `conforming_full.py` since this fixture always replays regardless of
+    `replayFrom`) are unaffected."""
+    result = _run_cli(FIXTURES_DIR_V2, "resume_replays_when_not_asked.py", protocol_version=2)
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-RESUME-203"}, result.stdout
+    for req_id in ("ACP-RESUME-201", "ACP-RESUME-202", "ACP-RESUME-204", "ACP-RESUME-205"):
+        assert statuses.get(req_id) == "PASS", f"{req_id}: {result.stdout}"
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_resume_responds_before_replay_fails_resume_202_only():
+    """`resume_responds_before_replay.py` answers `session/resume` before replaying stored
+    history (reversed order vs. the spec's requirement) -- FAILs exactly `ACP-RESUME-202`.
+    `ACP-RESUME-204`'s own test reads only up to the response before checking replayed
+    `messageId`s, so with the replay now arriving *after* the response it never observes any
+    replayed update at all and legitimately SKIPs rather than PASSing or FAILing.
+    `ACP-RESUME-201`/`203`/`205` are unaffected."""
+    result = _run_cli(FIXTURES_DIR_V2, "resume_responds_before_replay.py", protocol_version=2)
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-RESUME-202"}, result.stdout
+    assert statuses.get("ACP-RESUME-204") == "SKIPPED", result.stdout
+    for req_id in ("ACP-RESUME-201", "ACP-RESUME-203", "ACP-RESUME-205"):
+        assert statuses.get(req_id) == "PASS", f"{req_id}: {result.stdout}"
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_resume_replay_missing_message_id_fails_resume_204_only():
+    """`resume_replay_missing_message_id.py` replays correctly (before responding, only when
+    asked) but strips `messageId` from every replayed `session/update` -- FAILs exactly
+    `ACP-RESUME-204`. `ACP-RESUME-201`/`202`/`203`/`205` are unaffected."""
+    result = _run_cli(FIXTURES_DIR_V2, "resume_replay_missing_message_id.py", protocol_version=2)
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-RESUME-204"}, result.stdout
+    for req_id in ("ACP-RESUME-201", "ACP-RESUME-202", "ACP-RESUME-203", "ACP-RESUME-205"):
+        assert statuses.get(req_id) == "PASS", f"{req_id}: {result.stdout}"
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_list_errors_when_empty_fails_list_202_only():
+    """`list_errors_when_empty.py` errors instead of returning `{"sessions": []}` whenever the
+    (possibly `cwd`-filtered) result set would be empty -- FAILs exactly `ACP-LIST-202`.
+    `ACP-LIST-201`/`203`/`204` are unaffected."""
+    result = _run_cli(FIXTURES_DIR_V2, "list_errors_when_empty.py", protocol_version=2)
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-LIST-202"}, result.stdout
+    for req_id in ("ACP-LIST-201", "ACP-LIST-203", "ACP-LIST-204"):
+        assert statuses.get(req_id) == "PASS", f"{req_id}: {result.stdout}"
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_close_no_cancel_idle_fails_cancel_208_and_close_202_only():
+    """`close_no_cancel_idle.py` keeps `ConformingAgent`'s default hang behaviour (hangs only on
+    the literal `__hang__` sentinel), so the defect is bounded and only observable when driven
+    with `--cancel-prompt __hang__`: `session/close` on a still-hanging prompt replies to the
+    close normally but resolves the pending turn with `stopReason: "end_turn"` instead of
+    `"cancelled"`, after a deliberate delay past the TCK's race window. FAILs exactly
+    `ACP-CANCEL-208`/`ACP-CLOSE-202` (both dual-bound to `test_close_cancels_foreground_work`).
+    Every other id, including plain `ACP-CANCEL-201..207` (which use `session/cancel`, not
+    `session/close`) and `ACP-CLOSE-201` (closing an already-idle session), is unaffected."""
+    result = _run_cli(
+        FIXTURES_DIR_V2, "close_no_cancel_idle.py", protocol_version=2, cancel_prompt="__hang__"
+    )
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-CANCEL-208", "ACP-CLOSE-202"}, result.stdout
+    assert statuses.get("ACP-CLOSE-201") == "PASS", result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_advertises_delete_but_errors_fails_delete_201_202_and_203():
+    """`advertises_delete_but_errors.py` advertises `capabilities.session.delete` but always
+    errors on `session/delete` -- FAILs `ACP-DELETE-201` (delete itself must succeed) and
+    `ACP-DELETE-202` (cascades: the deleted session can't be observed gone). The ADVISORY
+    `ACP-DELETE-203` also FAILs (the same underlying probe)."""
+    result = _run_cli(FIXTURES_DIR_V2, "advertises_delete_but_errors.py", protocol_version=2)
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-DELETE-201", "ACP-DELETE-202", "ACP-DELETE-203"}, result.stdout
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_config_partial_list_fails_config_202_only():
+    """`config_partial_list.py` advertises two independent `configOptions` entries but
+    `session/set_config_option` replies with only the changed one instead of the complete list
+    -- FAILs exactly `ACP-CONFIG-202`. `ACP-CONFIG-201`/`203`/`204`/`206` are unaffected."""
+    result = _run_cli(FIXTURES_DIR_V2, "config_partial_list.py", protocol_version=2)
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-CONFIG-202"}, result.stdout
+    for req_id in ("ACP-CONFIG-201", "ACP-CONFIG-203", "ACP-CONFIG-204", "ACP-CONFIG-206"):
+        assert statuses.get(req_id) == "PASS", f"{req_id}: {result.stdout}"
+    assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
 
 
 # --- version mismatch: a v1 agent run under --protocol-version 2 ---

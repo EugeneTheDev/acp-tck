@@ -28,7 +28,13 @@ confirmation moves to a separate terminating idle `state_update{stopReason:"canc
 notification rather than the prompt response itself), stdio transport hygiene widened for
 batching (every stdout line is a JSON-RPC 2.0 object *or* a non-empty array of them), the
 JSON-RPC envelope, and JSON-RPC 2.0 batching (v2 §6: empty-array/notification-only/mixed-entry
-batch handling, response-array matching by id, and three record-only MAY probes) -- gated behind
+batch handling, response-array matching by id, and three record-only MAY probes), and (V2-4)
+session management: `session/resume` (including replay-ordering rules for `{"type": "start"}`),
+`session/list`, `session/close`/`session/delete`, `additionalDirectories`, MCP server config
+(`stdio`/`http`), and `session/set_config_option` -- all `Tier.CAPABILITY` (or `INFORMATIONAL`
+for the two MCP rows, unobservable without a real MCP server) and gated on the corresponding
+`capabilities.session.*` marker (`configOptions` support is *inferred* from `session/new`'s own
+result, like v1's `modes`/`configOptions`, not a separate capability marker) -- gated behind
 `--protocol-version 2`; default remains v1 -- and is expected to grow in later slices. Everything
 below is v1-specific unless a section says otherwise.
 
@@ -546,6 +552,77 @@ src/tck/
                             agent implementation, and isolating each probe means one crash can't
                             cascade into or pollute a sibling assertion.
 
+      test_session_capabilities.py  (V2-4) ACP-SESSION-203, ACP-RESUME-201..205, ACP-LIST-201..204,
+                            ACP-CLOSE-201, ACP-DELETE-201..203, ACP-ADDDIRS-201/202,
+                            ACP-MCP-201/202 -- v2 session management, all `Tier.CAPABILITY` (MCP's
+                            two rows `Tier.INFORMATIONAL` -- unobservable without a real MCP
+                            server to point the agent at) and gated on the matching
+                            `capabilities.session.*` marker. `ACP-SESSION-203` (`session/new`
+                            still returns a fresh, unique `sessionId` when `capabilities.session`
+                            is advertised -- v1's `ACP-SESSION-001`/`002` reused verbatim would
+                            not be gated at all, since v1's session surface is unconditional).
+                            `ACP-RESUME-201` (`session/resume` succeeds for a resumable id).
+                            `ACP-RESUME-202` (MUST reply only after any requested replay, unlike
+                            v1's `session/load`, which docs additionally require to reply *before*
+                            replaying -- v2 inverts the order). `ACP-RESUME-203` (MUST NOT replay
+                            when `replayFrom` is omitted/`null`). `ACP-RESUME-204`/`205` (replayed
+                            `{"type": "start"}` history preserves the original `user_message`'s
+                            `messageId` and ordering relative to the agent's own updates --
+                            ordering only, never that history exists at all, per
+                            `.agents/plan.md`'s binding decision). A resumable session id is
+                            obtained via a shared `_session_with_history` helper that tries three
+                            routes in order (a fresh `session/new` plus one plain prompt turn; a
+                            `session/new` immediately followed by `session/resume` on that same
+                            id, if the first route's prompt hangs; a raw `session/resume` on a
+                            synthesized id) and `pytest.skip`s "no resumable session obtainable"
+                            if all three fail -- unless the agent rejected the attempt with
+                            `-32601` (method not found), which FAILs instead of skipping, since a
+                            capability-advertising agent that doesn't implement the method at all
+                            is a real defect, not an unlucky race. `ACP-LIST-201..204`
+                            (`session/list` returns exactly the sessions created under the query
+                            `cwd`, `[]` -- never an error -- when none match, a `nextCursor` that
+                            is either absent or itself resolves via a second call, and each
+                            entry's shape). `ACP-CLOSE-201` (`session/close` succeeds for an idle
+                            session). `ACP-CLOSE-202` is *not* its own test here: slice V2-4
+                            re-mints it onto `test_cancel.py`'s existing
+                            `test_close_cancels_foreground_work` (`ACP-CANCEL-208`) as a second,
+                            deliberate `@pytest.mark.requirement(...)` id on the exact same wire
+                            evidence -- `session/close` MUST cancel foreground work first is the
+                            same assertion under two numbers (v1's `ACP-CLOSE-002` precedent).
+                            `ACP-DELETE-201` (`session/delete` succeeds for an existing
+                            session). `ACP-DELETE-202` (the deleted session no longer appears in
+                            a subsequent `session/list` -- SKIPs if the session was never observed
+                            in `session/list` to begin with, nothing to compare against).
+                            `ACP-DELETE-203` (ADVISORY: deleting an already-deleted or
+                            never-created sessionId SHOULD succeed silently, not error). All
+                            three gated on `capabilities.session.delete`. `ACP-ADDDIRS-201`/`202`
+                            (`additionalDirectories` accepted on `session/new`; the agent must
+                            not error solely because the directory doesn't exist locally, per the
+                            spec's own wording). `ACP-MCP-201`/`202` (INFORMATIONAL: `stdio`- and
+                            `http`-shaped `mcpServers` entries on `session/new` are accepted
+                            without error -- gated on `capabilities.session.mcp.stdio`/`http`
+                            purely to decide whether to run the probe at all, not to score a
+                            capability failure, since the TCK cannot start a real MCP server to
+                            observe the agent actually using it).
+      test_session_config.py  (V2-4) ACP-CONFIG-201..204, ACP-CONFIG-206 -- session
+                            `configOptions`, support *inferred* from `session/new`'s own result
+                            (mirrors v1's `modes`/`configOptions` inference; no separate
+                            `capabilities` marker exists for it) via `capability=
+                            "inferred:configOptions"`, a documentation-only string not looked up
+                            by the autouse capability gate -- each test instead opens its own
+                            connection through a local `_v2_only_agent` async context manager
+                            (one manual `initialize` plus `skip_if_version_mismatch`, mirroring
+                            `test_batch.py`'s pattern) and `pytest.skip`s manually when
+                            `session/new`'s result carries no `configOptions` at all. `ACP-
+                            CONFIG-201` (shape: each entry's `id`/`type`/current value are
+                            well-formed). `ACP-CONFIG-202` (`session/set_config_option` MUST
+                            return the *complete* updated `configOptions` list, not just the
+                            changed entry). `ACP-CONFIG-203`/`204` (setting a `select`-typed
+                            option to one of its own listed values succeeds; setting it to a
+                            value outside that list is rejected). `ACP-CONFIG-206` (a
+                            `currentConfigOptionsUpdate` notification, if the agent chooses to
+                            send one on its own initiative, validates against the v2 schema).
+
 tests/
   conftest.py              agent_launch() helper for spawning fixture agents under
                           `tests/fixtures/agents/v1/` (harness unit tests); a directory-scoped
@@ -570,13 +647,16 @@ tests/
     test_validation.py      unit tests for `tck.v2.validation`'s three v2-specific behaviors:
                           batch root dispatch, no `null` special case for responses, and the
                           `find_unknown_root_keys` open-fallback carve-out
-    test_registry.py         `tck.v2.requirements.REGISTRY` invariants (all 52 ids: the nine
+    test_registry.py         `tck.v2.requirements.REGISTRY` invariants (all 76 ids: the nine
                           from V2-1b, V2-2a's six prompt-turn ids, V2-2b's nine
                           `ACP-PROMPTCAP-001/002/003`/`ACP-PROMPT-003`/`ACP-PERM-201`/
                           `ACP-CLIENTCAP-201/202`/`ACP-INFO-CONCURRENT-201`/
-                          `ACP-INFO-UNKNOWNSESSION-001`, and V2-3's 24 cancellation/transport/
-                          JSON-RPC/batching ids) + two-way check against `tck.v2.conformance`
-                          markers
+                          `ACP-INFO-UNKNOWNSESSION-001`, V2-3's 24 cancellation/transport/
+                          JSON-RPC/batching ids, and V2-4's 24 session-management ids --
+                          `ACP-SESSION-203`, `ACP-RESUME-201..205`, `ACP-LIST-201..204`,
+                          `ACP-CLOSE-201/202`, `ACP-DELETE-201..203`, `ACP-ADDDIRS-201/202`,
+                          `ACP-MCP-201/202`, `ACP-CONFIG-201..204`/`206`) + two-way check against
+                          `tck.v2.conformance` markers
     test_cli.py               end-to-end: run `python -m tck --protocol-version 2 --
                             <fixture>` as a subprocess; routing checks (`--help`, and that the
                             default/`--protocol-version 1` path still runs the v1 suite
@@ -587,8 +667,9 @@ tests/
                             `_CANCEL_RACE_SKIP_IDS` also legitimately SKIP without a
                             `--cancel-prompt` override, since `conforming.py`'s short turns
                             resolve before the TCK can act on `session/cancel`); `conforming_
-                            full.py` (V2-2b) PASSing literally every one of the 52 ids when run
-                            with `--cancel-prompt __hang__` (V2-3's cancellation tests need a
+                            full.py` (V2-2b, extended by V2-4 with every session-management capability) PASSing
+                            literally every one of the 76 ids when run with `--cancel-prompt
+                            __hang__` (V2-3's cancellation tests need a
                             turn that is still in flight when `session/cancel` lands, exactly
                             like v1's own `--cancel-prompt` convention); one test per defect
                             fixture asserting its exact FAIL set (V2-2a adds eight: the
@@ -606,7 +687,24 @@ tests/
                             uses), and the positive control `calls_custom_method.py`; V2-3 adds
                             five more: `cancel_no_idle.py`, `cancel_returns_error.py`,
                             `cancel_wrong_stop_reason.py`, `rejects_batch.py`, and `crashes_on_
-                            batch.py`); every single-defect fixture whose defect applies to
+                            batch.py`; V2-4 adds seven more, each a single-defect variant of
+                            `conforming_full.py`'s session-management surface:
+                            `resume_replays_when_not_asked.py` (FAILs only `ACP-RESUME-203`),
+                            `resume_responds_before_replay.py` (FAILs only `ACP-RESUME-202`;
+                            `ACP-RESUME-204` SKIPs -- no replayed update ever arrives before the
+                            response for it to inspect), `resume_replay_missing_message_id.py`
+                            (FAILs only `ACP-RESUME-204`), `list_errors_when_empty.py` (FAILs only
+                            `ACP-LIST-202` -- `session/list` errors instead of returning `[]` when
+                            no session matches the query `cwd`), `close_no_cancel_idle.py` (FAILs
+                            `ACP-CANCEL-208` and `ACP-CLOSE-202` together, since both are bound to
+                            the same test -- `session/close` does not cancel the in-flight turn
+                            first), `advertises_delete_but_errors.py` (advertises
+                            `capabilities.session.delete` but always errors on `session/delete` --
+                            FAILs `ACP-DELETE-201`/`202`/`203`, a `Tier.CAPABILITY` FAIL that
+                            flips the verdict to NOT CONFORMANT), and `config_partial_list.py`
+                            (FAILs only `ACP-CONFIG-202` -- `session/set_config_option` returns
+                            only the changed entry instead of the complete `configOptions` list));
+                            every single-defect fixture whose defect applies to
                             *every* prompt (not just one targeted scenario) was found, by running
                             each self-test in isolation and reading its printed per-id table
                             rather than by reasoning from the fixture's own docstring alone, to
@@ -615,8 +713,24 @@ tests/
                             `no_idle_after_running.py`/`idle_before_running.py`/`update_wrong_
                             session.py`'s self-tests were all widened accordingly once V2-3 added
                             new call sites (cancellation/transport tests) onto the same shared
-                            `run_prompt` codepath V2-2a/V2-2b's tests already used; two
-                            unanticipated cross-family cascades worth calling out specifically:
+                            `run_prompt` codepath V2-2a/V2-2b's tests already used; V2-4 widened
+                            the same fixtures' self-tests a second time, since `ACP-RESUME-
+                            202..205`'s own tests each obtain a resumable session via
+                            `_session_with_history`, which itself drives an ordinary `run_prompt`
+                            turn first -- so any fixture whose defect breaks *every* prompt turn
+                            (`no_idle_after_running.py`, `update_wrong_session.py`,
+                            `cancel_no_idle.py`, `cancel_returns_error.py`,
+                            `cancel_wrong_stop_reason.py`) FAILs those four RESUME ids too, on top
+                            of whatever it already failed; `ACP-CLOSE-202` is dual-bound to the
+                            exact same test as `ACP-CANCEL-208` (see `test_cancel.py` above), so
+                            it FAILs/PASSes in lockstep with it everywhere; and
+                            `echo_wrong_message_id.py`'s wrong-`messageId` defect is not just a
+                            cascade artifact but a second, independent manifestation of the same
+                            underlying bug: the corrupted id is what gets stored and later
+                            replayed by `session/resume`, so `ACP-RESUME-204`'s own check
+                            genuinely fails too, not merely because a prerequisite turn broke; two
+                            further unanticipated cross-family cascades worth calling out
+                            specifically (both pre-existing, from V2-3):
                             `vendor_stop_reason.py` additionally SKIPs (not PASSes) `ACP-CANCEL-
                             202`, since that id's own test requires the `ACP-CANCEL-201`
                             prerequisite (`stopReason: "cancelled"`) to have actually happened
@@ -811,7 +925,19 @@ tests/
                           cancel` arrives for that session, then resolves with a `cancelled`
                           idle -- the v2 analogue of v1's `conforming.py` hang sentinel, needed
                           so `--cancel-prompt __hang__` can make V2-3's cancellation tests
-                          deterministic against `conforming_full.py`.
+                          deterministic against `conforming_full.py`. V2-4 adds session
+                          management: `session/resume` now actually replays a per-session history
+                          recorded as updates are sent (`{"type": "start"}` only, per R2/R3, and
+                          accepting any `sessionId` -- even one this process never created -- so
+                          every route `_helpers.obtain_resumable_session` tries succeeds);
+                          `session/delete` (no cancellation side effect, unlike `session/close`;
+                          an unknown id still succeeds silently); and `session/set_config_option`
+                          plus `configOptions` on `session/new`/`session/resume`'s own result
+                          (replies with the complete updated list, never just the changed entry).
+                          `additionalDirectories`/`mcpServers` need no new handling at all --
+                          `_handle_new_session`/`_handle_resume_session` already ignore every
+                          `params` key besides `cwd`/`sessionId`, so both are already "accepted"
+                          in the sense the corresponding tests check.
     conforming.py          advertises `capabilities: {"session": {}}` so `ACP-SESSION-001/002`
                           PASS rather than SKIP; otherwise a trivial entry point, mirrors
                           `fixtures/agents/v1/conforming.py`
@@ -883,9 +1009,17 @@ tests/
     conforming_full.py     (V2-2b) `AsksPermissionAgent`, advertising every V2-2b capability
                           marker (`capabilities.session.prompt.{image,audio,embeddedContext}`)
                           on top of the plain `capabilities.session` baseline -- PASSes literally
-                          every one of the 24 registered ids; the intended "everything works"
-                          fixture for a full-suite smoke run (`test_v2_conforming_full_agent_
-                          passes_everything`)
+                          every registered id; the intended "everything works" fixture for a
+                          full-suite smoke run (`test_v2_conforming_full_agent_passes_everything`).
+                          Slice V2-4 extends it with the full session-management surface: `delete:
+                          {}`, `additionalDirectories: {}`, `mcp: {stdio: {}, http: {}}` markers,
+                          real `session/resume` replay (retaining and replaying stored history
+                          for `{"type": "start"}`, answering only after replay finishes, per
+                          `ACP-RESUME-202`'s ordering rule), `session/list` returning `[]` (never
+                          an error) when no session matches the query `cwd`, and a `configOptions`
+                          entry on `session/new` plus a working `session/set_config_option` that
+                          returns the complete list -- PASSes all 76 ids when run with
+                          `--cancel-prompt __hang__`
     asks_permission.py     (V2-2b) `AsksPermissionAgent` advertising only the plain
                           `capabilities.session` baseline (no prompt-content markers) --
                           isolates `ACP-PERM-201` PASSing while `ACP-PROMPTCAP-001/002/003` SKIP
@@ -1048,6 +1182,49 @@ tests/
                           or raised `ValueError` (`list.index` on a synthetic per-batch-item
                           entry that is never literally `in` `agent.transcript`) when a line was
                           a spontaneous batch array instead
+    resume_replays_when_not_asked.py  (V2-4) `session/resume` replays the session's full retained
+                          history unconditionally, even when `replayFrom` is omitted/`null`.
+                          FAILs exactly `ACP-RESUME-203`; `ACP-RESUME-201`/`202`/`204`/`205` are
+                          unaffected -- this fixture answers the `{"type": "start"}` scenarios
+                          identically to `ConformingAgent`, since it always replays regardless
+    resume_responds_before_replay.py  (V2-4) `session/resume` with `replayFrom: {"type":
+                          "start"}` replies before replaying the session's retained history,
+                          reversing R2's required order. FAILs exactly `ACP-RESUME-202`.
+                          `ACP-RESUME-204` legitimately SKIPs rather than FAILs: the helper reads
+                          only up to the response, before the trailing replay notifications still
+                          queued in the pipe, so it correctly reports "not replayed at all" from
+                          its own vantage point instead of fabricating a verdict from data it
+                          never observed. `ACP-RESUME-201`/`203` are unaffected
+    resume_replay_missing_message_id.py  (V2-4) `session/resume` replays history correctly
+                          (before responding), but strips `messageId` from every replayed
+                          update. FAILs exactly `ACP-RESUME-204`; `ACP-RESUME-201`/`202`/`203`
+                          don't inspect `messageId` and are unaffected
+    list_errors_when_empty.py  (V2-4) `session/list` returns a JSON-RPC error instead of
+                          `{"sessions": []}` whenever the (possibly `cwd`-filtered) result would
+                          be empty. FAILs exactly `ACP-LIST-202`, the only test that filters to a
+                          guaranteed-empty result; `ACP-LIST-201`/`203`/`204` all list at least
+                          one present session and never hit the empty branch
+    close_no_cancel_idle.py  (V2-4) `session/close` on a session with a still-hanging `__hang__`
+                          prompt replies to the close normally, but resolves the hanging turn
+                          with `stopReason: "end_turn"` instead of `"cancelled"` -- after a
+                          deliberate 1.2s sleep past the TCK's cancel-race window, so the
+                          deviation can't be mistaken for an honest race and SKIPped. Requires
+                          `--cancel-prompt __hang__` to actually exercise (every other prompt
+                          finishes normally on its own). FAILs exactly `ACP-CANCEL-208`/
+                          `ACP-CLOSE-202` (dual-bound to the same test); every other id,
+                          including `ACP-CLOSE-201` (closing an already-idle session), is
+                          unaffected
+    advertises_delete_but_errors.py  (V2-4) advertises `capabilities.session.delete: {}` but
+                          `session/delete` always errors regardless of sessionId. FAILs
+                          `ACP-DELETE-201`/`202`/`203` -- `201`/`202` are `Tier.CAPABILITY`, so
+                          this flips the verdict to NOT CONFORMANT. Mirrors v1's
+                          `advertises_load_but_errors.py`
+    config_partial_list.py  (V2-4) `session/set_config_option` returns only the changed entry
+                          instead of the complete `configOptions` list; advertises a second,
+                          unrelated `boolean` option (`debug_mode`) alongside the usual `select`
+                          `verbosity` one so a "partial" reply is actually distinguishable from a
+                          "complete" one. FAILs exactly `ACP-CONFIG-202`; `ACP-CONFIG-201`/`203`/
+                          `204`/`206` are unaffected. Mirrors v1's `config_partial_list.py`
 ```
 
 ## Running the TCK against an agent
