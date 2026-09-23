@@ -22,6 +22,15 @@ label -- needed because the v1 and v2 legs have different expected upstream base
 `echo_agent (1.0.0rc1)=ACP-INIT-003` vs `python_v2_agent=ACP-BATCH-201,ACP-BATCH-202,...`).
 `LABEL=` (an empty id list) asserts zero MANDATORY FAILs for that report. A report with
 neither a `--expect` override nor `--expect-only-mandatory-fail` given is not checked at all.
+
+Checking is opt-in and per-report. For each report, its set of MANDATORY-tier requirement ids whose aggregated status is
+FAIL is compared against one *expected* id set, and fails loudly if the two sets differ in either direction -- an
+unexpected extra MANDATORY FAIL, or an expected one that didn't happen, both count as a deviation.
+Which expected set (if any) applies to a given report is resolved like this:
+
+Example:
+`--expect-only-mandatory-fail ACP-INIT-003` means "every report without its own `--expect`
+override must FAIL exactly `ACP-INIT-003` among MANDATORY requirements, and nothing else."
 """
 
 from __future__ import annotations
