@@ -27,6 +27,10 @@ OUT_DIR="${OUT_DIR:-$REPO_ROOT/scratch/cross-check}"
 CROSS_CHECK_V2="${ACP_CROSS_CHECK_V2:-1}"
 
 mkdir -p "$OUT_DIR"
+# Canonicalize to absolute: downstream cargo builds run in a subshell `cd`'d into
+# $ACP_RUST_SDK, and a relative OUT_DIR would then resolve --target-dir against that
+# directory instead of the repo root, building the binary somewhere this script never checks.
+OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 
 echo "== Building testy (--no-default-features) from $ACP_RUST_SDK ==" >&2
 (
