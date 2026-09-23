@@ -7,11 +7,8 @@ It launches an agent implementation as a stdio subprocess, drives it through the
 initialize, session lifecycle, prompt turns, cancellation, error handling, transport hygiene --
 and reports which requirements pass, fail, don't apply, or were never exercised.
 
-Targets **v1** by default, with an opt-in **v2** (Draft) suite via `--protocol-version 2`. v1 is
-the complete, longer-running suite; v2 is younger and has fewer requirements, mainly missing
-MCP/terminal/filesystem capability coverage (`fs/*`/`terminal/*` don't exist in v2's protocol, so
-that gap is really v1's own backlog item, not a v2 one) -- see
-["What is covered"](#what-is-covered) below for the exact per-version breakdown.
+Targets **v1** by default, with an opt-in **v2** (Draft) suite via `--protocol-version 2`. 
+See ["What is covered"](#what-is-covered) below for the exact per-version breakdown.
 
 ## Install & run
 ```
@@ -126,11 +123,15 @@ completes and still writes a report). No agent command after `--` is a usage err
 The codebase is structured as a version-agnostic core plus one package per protocol version
 (`src/tck/common/` + `src/tck/v1/` + `src/tck/v2/`, see `AGENTS.md`), so each version's suite does
 not require forking the harness, report model, or pytest plugin. ACP **v1**
-(`PROTOCOL_VERSION = 1`, pinned in `tck.v1.protocol`) is the default and the complete, mature
-suite. ACP **v2** (Draft, schema version `2.0.0-alpha.5` at the vendored pin) is available via
-`--protocol-version 2` and is not yet at v1 parity -- the gap is almost entirely MCP/terminal/
-filesystem capability coverage, which is v1's own backlog item (v2's protocol removed `fs/*`/
-`terminal/*` entirely, so that's not a v2-specific gap). For the precise, current requirement set,
+(`PROTOCOL_VERSION = 1`, pinned in `tck.v1.protocol`) is the default and the smaller, mature suite
+(56 requirements: 21 `MANDATORY` / 19 `CAPABILITY` / 12 `ADVISORY` / 4 `INFORMATIONAL`). ACP **v2**
+(Draft, schema version `2.0.0-alpha.5` at the vendored pin) is available via `--protocol-version 2`
+and is actually the larger suite (106 requirements: 19 `MANDATORY` / 51 `CAPABILITY` / 20
+`ADVISORY` / 16 `INFORMATIONAL`) -- not because it's ahead of v1, but because most of its
+session-lifecycle/prompt/cancel methods are tiered `CAPABILITY` (gated on `capabilities.session`)
+where v1 tiers the same methods `MANDATORY`. The one genuine coverage gap is MCP/terminal/
+filesystem capability surfaces, which is v1's own backlog item, not a v2 shortfall (v2's protocol
+removed `fs/*`/`terminal/*` entirely). For the precise, current requirement set,
 `src/tck/v{1,2}/requirements.py` is the source of truth; the summary below won't drift the way
 prose does, but treat it as a snapshot rather than a guarantee.
 
