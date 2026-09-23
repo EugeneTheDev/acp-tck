@@ -202,9 +202,14 @@ requirement needs to assert on the harness's own outgoing traffic.
 
 ## Conventions
 
-- Keep comments and docstrings concise and straightforward. Note non-obvious rationale, gotchas,
-  and spec citations; skip narrating what the code already says, restating history slice-by-slice,
-  or listing exhaustive cascades/examples that belong in tests, not prose.
+- Keep comments and docstrings concise and straightforward. Use plain language. Note non-obvious
+  rationale, gotchas, and spec citations; skip narrating what the code already says, restating
+  history slice-by-slice, or listing exhaustive cascades/examples that belong in tests, not prose.
+  **Never mention intermediate research artifacts** (e.g., notes from researcher agents, work-in-progress
+  findings in `.agents/research/`) in final code comments. Research documents are temporary and will be
+  deleted once features are implemented. Only reference a research document in a comment if it is explicitly
+  work-in-progress and you or the next agent plan to return to that part in this or the next iteration.
+  After implementation, clean up or replace all research references with proper, permanent comments.
 - Dependency management is `uv` only, with exact pins (`==`), never bare `pip` or hand-edited
   `pyproject.toml` dependency entries.
 - `.agents/` is the orchestrator's workbench. `.agents/research/*.md` are read-only inputs --
