@@ -18,8 +18,8 @@ from ..common.requirements import Requirement, Tier, make_cite
 from .protocol import SCHEMA_REVISION
 
 SPEC_REVISION = SCHEMA_REVISION
-"""The spec commit every citation below is relative to (see `AGENTS.md` "Vendored schema" and
-`.agents/research/*.md` headers). Single source of truth is `tck.v1.protocol.SCHEMA_REVISION`."""
+"""The spec commit every citation below is relative to (see `AGENTS.md` "Vendored schema").
+Single source of truth is `tck.v1.protocol.SCHEMA_REVISION`."""
 
 _cite = make_cite(SPEC_REVISION)
 
@@ -122,20 +122,15 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "required: an agent that legitimately supports multiple versions (e.g. answers 1 "
             "for a v1 request and 2 for anything >= 2) may correctly answer higher than its "
             "v1-request answer; only echoing 65535 verbatim, or answering something lower than "
-            "its own v1 answer, is a violation (review-slices-5-6.md B2 -- the prior equality "
-            "rule produced a false FAIL against dual-version agents). The 65535 probe's params "
+            "its own v1 answer, is a violation -- an earlier, stricter equality rule produced a "
+            "false FAIL against dual-version agents. The 65535 probe's params "
             "also carry a v2-shaped info object alongside the v1 fields, since the probe "
             "represents a future-version client and a dual-version router agent selects v2 for "
             "any requested version >= 2 (including 65535) and validates the params as a v2 "
             "InitializeRequest, whose info is REQUIRED -- omitting it would produce a spurious "
             "-32602 for a params-shape reason unrelated to version negotiation."
         ),
-        citation=_cite(
-            "docs/protocol/v1/initialization.mdx:94-98; testy-cross-check.md finding 1 "
-            "(strengthening rationale); review-slices-5-6.md B2 (weakened to >=); "
-            "acp-v2-version-negotiation.md:137,185 (router selects v2 for >=2 and requires "
-            "info, spurious -32602 without it)"
-        ),
+        citation=_cite("docs/protocol/v1/initialization.mdx:94-98"),
     ),
     Requirement(
         id="ACP-INIT-004",
@@ -537,10 +532,9 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "covered by ACP-SCHEMA-001's full-exchange validation, and the test itself defers "
             "shape to it -- so the only thing this requirement actually asserts is uniqueness. "
             "ADVISORY, not MANDATORY: the schema only *describes* `id` as \"Unique identifier\" "
-            "(a description, not a MUST), so AUTH-A5 is itself filed Advisory in the auth "
-            "report's assertion table (review-slices-7.md S5 -- retiered from MANDATORY, where "
-            "an agent with duplicate ids was forced NOT CONFORMANT on the strength of a schema "
-            "description alone)."
+            "(a description, not a MUST) -- retiered down from an earlier MANDATORY tier, under "
+            "which an agent with duplicate ids was forced NOT CONFORMANT on the strength of a "
+            "schema description alone."
         ),
         citation=_cite("schema/v1/schema.json:2740 (AuthMethod.id description) (AUTH-A5)"),
     ),
@@ -567,20 +561,18 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "Capability-conditional (AUTH-C4), same documentation-only encoding as "
             "ACP-MODES-001/ACP-CONFIG-001 -- `capability=\"inferred:authMethods\"` is not a real "
             "`initialize`-result path; support is inferred from `authMethods` being non-empty "
-            "AND `--tck-auth-method <id>` being given (review-slices-7.md S9: the entry's own "
-            "text already said \"capability-conditional\" while the tier field said MANDATORY). "
+            "AND `--tck-auth-method <id>` being given. "
             "SKIPs otherwise, since v1 never requires an agent to expose a testable auth flow "
             "and the TCK cannot guess a valid `methodId`. `authenticate` succeeding is NOT "
-            "itself assertable (must-NOT list #10: a real agent may legitimately reject bad/"
-            "expired/cancelled credentials) -- an `authenticate` error SKIPs with a distinct "
+            "itself assertable -- a real agent may legitimately reject bad/expired/cancelled "
+            "credentials, so an `authenticate` error SKIPs with a distinct "
             "reason instead of failing. Only when `authenticate` returns a result is anything "
             "asserted, and only two things: (AUTH-C3, shape-only) the result is a JSON object; "
             "(AUTH-C4, the one hard assertion this requirement makes) a subsequent `session/new` "
             "on the same connection does not fail with `-32000`."
         ),
         citation=_cite(
-            "schema/v1/schema.json:4712-4734 (AuthenticateRequest/Response) (AUTH-C3, AUTH-C4); "
-            "acp-v1-authentication.md must-NOT list #10"
+            "schema/v1/schema.json:4712-4734 (AuthenticateRequest/Response) (AUTH-C3, AUTH-C4)"
         ),
     ),
     Requirement(
@@ -661,22 +653,16 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "A request to an unknown, `_`-prefixed custom method receives *some* response -- "
-            "a result or any error, not necessarily `-32601`. Judgment call, resolved by the "
-            "orchestrator (`.agents/plan.md` \"Decisions (orchestrator) -- from "
-            "review-slices-7.md\"): Req 42's \"recipients must respond to custom requests\" "
-            "(extensibility.mdx:43,52,65,109) is phrased as a MUST and covers custom requests in "
-            "general, distinct from `acp-v1-transport-and-jsonrpc.md`'s J6, which tiers the "
-            "*specific* `-32601` error code an unrecognised method gets as SHOULD -- so "
-            "\"responds at all\" stays MANDATORY here (this is the one place the two research "
-            "reports look like they disagree; they do not, they cover different observables: "
-            "\"a response exists\" vs. \"which code it carries\"), while the specific code "
-            "remains ACP-JSONRPC-004's ADVISORY concern under J6 (not duplicated here)."
+            "a result or any error, not necessarily `-32601`. Judgment call: Req 42's "
+            "\"recipients must respond to custom requests\" (extensibility.mdx:43,52,65,109) is "
+            "phrased as a MUST and covers custom requests in general, distinct from the J6 rule "
+            "that tiers the *specific* `-32601` error code an unrecognised method gets as "
+            "SHOULD -- so \"responds at all\" stays MANDATORY here (the two rules cover "
+            "different observables: \"a response exists\" vs. \"which code it carries\"), while "
+            "the specific code remains ACP-JSONRPC-004's ADVISORY concern under J6 (not "
+            "duplicated here)."
         ),
-        citation=_cite(
-            "docs/protocol/v1/extensibility.mdx:43,52,65,109 (Req 42); cross-ref "
-            "acp-v1-transport-and-jsonrpc.md J6 (the `-32601` code, not \"responds at all\", "
-            "is what J6 tiers SHOULD)"
-        ),
+        citation=_cite("docs/protocol/v1/extensibility.mdx:43,52,65,109 (Req 42)"),
     ),
     Requirement(
         id="ACP-META-001",
@@ -732,7 +718,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "so this is a hand-written approximation of the allowed-keys union (see "
             "`tck.v1.validation.find_unknown_root_keys`), and a false positive against a genuinely "
             "conforming agent would be an unrecoverable, unfair FAIL -- a testability-driven "
-            "downgrade (review-slices-7.md N4), not a claim that Req 41 is itself only SHOULD/MAY."
+            "downgrade, not a claim that Req 41 is itself only SHOULD/MAY."
         ),
         citation=_cite("docs/protocol/v1/extensibility.mdx:39 (Req 41)"),
     ),
@@ -745,7 +731,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "informational purposes; never asserted on itself (Testability note T6: the spec "
             "places no MUST on stderr content) -- but still FAILs if the prerequisite handshake "
             "(`initialize`, `session/new`) itself fails, since that is a real conformance problem "
-            "the probe correctly surfaces (review-slices-7.md N2)."
+            "the probe correctly surfaces."
         ),
         citation=_cite("docs/protocol/v1/transports.mdx (Testability note T6)"),
     ),
@@ -759,7 +745,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "remains usable afterwards (a subsequent `session/new` still succeeds). Spec "
             "silent; reference SDKs disagree (rust-sdk replies -32700, python-sdk silently "
             "drops the line). Never asserts on the probed behaviour itself, but still FAILs if "
-            "the prerequisite `initialize` handshake fails (review-slices-7.md N2)."
+            "the prerequisite `initialize` handshake fails."
         ),
         citation=_cite(
             "agent-client-protocol-schema (spec silent); rust-sdk vs python-sdk divergence "
@@ -775,7 +761,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "(`{\"foo\": \"bar\"}`) is recorded, same shape as ACP-INFO-PARSE-001. Spec silent; "
             "reference SDKs disagree (rust-sdk replies -32600, python-sdk silently drops it). "
             "Never asserts on the probed behaviour itself, but still FAILs if the prerequisite "
-            "`initialize` handshake fails (review-slices-7.md N2)."
+            "`initialize` handshake fails."
         ),
         citation=_cite(
             "agent-client-protocol-schema (spec silent); rust-sdk vs python-sdk divergence "
@@ -791,7 +777,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "agent never created is recorded, never asserted -- v1 does not specify one "
             "(Discrepancy 6). Even a successful result is only recorded. Never asserts on the "
             "probed behaviour itself, but still FAILs if the prerequisite `initialize`/"
-            "`session/new` handshake fails (review-slices-7.md N2)."
+            "`session/new` handshake fails."
         ),
         citation=_cite("docs/protocol/v1/error.mdx (stub; Discrepancy 6)"),
     ),

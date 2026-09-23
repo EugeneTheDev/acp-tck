@@ -1,6 +1,8 @@
 """ACP v2 (Draft) requirement registry.
 
-## Id-reuse convention
+Every conformance assertion the TCK makes is backed by exactly one `Requirement` here, keyed
+by a stable id (`ACP-<AREA>-<NNN>`). `text`/`citation` come from the protocol specification --
+see each entry's `citation` before changing wording, not memory of the spec.
 
 A v1 id is reused bare only when the v2 requirement is truly the *same* one -- same text and
 tier, only the citation moving to v2 sources. A changed tier, a changed capability-gate
@@ -18,438 +20,10 @@ wording -- only `initialize` itself is unconditionally required in v2; the whole
 surface is opt-in via that one capability marker. This applies throughout below and is not
 repeated per row.
 
-## `ACP-INIT-001`/`ACP-INIT-201`/`ACP-INIT-202`/`ACP-INIT-203` (version negotiation)
-
-- `ACP-INIT-001` (reused from v1, narrowed): `initialize` succeeds with a non-error result.
-  Schema/shape validation of the result moved to `ACP-SCHEMA-001`, so this row alone never
-  SKIPs on a version mismatch -- a MUST-succeed handshake applies even to an agent that
-  honestly negotiates down to a version other than 2.
-- `ACP-INIT-201` (new, not a reuse of v1's `ACP-INIT-002`): v2's negotiation rule
-  (initialization.mdx:92-96) is a two-branch rule -- "if the Agent supports the requested
-  version, respond with the same version; otherwise, respond with its own latest supported
-  version" -- unlike v1's single-branch echo, since a v2-requesting client can legitimately be
-  answered with a *lower* version by an agent that doesn't support v2 yet.
-- `ACP-INIT-003` (reused from v1): the unsupported-version (`65535`) probe -- the agent must
-  answer with its own latest supported version, never echoing the unsupported request
-  (`.agents/research/acp-v2-version-negotiation.md` requirement 10, case row `N > M`). Distinct
-  from `ACP-INIT-201`'s own internal 65535 probe: the two ids assert different consequences of
-  the same rule (mirroring v1's `ACP-INIT-002`/`003` split), so a fixture that unconditionally
-  echoes the requested version correctly fails both.
-- `ACP-INIT-202` (new): requesting `protocolVersion: 1` against a v2-only/dual agent must still
-  produce a successful result whose value is `1` or `2`, never a JSON-RPC error
-  (`.agents/research/acp-v2-version-negotiation.md` requirement 10, case row `N < min(S)`).
-  Kept MANDATORY (the report flags this as debatable since both reference SDKs' strict v2
-  endpoints violate the MUST by construction) to honor the spec's unambiguous text -- same
-  posture already taken for `ACP-INIT-003`.
-- `ACP-INIT-203` (new): `info` is REQUIRED in the v2 `initialize` result (v1's `agentInfo` was
-  ADVISORY) -- a genuine tier promotion, so it gets its own id rather than reusing v1's
-  `ACP-INIT-004`.
-- `ACP-INIT-204` (new): every v2 capability marker is object-encoded, never boolean. A
-  dedicated diagnostic id for report legibility even though the same defect also trips
-  `ACP-SCHEMA-001`'s general schema validation -- kept as a separate row per
-  `.agents/research/acp-v2-initialize-capabilities-baseline.md` §7.
-- `ACP-SCHEMA-001` (reused from v1): every agent message validates against the schema,
-  re-cited to v2's schema. Scoped to the `initialize` exchange only until the v2 prompt driver
-  extends it to session traffic.
-
-## Version-mismatch-aware v2-shape rows
-
-`ACP-INIT-203`, `ACP-INIT-204`, and `ACP-SCHEMA-001` all judge the *shape* of the `initialize`
-result against v2-only rules. An agent that honestly negotiates down to a version other than 2
-never claimed a v2-shaped result, so each of these three tests calls
-`tck.v2.conformance._helpers.skip_if_version_mismatch(init_result)` right after obtaining its
-own `initialize` result, SKIPping with a `VERSION-MISMATCH:`-prefixed message (which forces the
-run `Verdict.blocked_by_version_mismatch`, NOT CONFORMANT regardless -- see
-`tck.common.report`/`tck.common.plugin`) instead of FAILing. `ACP-INIT-001` and the
-negotiation-outcome rows (`ACP-INIT-003`/`201`/`202`) never call this helper -- they judge only
-the negotiation outcome, not the result's shape, and an honest downgrade is not itself a
-negotiation defect.
-
-This is distinct from `tck.common.plugin`'s `_tck_capability_gate` autouse fixture, which only
-gates `@pytest.mark.capability(...)` tests sharing the session-scoped `agent_initialize_result`
-fixture: every test in `test_initialize.py` spawns its own process and sends its own
-`initialize`, so there is no shared fixture to gate on and the check must be called explicitly.
-
-## `ACP-SESSION-001`/`002`, prompt-turn core (`ACP-PROMPT-20x`, `ACP-STATE-20x`)
-
-- `ACP-SESSION-001`/`002` (reused from v1): `session/new` succeeds with a unique, non-empty
-  `sessionId` / two calls return distinct ids, re-cited to v2's contract (`cwd`-only required
-  param, `mcpServers` optional unlike v1). `Tier.CAPABILITY` here vs. v1's MANDATORY, since v2's
-  session surface is opt-in.
-
-`session/prompt` itself is one of the seven session-baseline methods, so all rows below are
-`Tier.CAPABILITY`, `capability="capabilities.session"` too, each with the test's own
-`@pytest.mark.capability("capabilities.session")` marker for the SKIP.
-
-- `ACP-PROMPT-205` (new id, not a reuse of v1's `ACP-PROMPT-002`): every `session/update`
-  validates and carries the prompted `sessionId` -- same requirement text as v1's
-  `ACP-PROMPT-002`, re-cited to v2's `UpdateSessionNotification` envelope and 17-variant
-  `SessionUpdate` union (`.agents/research/acp-v2-prompt-lifecycle.md` requirement U1), but a
-  changed tier (CAPABILITY not MANDATORY) makes it a different requirement needing a fresh id.
-  Vacuous pass if the agent emits no updates during the turn.
-- `ACP-PROMPT-201` (new): the `session/prompt` response is an object with a non-empty string
-  `messageId` -- the acceptance-receipt shape that replaces v1's turn-result response entirely
-  (`stopReason` moved to `ACP-STATE-203`).
-- `ACP-PROMPT-203` (new): the agent echoes the inserted user message -- a `user_message` update
-  (with `content`) or at least one `user_message_chunk` -- carrying the same `messageId` as the
-  `session/prompt` response, for the prompted session.
-- `ACP-STATE-201` (new): if a turn-ending idle `state_update` (one carrying a `stopReason`) is
-  observed for the prompted session, a `state_update {state: "running"}` for that session must
-  have been observed earlier in the same turn. Gated on the idle being seen at all -- SKIPs as
-  "no turn-ending idle observed" only when the turn never reached one; an idle that *does* carry
-  a `stopReason` but was never preceded by `running` FAILs (this is the defect the row exists to
-  catch). Different SKIP gate from `ACP-STATE-202`/`203` below, whose gate is `running` itself
-  not being observed (`.agents/research/acp-v2-prompt-lifecycle.md` requirement row
-  `ACP-STATE-201`, inference §4 point 3).
-- `ACP-STATE-202` (new): after an accepted prompt for a session that showed `running`, an idle
-  `state_update` for that session arrives within the turn's `--timeout` budget. SKIPs as "no
-  foreground work observed" when `running` was never observed at all -- the spec does not say
-  whether a zero-work prompt must emit idle (open question, not guessed at).
-- `ACP-STATE-203` (new): the idle `state_update` that terminates an observed `running` turn
-  carries a `stopReason`, and the value is one of the five defined constants or `_`-prefixed
-  (`tck.v2.protocol.is_valid_open_enum_value`). Folds in the prompt-lifecycle report's separate
-  `ACP-STATE-204` value-legality row into one combined "terminating idle carries a *valid*
-  `stopReason`" check; a future split into separate presence/legality ids is possible if a
-  defect fixture ever needs the finer diagnostic. Same "no foreground work observed" SKIP gate
-  as `ACP-STATE-202`.
-
-Not registered: `ACP-PROMPT-202` (acceptance-before-idle ordering, race-prone) and
-`ACP-PROMPT-204` (distinct `messageId`s across turns -- see `ACP-PATCH-203` instead, which
-covers the same ground); `ACP-STATE-205` (state value legality alone, folded into
-`ACP-STATE-203`); `ACP-STATE-206`/`207` (permission-driven state transitions; post-idle update
-recording); `ACP-MSG-201` (fully covered by `ACP-PROMPT-205`'s schema validation).
-
-## Prompt content, permissions, client-capability rules (`ACP-PROMPTCAP-00x`, `ACP-PERM-201`,
-## `ACP-CLIENTCAP-20x`, informational prompt probes)
-
-All rows below are only observable during a `session/prompt` turn, so all but `ACP-PROMPT-003`
-and the two INFORMATIONAL rows are `Tier.CAPABILITY`, `capability="capabilities.session"`. The
-ADVISORY/INFORMATIONAL rows keep `capability=None` on the `Requirement` itself
-(`Requirement.__post_init__` forbids a capability path off `Tier.CAPABILITY`), but their tests
-still carry the `@pytest.mark.capability("capabilities.session")` marker for the SKIP --
-`tck.common.plugin._tck_capability_gate` reads only the pytest marker, independent of the
-registered tier.
-
-- `ACP-PROMPTCAP-001`/`002`/`003` (reused from v1): a prompt containing an
-  `image`/`audio`/`resource` block alongside text is accepted and the turn reaches idle without
-  a JSON-RPC error, re-cited to v2's content-block shapes. Gate encoding changes from v1's
-  boolean `agentCapabilities.promptCapabilities.*` to v2's object-marker
-  `capabilities.session.prompt.image`/`.audio`/`.embeddedContext` paths -- a gate-encoding
-  change alone doesn't force a new id, only a changed text/tier does. Assertion target moves
-  from v1's "valid `stopReason` in the response" to v2's acceptance receipt, which `run_prompt`'s
-  own turn-end predicate only returns once the turn has reached idle.
-- `ACP-PROMPT-003` (reused from v1, unchanged tier): a prompt of `text` + `resource_link` is
-  accepted and the turn completes (ADVISORY). The v1/v2 doc conflict between
-  initialization.mdx:203 ("MUST support `text` and `resource_link`") and content.mdx:33 ("MUST
-  support text[-only]") survives verbatim into v2.
-- `ACP-PERM-201` (new, no v1 counterpart): any `session/request_permission` the agent sends
-  during a turn validates (`sessionId`, non-empty `title`, `options` with >=1 entry, each
-  carrying `optionId`/`name`/`kind`), and once the client answers with a `selected` outcome the
-  turn still reaches idle. SKIPs "no permission request observed" when the agent's turn never
-  sends one -- sending it is only MAY (`prompt-lifecycle.mdx:369`), so there's nothing to
-  validate for an agent that never asks.
-- `ACP-CLIENTCAP-201` (new, no v1 counterpart): with a mock client advertising no
-  `capabilities.elicitation.*` mode, no `elicitation/create` request is observed during a
-  prompt turn (MUST NOT).
-- `ACP-CLIENTCAP-202` (new): every agent->client request/notification method observed during a
-  prompt turn is a member of v2's client method inventory (`CLIENT_METHODS`), a bidirectional
-  protocol-level method (`PROTOCOL_METHODS`, e.g. `$/cancel_request`), or `_`-prefixed. Collapses
-  v1's three separate `ACP-CLIENTCAP-001/002/003` fs/terminal/elicitation rows into one, since v2
-  has no `fs/*`/`terminal/*` methods at all -- calling one is just calling an undefined method,
-  indistinguishable from any other made-up non-`_` name. `elicitation/create`'s own
-  capability-gated negative is `ACP-CLIENTCAP-201` above, not duplicated here (an unadvertised
-  elicitation call is still a *defined* method, so it would otherwise trivially pass this check).
-- `ACP-INFO-CONCURRENT-201` (new, INFORMATIONAL): records, never asserts on, what the agent does
-  when a second `session/prompt` for the same session arrives before the first reaches its
-  terminating idle -- concurrency is explicitly out of scope of the v2 design
-  (`docs/rfds/v2/prompt.mdx:86`).
-- `ACP-INFO-UNKNOWNSESSION-001` (reused from v1, INFORMATIONAL): records the agent's response to
-  `session/prompt` with a never-created `sessionId`, never asserting on it -- v2's `error.mdx`
-  is still "Documentation coming soon", same spec silence as v1.
-
-Not added: `ACP-INFO-V2UNKNOWNUPDATE-001` (an unknown non-`_`-prefixed `sessionUpdate`
-discriminator is a MANDATORY FAIL under `ACP-ENUM-20x` below, not merely an INFORMATIONAL
-probe).
-
-## Cancellation (`ACP-CANCEL-20x`, `ACP-INFO-CANCEL-20x`)
-
-Source: `.agents/research/acp-v2-cancellation-and-batching.md`. `session/cancel` is
-wire-identical to v1 (a notification, `{sessionId}` + optional `_meta`), but confirmation moved
-from the (now purely an acceptance receipt) `session/prompt` response to a later idle
-`state_update` carrying `stopReason: "cancelled"` -- every v1 `ACP-CANCEL-00x` id that named the
-*response* is retired without reuse, and the whole family gets fresh `2xx` ids.
-
-- `ACP-CANCEL-201..203`, `205..208` are `Tier.CAPABILITY`, `capability="capabilities.session"`
-  (session-baseline rule) -- v1's closest analogues (`ACP-CANCEL-001`/`002`) were MANDATORY.
-- `ACP-CANCEL-204` ("stop LLM requests / abort tool calls as soon as possible") is
-  `Tier.INFORMATIONAL`, `capability=None` -- not because the wording is weaker (it is a real
-  SHOULD), but because it is **unobservable** from a client-only TCK: nothing on the wire
-  distinguishes "stopped as soon as possible" from "stopped eventually". Its test unconditionally
-  records the observation and skips -- never asserts. The id itself keeps the `ACP-CANCEL-`
-  prefix rather than moving to `ACP-INFO-` (renumbering it would contradict "never renumber" once
-  assigned), but its *tier* is `Tier.INFORMATIONAL` rather than `Tier.ADVISORY`: a row that can
-  never be judged -- always SKIPped, never PASS/FAIL -- belongs in the record-only tier, not the
-  SHOULD tier.
-- `ACP-CANCEL-208` (`session/close` on a session with foreground work MUST cancel it first) is
-  the cancel-side-effect of `session/close`; `ACP-CLOSE-202` below is a deliberate re-mint of the
-  exact same evidence via a second `@pytest.mark.requirement(...)` id on the same test, not a
-  distinct probe (precedent: `ACP-CANCEL-201`/`207` similarly share one test).
-- `ACP-INFO-CANCEL-201`/`202` are `Tier.INFORMATIONAL`, `capability=None` (unknown-`sessionId`/
-  no-foreground-work behavior, and whether the agent sends its own `$/cancel_request` for
-  pending requests -- both spec-silent or MAY-at-best).
-
-## Transport/JSON-RPC (`ACP-TRANSPORT-002/201/203`, `ACP-JSONRPC-001..005`)
-
-Connection-level, not session-scoped, so `Tier.MANDATORY`/`Tier.ADVISORY` directly, never
-`Tier.CAPABILITY` -- these rows hold before any session exists.
-
-- `ACP-TRANSPORT-201` (framing, new id): v1's `ACP-TRANSPORT-001` says "every line is a single
-  JSON-RPC message"; v2 additionally permits a non-empty batch array on that line, a genuinely
-  different rule needing a fresh id (`001` stays v1's).
-- `ACP-TRANSPORT-002` (stdout is valid UTF-8, reused bare): byte-identical meaning to v1 --
-  batching doesn't change what "valid UTF-8" means.
-- `ACP-TRANSPORT-203` (no embedded newlines, including for a serialized batch array; new): v1
-  had no id for this at all.
-- `ACP-JSONRPC-001..005` (id echo, result-xor-error, notification silence, unknown-method code,
-  connection survives an error) are each reused bare, unchanged in meaning from their v1
-  counterparts -- only the evidence-gathering probe widens to also exercise a batch. The batch
-  half of that widened evidence for `-001`/`-003`/`-005` is gathered in `test_batch.py`, not
-  `test_jsonrpc.py`: the two files jointly bind each id via separate
-  `@pytest.mark.requirement(...)` markers -- `test_jsonrpc.py`'s own probes stay single-message.
-  `-002`/`-004` have no batch-specific angle (the disjoint-result/error shape and the
-  unknown-method code do not change inside a batch entry), so their evidence stays entirely in
-  `test_jsonrpc.py`.
-
-## Batching (`ACP-BATCH-201..208`, `ACP-INFO-BATCH-201/202`)
-
-- `ACP-BATCH-201`/`202` (empty-array -> single `-32600` object; notification-only batch -> no
-  output) are `Tier.MANDATORY` -- real MUSTs, kept MANDATORY even knowing the Python SDK's
-  reference agent crashes on any array line at all (an expected, already-documented cross-check
-  baseline deviation, not a reason to weaken the tier). `ACP-BATCH-201`'s own text notes the
-  RFC-2119 force it cites is on the *sender* side of `transports.mdx`'s prose; the *receiver*
-  rule tested here is still MANDATORY because it is JSON-RPC 2.0 §6's own base envelope rule
-  (see `ACP-BATCH-201`'s `text=` for the full rationale), unlike `203` below which is ACP's own
-  unqualified prose and stays ADVISORY.
-- `ACP-BATCH-203` (per-entry `-32600` for an invalid batch entry) is `Tier.ADVISORY` -- the
-  report's own text carries no RFC-2119 keyword ("produces"), consistent with the v1
-  `ACP-JSONRPC-005` precedent that unhedged-but-keyword-free ACP prose does not get MANDATORY.
-  Its probe uses three non-object entries (`[17, true, null]`), never a batched unknown-method
-  call: relying on `_tck/does_not_exist` getting an error reply would make this test depend on
-  `ACP-JSONRPC-004`'s own SHOULD, not the per-entry rule.
-- `ACP-BATCH-204` (one reply array, SHOULD) is `Tier.ADVISORY`. `ACP-BATCH-205` (order-
-  independent, id-matched) is folded into the *same test* as `204` via a multi-id
-  `@pytest.mark.requirement(...)` marker rather than a separate test function: both are evidenced
-  by the exact same two-request-batch probe, and both are `Tier.ADVISORY` (never the sole cause
-  of a failing verdict), so a single shared PASS/FAIL cannot misrepresent either id's own status
-  the way it would for a MANDATORY/CAPABILITY pairing. The probe batches two `session/list`
-  calls, never `session/new`: `session/new` is exactly the lifecycle-sensitive kind of call
-  `ACP-BATCH-208` says SHOULD NOT be batched, so using it here would make `204`/`205`'s own
-  evidence-gathering contradict `208`'s rule.
-- `ACP-BATCH-206`/`207`/`208` (receiver MAY process concurrently; agent MAY spontaneously batch;
-  clients/agents SHOULD NOT batch lifecycle messages) are `Tier.INFORMATIONAL`, `capability=None`,
-  each with an always-skip, record-only test -- same unobservable-from-a-client-TCK reasoning as
-  `ACP-CANCEL-204` above: `206` has no legitimate ordering assertion (the report says so
-  directly), `207` cannot be forced (the TCK cannot make an agent choose to batch), and `208` is
-  about what the *TCK itself* would do as a sender, not a property of the agent under test at
-  all. Retiered from `Tier.ADVISORY`: a row that can never be judged -- always SKIPped, never
-  PASS/FAIL -- belongs in the record-only tier, not the SHOULD tier.
-- `ACP-INFO-BATCH-201`/`202` are `Tier.INFORMATIONAL`, `capability=None` (invalid-JSON-batch-line
-  error code, and call/response batch-kind mixing) -- both SDK-disagreement/schema-only rows.
-
-## Session management (`ACP-SESSION-203`, `ACP-RESUME-20x`, `ACP-LIST-20x`, `ACP-CLOSE-201/202`,
-## `ACP-DELETE-20x`, `ACP-ADDDIRS-20x`, `ACP-MCP-201/202`, `ACP-CONFIG-20x`)
-
-Source: `.agents/research/acp-v2-session-management.md`. `delete`/`additionalDirectories`/
-`mcp.{stdio,http}` are each their own optional capability, gated on their own path.
-
-- `ACP-SESSION-203` (new): `mcpServers` omitted vs. `mcpServers: []` on `session/new` are
-  equivalent (the field is optional in v2, unlike v1's required-even-if-empty shape).
-- `ACP-RESUME-201..205` re-mint v1's `ACP-LOAD-001/002`/`ACP-RESUME-001/002` (retired below): the
-  capability gate changed from `agentCapabilities.sessionCapabilities.{resume,load}` to a
-  baseline-mandatory method, and `session/resume` unifies v1's `session/load` + `session/resume`
-  behind one `replayFrom` cursor. **Obtaining a legally resumable session id** has no
-  spec-guaranteed route, so `_helpers.obtain_resumable_session` tries, in order: (1) resuming
-  the session just created on this connection, (2) `session/list` then resuming its first entry,
-  (3) `session/close` then resume -- recording each route's error. `-32601` from
-  `session/resume` itself is a **FAIL** of `ACP-RESUME-201` (the method is baseline-mandatory);
-  any other error from all three routes is a **SKIP** with the recorded errors (never a FAIL on
-  `-32602`/`-32002`, which the spec doesn't authorize interpreting). `ACP-RESUME-206`
-  (schema-covered `messageId` presence) is not registered -- a pure duplicate of validation the
-  tests already run via `validate_agent_response`.
-- `ACP-LIST-201..204` re-mint v1's `ACP-LIST-001/002` (list is now baseline, not
-  `sessionCapabilities.list`). `ACP-LIST-205..208` (ADVISORY/INFORMATIONAL: `updatedAt` format,
-  sessionId uniqueness, invalid-cursor handling, new/closed-session list visibility) are not
-  registered -- no MANDATORY/CAPABILITY payoff to justify the fixture support they'd need.
-- `ACP-CLOSE-201` re-mints v1's `ACP-CLOSE-001` (close is now baseline) and covers only
-  `session/close`'s own contract (response shape) on a session with no foreground work.
-  `ACP-CLOSE-202` is the cancellation side effect of `session/close` on in-flight foreground
-  work, and is a deliberate documented duplicate of the evidence `ACP-CANCEL-208` already
-  gathers -- both are satisfied by the same `run_prompt(..., on_action=<session/close>)` probe in
-  `test_cancel.py`, marked `@pytest.mark.requirement("ACP-CANCEL-208", "ACP-CLOSE-202")`.
-- `ACP-DELETE-201`/`202` re-mint v1's `ACP-DELETE-001`/half of `-002` ("no longer listed"), both
-  `Tier.CAPABILITY`, `capability="capabilities.session.delete"`. `ACP-DELETE-203` is the
-  ADVISORY, `capability=None` "silent double-delete" half, a verbatim re-cite of v1's
-  `ACP-DELETE-002` -- its test still carries the capability marker purely for the SKIP gate.
-- `ACP-ADDDIRS-201` re-mints v1's `ACP-ADDDIRS-001` (same requirement, new capability path).
-  `ACP-ADDDIRS-202` is new: v1 had no `session/resume` carrier statement for
-  `additionalDirectories` at all.
-- `ACP-MCP-201`/`202`: `Tier.INFORMATIONAL`, not `Tier.CAPABILITY` -- a connect failure against a
-  harmless stdio/http entry is the agent's own business ("Agents SHOULD connect" has no
-  client-observable surface in stable v2), so FAILing `session/new` outright for it isn't
-  provably non-conformant. This tiering is a judgment call (the source report's candidate table
-  defaults to CAPABILITY; its prose twice recommends INFORMATIONAL instead -- taken here).
-  `capability=None` per the `Tier.INFORMATIONAL` invariant; each test still carries
-  `@pytest.mark.capability("capabilities.session.mcp.stdio"/"...http")` for the SKIP gate.
-  `ACP-MCP-203` (custom/unknown transport type) is not registered.
-- `ACP-CONFIG-201..204,206` mirror v1's `inferred:` pattern (`ACP-MODES-001`/`ACP-CONFIG-001/002`
-  precedent): `Tier.CAPABILITY`, `capability="inferred:configOptions"` -- a documentation-only
-  string satisfying `Requirement.__post_init__`'s invariant but not looked up by
-  `@pytest.mark.capability(...)`; the tests instead `pytest.skip(...)` manually when
-  `session/new`'s result carries no `configOptions`, since v2 has no `initialize`-result marker
-  for this. `ACP-CONFIG-201`/`202` supersede v1's `ACP-CONFIG-001`/`002` (field renamed `id` ->
-  `configId`; same requirement, new citation). `203`/`204`/`206` are new (resume carrier, the
-  derived `currentValue` membership check, `config_option_update`'s completeness rule).
-  `ACP-CONFIG-205` (ADVISORY: set-value reflection) is not registered -- the report itself flags
-  it as optional ("an agent may legitimately reflect a dependent adjustment").
-
-### v1 ids retired by this area (no v2 successor under the old id)
-
-`ACP-LOAD-001/002/003`, `ACP-RESUME-001/002`, `ACP-LIST-001/002`, `ACP-CLOSE-002` (rewritten, not
-re-cited -- v2's `PromptResponse` has no `stopReason` to resolve with), `ACP-MODES-001/002`,
-`ACP-CONFIG-003` (v2 has no `clientCapabilities.session.configOptions.boolean` gate at all).
-
-## Authentication (`ACP-AUTH-201..207`)
-
-v2 renames v1's `authenticate`/`logout` to `auth/login`/`auth/logout` and drops v1's separate
-`agentCapabilities.auth.logout` marker entirely: v2's `AgentAuthCapabilities` says outright
-"This object does not advertise support for `auth/login` or `auth/logout`. Those methods are
-advertised by a non-empty `authMethods` list in the `initialize` response". `AuthMethod` also
-gains a schema-REQUIRED `type` discriminator (`terminal`/`agent`/open `other`) -- v1 let `type`
-default to "agent" when absent; v2 does not.
-
-- `ACP-AUTH-201` (ADVISORY, re-cites v1's `ACP-AUTH-001`): `authMethods[*].methodId` values are
-  unique. Same requirement, only the field renamed (`id` -> `methodId`).
-- `ACP-AUTH-202` (MANDATORY, new id): no `type: "terminal"` entry may be advertised unless the
-  client advertised terminal-auth support. Same underlying MUST as v1's `ACP-AUTH-002`, but the
-  gate's wire encoding changed from a top-level boolean (`clientCapabilities.auth.terminal`) to
-  an object-marker path (`capabilities.auth.terminal`) -- a genuine shape change, hence a new id.
-  Tested against a second, dedicated connection that advertises `capabilities.auth.terminal: {}`
-  (the default connection's `authMethods` is the negative control; the dedicated connection also
-  backs `ACP-AUTH-207` below).
-- `ACP-AUTH-203` (CAPABILITY, `capability="inferred:authMethods"`, replaces v1's `ACP-AUTH-004`):
-  `auth/logout` returns a non-error, schema-valid result. v2 has no logout capability marker at
-  all, so support is inferred from a non-empty `authMethods`. Because calling `auth/logout` for
-  real may revoke the operator's own credentials, this test additionally requires
-  `--allow-logout` and SKIPs with `"auth/logout not exercised: pass --allow-logout (it may
-  revoke the operator's credentials)"` otherwise.
-- `ACP-AUTH-204` (CAPABILITY, `capability="inferred:authMethods"`, re-cites v1's `ACP-AUTH-003`):
-  given `--auth-method <id>` naming a non-`terminal`, advertised `methodId`, `auth/login` does
-  not answer `-32601` and a subsequent `session/new` does not fail with `-32000`. Same gating as
-  v1's `ACP-AUTH-003`.
-- `ACP-AUTH-205` (ADVISORY, re-cites v1's `ACP-AUTH-005`): `session/new` must not fail with
-  `-32000` when `authMethods` is empty or absent.
-- `ACP-AUTH-206` (MANDATORY, new -- v1's `type` had no closed/open enum rule): every
-  `authMethods[*].type` is a defined discriminator value (`"agent"`, `"terminal"`) or
-  `_`-prefixed (`tck.v2.protocol.is_valid_open_enum_value`).
-- `ACP-AUTH-207` (MANDATORY, new -- v1's terminal descriptor had no `args`/`env` fields):
-  conditional on at least one `type: "terminal"` entry appearing in `authMethods` on the
-  connection that advertised `capabilities.auth.terminal: {}` (else SKIP). When one appears,
-  every terminal descriptor's `args` (if present) is an array of strings, `env` (if present) is
-  an array of well-formed `EnvVariable` objects, and `env` entries' `name`s are unique within
-  that descriptor.
-
-### v1 ids retired or replaced
-
-`ACP-AUTH-004` is retired outright (replaced in spirit by `ACP-AUTH-203`'s `inferred:
-authMethods` pattern, which additionally requires `--allow-logout`). `ACP-AUTH-001`/`003`/`005`
-are re-cited under new ids (`ACP-AUTH-201`/`204`/`205`) rather than reusing the v1 number, same
-convention as elsewhere in this file (a fresh `2xx` block per v2 area even for individually
-unchanged requirements). `ACP-AUTH-002` is replaced by `ACP-AUTH-202` (new id) since the gate's
-wire encoding changed, not just its citation.
-
-## Patch/upsert semantics, open enums, extensibility/hygiene (`ACP-PATCH-20x`, `ACP-ENUM-20x`,
-## `ACP-META-201`, `ACP-EXT-20x`, and v1 re-cites)
-
-Source: `.agents/research/acp-v2-patches-enums-extensibility.md`. Rows the report itself scores
-ADVISORY keep `Tier.ADVISORY, capability=None` on the registry (not promoted to CAPABILITY) --
-the corresponding test function alone carries `@pytest.mark.capability("capabilities.session")`
-to decide the SKIP.
-
-### `ACP-PATCH-20x`: keyed upsert/patch semantics
-
-- `ACP-PATCH-201` (CAPABILITY): every message-kind `session/update`
-  (`*_message_chunk`/`*_message`/`*_thought_chunk`/`*_thought`) carries a non-empty `messageId`.
-- `ACP-PATCH-202` is not registered -- duplicates `ACP-PROMPT-201` (acceptance receipt shape)
-  combined with `ACP-PROMPT-203` (response echoes the same `messageId` the turn's updates used).
-- `ACP-PATCH-203` (CAPABILITY): two separate prompts on the same session receive distinct
-  `messageId` values.
-- `ACP-PATCH-204` (CAPABILITY): every `tool_call_update` and `tool_call_content_chunk` carries a
-  non-empty `toolCallId`; a content chunk additionally carries `content`. No separate tool-call
-  "create" message exists in v2 -- an update for a previously-unseen `toolCallId` *is* the
-  create.
-- `ACP-PATCH-205` (CAPABILITY): every `plan_update.plan` carries a non-empty `planId`.
-- `ACP-PATCH-206` (CAPABILITY): `terminal_update.cwd`, when present, is an absolute path, and a
-  given `terminalId` is never observed with two different `cwd` values across the run (upsert-
-  by-key implies `cwd` is set-once).
-- `ACP-PATCH-207` (CAPABILITY): terminal output bytes (`terminal_output_chunk.data` and
-  `terminal_update.output.data`) decode as standalone valid base64, independent of any other
-  chunk.
-- `ACP-PATCH-208` (ADVISORY, test capability-gated): the first observed `tool_call_update` for a
-  given `toolCallId` carries a non-empty `title`, and `name` (if ever set) never changes across
-  subsequent updates for that id.
-- `ACP-PATCH-209` (ADVISORY, test capability-gated): when a `session/request_permission` is
-  observed mid-turn, `"requires_action"` appears among the turn's `state_update.state` values
-  before it, and `"running"` reappears after the permission request is answered.
-
-### `ACP-ENUM-20x`: open-enum emitter rules
-
-v2's schema leaves every scalar enum and tagged-union discriminator open except
-`ElicitationSchemaType` and the JSON-RPC `jsonrpc` literal, but prose still binds the *emitter*:
-every emitted value must be a defined constant or `_`-prefixed
-(`tck.v2.protocol.is_valid_open_enum_value`).
-
-- `ACP-ENUM-201` (CAPABILITY): a curated, non-exhaustive subset of sites carrying dedicated
-  per-site MUST prose -- `tool_call_update.kind`/`.status` (`ToolKind`/`ToolCallStatus`) and plan
-  entries' `priority`/`status` (`PlanEntryPriority`/`PlanEntryStatus`) -- are each a defined
-  constant or `_`-prefixed. Classifying prose strength at every one of the schema's ~30 enum
-  sites individually is out of scope; this subset is the highest-value one to automate.
-- `ACP-ENUM-202` (ADVISORY, test capability-gated): three sites with no dedicated prose --
-  `session/update`'s own `sessionUpdate` discriminator, `state_update.state`, and tool-call
-  content blocks' `type` -- are each a defined constant or `_`-prefixed.
-- `ACP-ENUM-203` (ADVISORY, test capability-gated): receiver-tolerance direction -- answering
-  `session/request_permission` with a `_`-prefixed, non-standard `outcome` value must not make
-  the agent answer the prompt itself with `-32602` or otherwise fail to reach a terminating idle.
-  Only survival is checked; how the agent treats the value internally is untestable.
-
-The re-worded v1 `ACP-PROMPT-001` ("the idle's `stopReason` is a defined constant or
-`_`-prefixed") is not re-registered -- it duplicates `ACP-STATE-203`, which already combines
-"carries a `stopReason`" with this value-legality check.
-
-### Extensibility/hygiene: v1 ids re-cited unchanged
-
-Same requirement in v2, only re-cited (the underlying `$def`s/docs are byte-identical or the
-rule is version-agnostic): `ACP-EXT-001` (MANDATORY -- a `_`-prefixed custom method still gets
-*some* response), `ACP-META-001` (ADVISORY -- `_meta` on `session/prompt` is still accepted),
-`ACP-ERROR-001` (ADVISORY -- error `message` non-empty, single-line), `ACP-SHUTDOWN-001`
-(ADVISORY -- prompt exit on stdin EOF), `ACP-SCHEMA-002` (ADVISORY -- no unknown root-level
-keys; the v2 "other"-branch carve-out is implemented in
-`tck.v2.validation.find_unknown_root_keys`), `ACP-STDERR-001`/`ACP-INFO-PARSE-001`/
-`ACP-INFO-INVALIDREQ-001` (INFORMATIONAL -- report-only, never asserted). All connection-level,
-`capability=None`, tiers unchanged from v1.
-
-### New hygiene rows
-
-- `ACP-META-201` (ADVISORY, new): every `_meta` value emitted anywhere in the transcript is a
-  JSON object or `null` -- never a string/array/number.
-- `ACP-EXT-201` (ADVISORY, new): an unrecognized `_`-prefixed notification produces no response
-  and no crash (SHOULD-ignore).
-- `ACP-EXT-202` (ADVISORY, new): vendor extensions are advertised under `initialize` result
-  `capabilities._meta`, not as an unrecognized root key of `capabilities` itself.
-- `ACP-EXT-203` (INFORMATIONAL, new): behaviour on receiving an unrecognized `$/`-prefixed
-  protocol-level notification is recorded, never asserted (the spec explicitly permits ignoring
-  it).
-
-All four new hygiene rows are connection-level, `capability=None`.
+Conformance tests bind to a requirement via `@pytest.mark.requirement("ACP-…")` (see
+`tck.common.plugin`). Two meta-tests (`tests/v2/test_registry.py`) keep this registry and the
+test suite in sync: every marker id must exist here, and every id here must be referenced by
+at least one test.
 """
 
 from __future__ import annotations
@@ -500,10 +74,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "it is at least the agent's own latest supported version (as observed from a "
             "reference `protocolVersion: 2` request on the same agent)."
         ),
-        citation=_cite(
-            "docs/protocol/v2/initialization.mdx:94 (second clause); "
-            "acp-v2-version-negotiation.md requirement 10, case table row `N > M`"
-        ),
+        citation=_cite("docs/protocol/v2/initialization.mdx:94 (second clause)"),
     ),
     Requirement(
         id="ACP-INIT-202",
@@ -512,12 +83,12 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         text=(
             "A downgrade probe (`protocolVersion: 1`) still succeeds -- never a JSON-RPC error "
             "-- and the returned `protocolVersion` is `1` or `2` (the agent's own latest "
-            "supported version when it does not support `1`)."
+            "supported version when it does not support `1`). Kept MANDATORY -- debatable, "
+            "since both reference SDKs' strict v2-only endpoints violate this by construction "
+            "-- to honor the spec's unambiguous text, the same posture already taken for "
+            "`ACP-INIT-003`."
         ),
-        citation=_cite(
-            "docs/protocol/v2/initialization.mdx:94,96; "
-            "acp-v2-version-negotiation.md requirement 10, case table row `N < min(S)`"
-        ),
+        citation=_cite("docs/protocol/v2/initialization.mdx:94,96"),
     ),
     Requirement(
         id="ACP-INIT-203",
@@ -545,7 +116,9 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "nested keys) is either absent/`null` or an object -- never a boolean. There are no "
             "boolean-encoded capabilities anywhere in v2. A v2-only shape requirement: SKIPPED "
             "with a `VERSION-MISMATCH` note whenever the agent honestly negotiated down to a "
-            "version other than 2."
+            "version other than 2. A dedicated diagnostic id for report legibility, kept as its "
+            "own row even though the same defect also trips `ACP-SCHEMA-001`'s general schema "
+            "validation."
         ),
         citation=_cite(
             "docs/protocol/v2/migration.mdx:181; schema/v2/schema.json:3123-3158 "
@@ -592,14 +165,13 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "Every `session/update` notification the agent emits during a `session/prompt` "
             "turn validates against the v2 schema and carries the prompted `sessionId`. "
             "Vacuous pass if the agent emits no updates during the turn. NOT a reuse of v1's "
-            "`ACP-PROMPT-002` under D3: the requirement text is the same schema/sessionId "
+            "`ACP-PROMPT-002`: the requirement text is the same schema/sessionId "
             "check, but the *tier* differs -- v1 registers it `Tier.MANDATORY` (v1's whole "
             "session surface is unconditional), whereas v2's `session/prompt` only exists once "
             "the agent has advertised the optional `capabilities.session` at all, exactly like "
             "`ACP-SESSION-001`/`002` above, so this row is `Tier.CAPABILITY`. A changed tier is "
-            "a changed requirement under D3's reuse rule, so this gets a fresh 2xx id "
-            "(`ACP-PROMPT-205`, not the already-reserved `ACP-PROMPT-202`/`204` -- see the "
-            "research report's own id table) instead of reusing `ACP-PROMPT-002`."
+            "a changed requirement under the id-reuse convention, so this gets a fresh 2xx id "
+            "(`ACP-PROMPT-205`) instead of reusing `ACP-PROMPT-002`."
         ),
         citation=_cite(
             "schema/v2/schema.json:4269 (UpdateSessionNotification, required "
@@ -837,8 +409,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability="capabilities.session",
         text=(
             "Every `session/update` the agent sends for the cancelled foreground work precedes "
-            "the terminating idle `state_update`. Tested in the weaker, client-observable form "
-            "the report itself recommends (no per-update entity tracking): after the idle "
+            "the terminating idle `state_update`. Tested in a weaker, client-observable form "
+            "(no per-update entity tracking): after the idle "
             "`cancelled` update, no further `state_update` for this session arrives within "
             "`quiet_period(...)` unless a new prompt was sent."
         ),
@@ -865,10 +437,11 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         text=(
             "On receiving `session/cancel`, the agent SHOULD stop all language model requests "
             "and abort all in-progress tool call invocations as soon as possible. Unobservable "
-            "from a client-only TCK (module docstring, 'Slice V2-3' section) -- the test "
+            "from a client-only TCK -- nothing on the wire distinguishes 'stopped as soon as "
+            "possible' from 'stopped eventually', so the test "
             "records the observation and always SKIPs, never asserting on timing. INFORMATIONAL, "
-            "not ADVISORY (review-v2-slices-1b-6 finding: a row that can never be judged, only "
-            "ever SKIPped, belongs in the record-only tier, not the SHOULD tier)."
+            "not ADVISORY: a row that can never be judged, only "
+            "ever SKIPped, belongs in the record-only tier, not the SHOULD tier."
         ),
         citation=_cite(
             "docs/protocol/v2/prompt-lifecycle.mdx:517; docs/protocol/v2/schema.mdx:234-237"
@@ -1111,8 +684,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         text=(
             "The receiver MAY process batch entries concurrently, in any order, with any "
             "parallelism. No ordering assertion is legitimate -- record-only, always SKIPped. "
-            "INFORMATIONAL, not ADVISORY (review-v2-slices-1b-6: a row that can never be judged "
-            "belongs in the record-only tier)."
+            "INFORMATIONAL, not ADVISORY: a row that can never be judged "
+            "belongs in the record-only tier."
         ),
         citation=_cite("docs/protocol/v2/transports.mdx:60-61"),
     ),
@@ -1123,8 +696,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         text=(
             "A client or agent MAY send a batch; an agent MAY therefore spontaneously emit a "
             "batch of `session/update` notifications. Cannot be forced by a client-only TCK -- "
-            "record-only, always SKIPped. INFORMATIONAL, not ADVISORY (review-v2-slices-1b-6: a "
-            "row that can never be judged belongs in the record-only tier)."
+            "record-only, always SKIPped. INFORMATIONAL, not ADVISORY: a "
+            "row that can never be judged belongs in the record-only tier."
         ),
         citation=_cite(
             "docs/protocol/v2/transports.mdx:47-51; schema/v2/schema.json:289-331 "
@@ -1139,8 +712,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "Clients and agents SHOULD NOT batch lifecycle-sensitive messages (`initialize`, "
             "`auth/login`, `session/new`, `session/resume`, `session/prompt`). A property of "
             "the sender, not the agent under test as a receiver -- record-only, always SKIPped. "
-            "INFORMATIONAL, not ADVISORY (review-v2-slices-1b-6: a row that can never be judged "
-            "belongs in the record-only tier)."
+            "INFORMATIONAL, not ADVISORY: a row that can never be judged "
+            "belongs in the record-only tier."
         ),
         citation=_cite(
             "docs/protocol/v2/transports.mdx:77-80; docs/protocol/v2/migration.mdx:722"
@@ -1296,7 +869,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         text=(
             "`session/close` of a live, idle session succeeds with a schema-valid empty-object "
             "result -- `session/close`'s own baseline contract, distinct from the cancellation "
-            "side effect `ACP-CLOSE-202`/`ACP-CANCEL-208` covers (see the module docstring)."
+            "side effect `ACP-CLOSE-202`/`ACP-CANCEL-208` covers."
         ),
         citation=_cite(
             "docs/protocol/v2/session-setup.mdx:237-239,258-268; schema/v2/schema.json:"
@@ -1311,9 +884,9 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "`session/close` on a session with foreground work in flight cancels that work as "
             "if `session/cancel` had been sent -- the same idle `state_update` with "
             "`stopReason: \"cancelled\"` evidence `ACP-CANCEL-208` already checks, deliberately "
-            "reused verbatim (see the module docstring's id-namespacing decision) rather than "
-            "gathered by a second, near-identical probe. `Requirement.capability` and the id are "
-            "registered separately from `ACP-CANCEL-208` purely for V2-4's own report legibility."
+            "reused verbatim rather than gathered by a second, near-identical probe. The id is "
+            "registered separately from `ACP-CANCEL-208` purely for this area's own report "
+            "legibility."
         ),
         citation=_cite(
             "docs/protocol/v2/session-setup.mdx:258; docs/protocol/v2/prompt-lifecycle.mdx:"
@@ -1377,11 +950,10 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "INFORMATIONAL, not CAPABILITY, despite the underlying `capabilities.session.mcp."
-            "stdio` marker (per the source report's own explicit recommendation, flagged to the "
-            "orchestrator -- see the module docstring): records whether `session/new` accepts a "
+            "stdio` marker: records whether `session/new` accepts a "
             "well-formed stdio MCP server entry when the marker is advertised. A connect failure "
             "against a harmless, possibly-nonexistent command is the agent's own business "
-            "(M6 is only a SHOULD, with no client-observable surface in stable v2) and is not "
+            "(\"Agents SHOULD connect\" has no client-observable surface in stable v2) and is not "
             "provably non-conformant, so this never asserts on the outcome."
         ),
         citation=_cite(
@@ -1586,8 +1158,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         text=(
             "Every agent-emitted message update/chunk "
             "(`user_message_chunk`/`user_message`/`agent_message_chunk`/`agent_message`/"
-            "`agent_thought_chunk`/`agent_thought`) carries a non-empty string `messageId`. "
-            "Promoted from the report's MANDATORY per the session-baseline tiering rule."
+            "`agent_thought_chunk`/`agent_thought`) carries a non-empty string `messageId`."
         ),
         citation=_cite("docs/protocol/v2/prompt-lifecycle.mdx:246; schema/v2/schema.json:4738-4856"),
     ),
@@ -1598,8 +1169,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         text=(
             "Two `session/prompt`s on the same session receive two distinct `messageId` "
             "values -- the v2 analogue of v1's `duplicate_session_id.py` defect pattern, "
-            "applied to message ids instead of session ids. Promoted from the report's "
-            "MANDATORY."
+            "applied to message ids instead of session ids."
         ),
         citation=_cite("docs/protocol/v2/prompt-lifecycle.mdx:151"),
     ),
@@ -1612,7 +1182,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "`tool_call_content_chunk` carries a non-empty `toolCallId` and `content`. There "
             "is no separate tool-call \"create\" message in v2 -- an update for a "
             "previously-unseen `toolCallId` is itself the create, so no create-before-update "
-            "ordering is asserted. Promoted from the report's MANDATORY(obs); conditional on "
+            "ordering is asserted. Conditional on "
             "at least one such update being observed during the run, else SKIP."
         ),
         citation=_cite("schema/v2/schema.json:674-758,5040-5110"),
@@ -1623,8 +1193,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability="capabilities.session",
         text=(
             "Every `plan_update.plan` -- including an unknown/`_`-prefixed `type` variant -- "
-            "carries a non-empty `planId`. Promoted from the report's MANDATORY(obs); "
-            "conditional on at least one `plan_update` being observed, else SKIP."
+            "carries a non-empty `planId`. Conditional on at least one `plan_update` being "
+            "observed, else SKIP."
         ),
         citation=_cite("docs/protocol/v2/agent-plan.mdx:71; schema/v2/schema.json:5199-5278"),
     ),
@@ -1635,9 +1205,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         text=(
             "A supplied `terminal_update.cwd`, when present, is an absolute path; a given "
             "`terminalId` is never observed with two different `cwd` values within a session "
-            "(upsert-by-key implies `cwd` is set-once). Promoted from the report's "
-            "MANDATORY(obs); conditional on at least one `terminal_update` being observed, "
-            "else SKIP."
+            "(upsert-by-key implies `cwd` is set-once). Conditional on at least one "
+            "`terminal_update` being observed, else SKIP."
         ),
         citation=_cite("docs/protocol/v2/tool-calls.mdx:405-411,439-440"),
     ),
@@ -1647,9 +1216,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability="capabilities.session",
         text=(
             "`terminal_output_chunk.data` and `terminal_update.output.data` each decode as "
-            "standalone, valid RFC 4648 base64 -- independent of any other chunk. Promoted "
-            "from the report's MANDATORY(obs); conditional on at least one such field being "
-            "observed, else SKIP."
+            "standalone, valid RFC 4648 base64 -- independent of any other chunk. Conditional "
+            "on at least one such field being observed, else SKIP."
         ),
         citation=_cite("docs/protocol/v2/tool-calls.mdx:441-446,466-474"),
     ),
@@ -1660,7 +1228,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         text=(
             "The first `tool_call_update` observed for a given `toolCallId` includes a "
             "non-empty `title`; `name`, if ever set, does not change across subsequent "
-            "updates for the same id. ADVISORY per the report; not promoted -- the "
+            "updates for the same id. Kept ADVISORY, not promoted to CAPABILITY under the "
+            "session-baseline tiering rule -- the "
             "corresponding test is still `@pytest.mark.capability(\"capabilities.session\")`-"
             "gated for its own SKIP."
         ),
@@ -1673,7 +1242,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         text=(
             "While blocked on a `session/request_permission` response, the agent reports "
             "`state_update.state == \"requires_action\"`, and reports `\"running\"` again "
-            "once it resumes. ADVISORY per the report; not promoted -- the corresponding test "
+            "once it resumes. Kept ADVISORY, not promoted to CAPABILITY under the "
+            "session-baseline tiering rule -- the corresponding test "
             "is still `@pytest.mark.capability(\"capabilities.session\")`-gated for its own "
             "SKIP."
         ),
@@ -1688,9 +1258,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "MUST prose -- `tool_call_update.kind`/`.status` (`ToolKind`/`ToolCallStatus`) and "
             "plan entries' `priority`/`status` (`PlanEntryPriority`/`PlanEntryStatus`) -- is a "
             "defined constant or begins with `_`. A curated, non-exhaustive subset of the "
-            "report's full B.1/B.2 inventory (classifying every one of the 30 sites "
-            "individually is disproportionate for this slice). Promoted from the report's "
-            "MANDATORY."
+            "schema's roughly 30 open-enum sites (classifying every one of them "
+            "individually is disproportionate for this slice)."
         ),
         citation=_cite(
             "docs/protocol/v2/extensibility.mdx:111-118; "
@@ -1704,8 +1273,9 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         text=(
             "Same defined-or-`_`-prefixed rule applied at open-enum sites the prose does not "
             "individually restate: `session/update`'s own `sessionUpdate` discriminator, "
-            "`state_update.state`, and tool-call content blocks' `type`. ADVISORY per the "
-            "report; not promoted -- the corresponding test is still "
+            "`state_update.state`, and tool-call content blocks' `type`. Kept ADVISORY, not "
+            "promoted to CAPABILITY under the session-baseline tiering rule -- the "
+            "corresponding test is still "
             "`@pytest.mark.capability(\"capabilities.session\")`-gated for its own SKIP."
         ),
         citation=_cite(
@@ -1720,8 +1290,9 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "A `_`-prefixed value at an open-enum site the client sends (here: "
             "`session/request_permission`'s answered `outcome`) is tolerated by the agent -- "
             "no crash, and the prompt itself is not answered with `-32602`. Untestable how the "
-            "agent treats the value internally; only survival is checked. ADVISORY per the "
-            "report; not promoted -- the corresponding test is still "
+            "agent treats the value internally; only survival is checked. Kept ADVISORY, not "
+            "promoted to CAPABILITY under the session-baseline tiering rule -- the "
+            "corresponding test is still "
             "`@pytest.mark.capability(\"capabilities.session\")`-gated for its own SKIP."
         ),
         citation=_cite("docs/protocol/v2/extensibility.mdx:115,122"),
@@ -1732,7 +1303,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "A `_`-prefixed custom method request receives *some* response -- a result, or "
-            "an error with any code. Re-cited from v1 unchanged (D3): same requirement, only "
+            "an error with any code. Re-cited from v1 unchanged: same requirement, only "
             "the citation moves to v2's extensibility docs. The `-32601` code specifically "
             "remains `ACP-JSONRPC-004`'s separate ADVISORY concern."
         ),
@@ -1744,7 +1315,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "A `session/prompt` request carrying a `_meta` object is accepted -- the turn "
-            "still proceeds normally. Re-cited from v1 unchanged (D3): `PromptRequest._meta` "
+            "still proceeds normally. Re-cited from v1 unchanged: `PromptRequest._meta` "
             "still exists in v2."
         ),
         citation=_cite("docs/protocol/v2/extensibility.mdx:10,33-37,39"),
@@ -1800,7 +1371,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "A JSON-RPC error's `message` is a non-empty, single-line string, and its "
-            "optional `data` is well-formed JSON. Re-cited from v1 unchanged (D3): `Error` "
+            "optional `data` is well-formed JSON. Re-cited from v1 unchanged: `Error` "
             "`$def` is byte-identical between v1 and v2."
         ),
         citation=_cite("schema/v2/schema.json:4127-4149; docs/protocol/v2/overview.mdx:181-185"),
@@ -1811,7 +1382,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "The agent exits promptly once stdin closes, without needing SIGTERM/SIGKILL. "
-            "Re-cited from v1 unchanged (D3): v2 still defines no dedicated shutdown method "
+            "Re-cited from v1 unchanged: v2 still defines no dedicated shutdown method "
             "and no stdin-EOF MUST -- only the mermaid step \"Close stdin, terminate "
             "subprocess\"."
         ),
@@ -1837,7 +1408,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "Stderr byte count is recorded for a human reading the report. Re-cited from v1 "
-            "unchanged (D3): the spec has nothing to say about stderr in either version."
+            "unchanged: the spec has nothing to say about stderr in either version."
         ),
         citation=_cite("docs/protocol/v2/transports.mdx"),
     ),
@@ -1847,7 +1418,7 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "Behaviour on a malformed (non-JSON) stdin line is recorded, never asserted. Re-cited "
-            "from v1 unchanged (D3): v2's error.mdx is still \"Documentation coming soon\" on "
+            "from v1 unchanged: v2's error.mdx is still \"Documentation coming soon\" on "
             "this exact scenario."
         ),
         citation=_cite("docs/protocol/v2/error.mdx"),
@@ -1858,8 +1429,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "Behaviour on a structurally-invalid (well-formed JSON, not a valid JSON-RPC "
-            "envelope) request line is recorded, never asserted. Re-cited from v1 unchanged "
-            "(D3): v2's error.mdx is still \"Documentation coming soon\" on this exact "
+            "envelope) request line is recorded, never asserted. Re-cited from v1 unchanged: "
+            "v2's error.mdx is still \"Documentation coming soon\" on this exact "
             "scenario."
         ),
         citation=_cite("docs/protocol/v2/error.mdx"),
