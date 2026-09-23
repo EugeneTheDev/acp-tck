@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  # Pinned per docs/cross-check.md "Latest run" -- update both together when re-vendoring.
+  # Pinned -- update both together when re-vendoring.
   # Must be new enough for rust-sdk's `unstable_protocol_v2` cargo feature (the v2 leg).
   RUST_SDK_SHA: 28688b2d97a81975ff875180c3a3e46e6cad0161
   PYTHON_SDK_SHA: 9d07d7871ef4b220b8507e15fc4b1560f0950a64
@@ -39,10 +39,8 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Informational only: independently-implemented upstream agents are expected to FAIL
-    # ACP-INIT-003 on v1 (see docs/cross-check.md) and a documented v2 baseline (Python's
-    # zero-batch-support crash plus its native strict-version-rejection, none of it a TCK bug)
-    # -- a red exit here does not mean the TCK broke.
+    # Informational only: independently-implemented upstream agents are expected to FAIL some requirements.
+    # A red exit here does not mean the TCK broke.
     continue-on-error: true
     steps:
       - name: Checkout acp-tck
@@ -92,7 +90,13 @@ jobs:
           OUT_DIR: cross-check
         run: ./scripts/cross-check.sh
 
-      - name: Check expected scorecard (v1 + v2 baselines, see docs/cross-check.md)
+      - name: Check expected scorecard (v1 + v2 baselines)
+          # `cross-check.sh` always exits 0 once it's built and run every agent and written all
+          # four JSON reports -- the agents' own scorecards are data, not the script's success, so
+          # a drifted baseline (e.g. python_v2_agent suddenly failing something new) would not
+          # turn the "Run cross-check" step red. Re-run cross-check-summary.py here, standalone,
+          # against those same JSON reports so *this* step's exit code reflects whether the
+          # scorecard still matches the documented baseline.
         run: |
           uv run python3 scripts/cross-check-summary.py \
             cross-check/testy.json testy \
@@ -102,11 +106,3 @@ jobs:
             --expect-only-mandatory-fail ACP-INIT-003 \
             --expect "testy_v2=" \
             --expect "python_v2_agent=ACP-BATCH-201,ACP-BATCH-202,ACP-INIT-003,ACP-INIT-201,ACP-INIT-202,ACP-JSONRPC-001,ACP-JSONRPC-003"
-
-      - name: Upload cross-check reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cross-check-reports
-          path: cross-check/*.json
-          if-no-files-found: warn
