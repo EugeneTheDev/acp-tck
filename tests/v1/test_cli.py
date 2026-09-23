@@ -281,6 +281,17 @@ def test_banner_on_stdout_fails_transport_001_but_passes_transport_002():
     for req_id in _MANDATORY_IDS - {"ACP-TRANSPORT-001", "ACP-SCHEMA-001"} - _CANCEL_IDS - {"ACP-AUTH-003"}:
         assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
 
+    # The FAILed requirement's own spec text/citation should be visible without opening source:
+    # once in the summary table (indented under its id/status row) ...
+    assert (
+        "Every line the agent writes to stdout is a single valid JSON-RPC 2.0 message." in result.stdout
+    ), result.stdout
+    assert "transports.mdx:24,26" in result.stdout, result.stdout
+    # ... and once as its own pytest FAILURES section, next to the traceback/transcript.
+    assert "ACP requirement ACP-TRANSPORT-001" in result.stdout, result.stdout
+    # A PASSing requirement's text is noise, not signal -- it must not be printed in the table.
+    assert "The agent's stdout is valid UTF-8." not in result.stdout, result.stdout
+
 
 def test_invalid_utf8_fails_transport_002():
     """`invalid_utf8.py` is ACP-TRANSPORT-002's real negative control: a lone undecodable line

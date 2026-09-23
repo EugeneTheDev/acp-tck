@@ -588,6 +588,13 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) ->
             state.message = f"{state.message}\n{phase_message}"
 
     if report.failed:
+        registry = item.config.stash[VERSION_SPEC_KEY].registry
+        for req_id in _requirement_ids(item):
+            req = registry.get(req_id)
+            if req is not None:
+                report.sections.append(
+                    (f"ACP requirement {req.id}", f"{req.text}\n({req.citation})")
+                )
         processes = item.stash.get(_PROCESSES_STASH_KEY, [])
         for index, process in enumerate(processes):
             report.sections.append(
@@ -800,6 +807,9 @@ def pytest_terminal_summary(
             terminalreporter.write(f"  {req_id:<28} ")
             terminalreporter.write(label, **_status_markup(status))
             terminalreporter.write_line(suffix)
+            if status == Status.FAIL:
+                terminalreporter.write_line(f"      {result.text}")
+                terminalreporter.write_line(f"      ({result.citation})")
 
     verdict = report.verdict
     mandatory = verdict.tier_counts[Tier.MANDATORY.value]
