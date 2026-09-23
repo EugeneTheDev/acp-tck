@@ -3,9 +3,8 @@
 Every conformance assertion the TCK makes is backed by exactly one `Requirement` here, keyed
 by a stable id (`ACP-<AREA>-<NNN>`). Requirements are *declared*, not derived from code, because
 they encode a judgment call about spec text (tier, capability gating) that the schema itself
-does not carry. `text`/`citation` are taken from `.agents/research/*.md`, the reports that are
-this package's specification -- see each entry's `source_report` and `citation` before changing
-wording, not memory of the spec.
+does not carry. `text`/`citation` come from the protocol specification -- see each entry's
+`citation` before changing wording, not memory of the spec.
 
 Conformance tests bind to a requirement via `@pytest.mark.requirement("ACP-…")` (see
 `tck.common.plugin`). Two meta-tests (`tests/v1/test_registry.py`) keep this registry and the test suite
@@ -32,7 +31,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text="Every line the agent writes to stdout is a single valid JSON-RPC 2.0 message.",
         citation=_cite("docs/protocol/v1/transports.mdx:24,26"),
-        source_report="acp-v1-transport-and-jsonrpc.md",
     ),
     Requirement(
         id="ACP-TRANSPORT-002",
@@ -40,7 +38,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text="The agent's stdout is valid UTF-8.",
         citation=_cite("docs/protocol/v1/transports.mdx:6"),
-        source_report="acp-v1-transport-and-jsonrpc.md",
     ),
     Requirement(
         id="ACP-JSONRPC-001",
@@ -48,7 +45,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text="A response's `id` echoes the request `id` exactly, for both integer and string ids.",
         citation=_cite("agent-client-protocol-schema/src/rpc.rs:12-39,245-289"),
-        source_report="acp-v1-transport-and-jsonrpc.md",
     ),
     Requirement(
         id="ACP-JSONRPC-002",
@@ -61,7 +57,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         citation=_cite(
             "docs/protocol/v1/overview.mdx:219-223; agent-client-protocol-schema/src/v1/error.rs:149-224"
         ),
-        source_report="acp-v1-transport-and-jsonrpc.md",
     ),
     Requirement(
         id="ACP-JSONRPC-003",
@@ -75,7 +70,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         citation=_cite(
             "docs/protocol/v1/overview.mdx:223; agent-client-protocol-schema/src/v1/error.rs:9"
         ),
-        source_report="acp-v1-transport-and-jsonrpc.md",
     ),
     Requirement(
         id="ACP-JSONRPC-004",
@@ -83,7 +77,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text="An unknown method yields error `-32601` (spec wording is \"should\").",
         citation=_cite("docs/protocol/v1/extensibility.mdx:80-92"),
-        source_report="acp-v1-transport-and-jsonrpc.md",
     ),
     Requirement(
         id="ACP-JSONRPC-005",
@@ -99,7 +92,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "rust-sdk src/agent-client-protocol/tests/jsonrpc_error_handling.rs:634-708,824-911, "
             "python-sdk tests/test_rpc.py:480-526 (Testability note 7)"
         ),
-        source_report="acp-v1-transport-and-jsonrpc.md",
     ),
     Requirement(
         id="ACP-INIT-001",
@@ -109,7 +101,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         citation=_cite(
             "docs/protocol/v1/initialization.mdx:54; schema/v1/schema.json:2340-2407"
         ),
-        source_report="acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-INIT-002",
@@ -117,7 +108,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text="When the client requests protocol version 1, the agent returns 1.",
         citation=_cite("docs/protocol/v1/initialization.mdx:96"),
-        source_report="acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-INIT-003",
@@ -146,7 +136,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "acp-v2-version-negotiation.md:137,185 (router selects v2 for >=2 and requires "
             "info, spurious -32602 without it)"
         ),
-        source_report="acp-v1-protocol-surface.md; testy-cross-check.md; acp-v2-version-negotiation.md",
     ),
     Requirement(
         id="ACP-INIT-004",
@@ -156,7 +145,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         citation=_cite(
             "docs/protocol/v1/initialization.mdx:54,271; schema/v1/schema.json:2813-2838"
         ),
-        source_report="acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-SCHEMA-001",
@@ -164,7 +152,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text="Every message the agent emits during a basic exchange validates against the vendored v1 schema.",
         citation=_cite("schema/v1/schema.json:5-42 (Testability notes)"),
-        source_report="acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-SESSION-001",
@@ -178,7 +165,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/session-setup.mdx:71; schema/v1/schema.json:2867-2910 "
             "(Req 9; Testability notes 'session/new with an absolute cwd...')"
         ),
-        source_report="acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-SESSION-002",
@@ -188,7 +174,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         citation=_cite(
             "docs/protocol/v1/session-setup.mdx:71; schema/v1/schema.json:2867-2910 (Req 9 'unique')"
         ),
-        source_report="acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-PROMPT-001",
@@ -203,7 +188,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/initialization.mdx:204, docs/protocol/v1/content.mdx:31 (baseline "
             "text support, Req 7)"
         ),
-        source_report="acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-PROMPT-002",
@@ -220,7 +204,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/initialization.mdx:245 (Req 1); schema/v1/schema.json:3622 "
             "(SessionNotification); Testability notes 'Weakly assertable' first bullet"
         ),
-        source_report="acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-PROMPT-003",
@@ -236,7 +219,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/initialization.mdx:204 vs docs/protocol/v1/content.mdx:31 "
             "(Req 7; Discrepancy 2)"
         ),
-        source_report="acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-CANCEL-001",
@@ -247,7 +229,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "resolves with a successful result whose `stopReason` is `cancelled`, not an error."
         ),
         citation=_cite("docs/protocol/v1/prompt-turn.mdx:332,339 (Reqs 25, 26)"),
-        source_report="acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-CANCEL-002",
@@ -260,7 +241,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "infinite wait."
         ),
         citation=_cite("docs/protocol/v1/prompt-turn.mdx:343 (Req 28)"),
-        source_report="acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-LOAD-001",
@@ -274,7 +254,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/session-setup.mdx:104,108-186; "
             "schema/v1/schema.json:2419-2424,3215-3249,4944-4988 (C1, L1, L4)"
         ),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-LOAD-002",
@@ -286,7 +265,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "`sessionUpdate` kinds, how many, or their fidelity -- L5 says that is unspecified."
         ),
         citation=_cite("docs/protocol/v1/session-setup.mdx:134,178 (L2, L3, L5)"),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-LOAD-003",
@@ -305,7 +283,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/session-setup.mdx:180-186; schema/v1/schema.json:3215-3249 "
             "(L4; Discrepancy 2)"
         ),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-RESUME-001",
@@ -319,7 +296,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/session-setup.mdx:243; schema/v1/schema.json:5034-5078,3337-3371 "
             "(C2, R1, R3)"
         ),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-RESUME-002",
@@ -333,7 +309,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "after the response."
         ),
         citation=_cite("docs/protocol/v1/session-setup.mdx:243 (R2)"),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-LIST-001",
@@ -347,7 +322,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/session-list.mdx:82,94; schema/v1/schema.json:4989-5010,3250-3322 "
             "(C2, S1, S3, S4)"
         ),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-LIST-002",
@@ -361,7 +335,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/session-list.mdx:84-87,166; schema/v1/schema.json:4993-4996 "
             "(S2, S5)"
         ),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-DELETE-001",
@@ -375,7 +348,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/session-delete.mdx:69-81; "
             "schema/v1/schema.json:5011-5033,3323-3336 (C2, D1)"
         ),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-DELETE-002",
@@ -386,7 +358,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "rather than erroring."
         ),
         citation=_cite("docs/protocol/v1/session-delete.mdx:86 (D2)"),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-CLOSE-001",
@@ -400,7 +371,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/session-setup.mdx:295-308; "
             "schema/v1/schema.json:5079-5101,3372-3385 (C2, X1)"
         ),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-CLOSE-002",
@@ -417,7 +387,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/session-setup.mdx:299 -> docs/protocol/v1/prompt-turn.mdx:332,339,343 "
             "(X2, X3)"
         ),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-ADDDIRS-001",
@@ -428,7 +397,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/session-setup.mdx:315-344; schema/v1/schema.json:4757-4765 "
             "(C2, A1, A2)"
         ),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-MODES-001",
@@ -447,7 +415,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/session-modes.mdx; schema/v1/schema.json:2911-2944,2945-2974 "
             "(SessionModeState, SessionMode) (§7, §0)"
         ),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-MODES-002",
@@ -468,7 +435,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "in b96b439); schema/v1/schema.json:5102-5132,4129-4160 (SetSessionModeRequest, "
             "CurrentModeUpdate) (§7)"
         ),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-CONFIG-001",
@@ -485,7 +451,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "schema/v1/schema.json:2975-3399 (SessionConfigOption and its select/boolean "
             "variants) (§7, §0)"
         ),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-CONFIG-002",
@@ -501,7 +466,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "schema/v1/schema.json:5133-5169,3400-3423 (SetSessionConfigOptionRequest/"
             "Response) (§7 'complete list' rule)"
         ),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-CONFIG-003",
@@ -519,7 +483,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/session-config-options.mdx:119-121 (normative MUST NOT text) "
             "(Req 33; §7 boolean gating)"
         ),
-        source_report="acp-v1-session-capabilities.md; acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-PROMPTCAP-001",
@@ -534,7 +497,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "schema/v1/schema.json:2480-2523 (PromptCapabilities), 765-802 (ImageContent) "
             "(§8, Req 8)"
         ),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-PROMPTCAP-002",
@@ -549,7 +511,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "schema/v1/schema.json:2480-2523 (PromptCapabilities), 803-838 (AudioContent) "
             "(§8, Req 8)"
         ),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-PROMPTCAP-003",
@@ -565,7 +526,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "schema/v1/schema.json:2480-2523 (PromptCapabilities), 965-1010 (EmbeddedResource) "
             "(§8, Req 8)"
         ),
-        source_report="acp-v1-session-capabilities.md",
     ),
     Requirement(
         id="ACP-AUTH-001",
@@ -583,7 +543,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "description alone)."
         ),
         citation=_cite("schema/v1/schema.json:2740 (AuthMethod.id description) (AUTH-A5)"),
-        source_report="acp-v1-authentication.md",
     ),
     Requirement(
         id="ACP-AUTH-002",
@@ -599,7 +558,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/authentication.mdx:126-128 (normative MUST NOT text) "
             "(Req 23; AUTH-M4)"
         ),
-        source_report="acp-v1-authentication.md",
     ),
     Requirement(
         id="ACP-AUTH-003",
@@ -624,7 +582,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "schema/v1/schema.json:4712-4734 (AuthenticateRequest/Response) (AUTH-C3, AUTH-C4); "
             "acp-v1-authentication.md must-NOT list #10"
         ),
-        source_report="acp-v1-authentication.md",
     ),
     Requirement(
         id="ACP-AUTH-004",
@@ -643,7 +600,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "schema/v1/schema.json:2666-2701,4735-4756 (AgentAuthCapabilities, LogoutRequest) "
             "(AUTH-C1, AUTH-C2)"
         ),
-        source_report="acp-v1-authentication.md",
     ),
     Requirement(
         id="ACP-AUTH-005",
@@ -664,7 +620,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "docs/protocol/v1/schema.mdx (InitializeResponse.authMethods optional) "
             "(AUTH-A1)"
         ),
-        source_report="acp-v1-authentication.md",
     ),
     Requirement(
         id="ACP-CLIENTCAP-001",
@@ -677,7 +632,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "be observed. PASS is vacuous for an agent that never needs file access."
         ),
         citation=_cite("docs/protocol/v1/file-system.mdx:10,28; schema/v1/schema.json:4550-4573 (Req 29)"),
-        source_report="acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-CLIENTCAP-002",
@@ -689,7 +643,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "vacuous for an agent that never needs a terminal."
         ),
         citation=_cite("docs/protocol/v1/terminals.mdx:10,25 (Req 30)"),
-        source_report="acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-CLIENTCAP-003",
@@ -701,7 +654,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "that never elicits."
         ),
         citation=_cite("docs/protocol/v1/elicitation.mdx:54,107-108 (Req 32)"),
-        source_report="acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-EXT-001",
@@ -725,7 +677,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "acp-v1-transport-and-jsonrpc.md J6 (the `-32601` code, not \"responds at all\", "
             "is what J6 tiers SHOULD)"
         ),
-        source_report="acp-v1-protocol-surface.md; acp-v1-transport-and-jsonrpc.md",
     ),
     Requirement(
         id="ACP-META-001",
@@ -736,7 +687,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "Req 43) is accepted and resolves with a normal, defined `stopReason`."
         ),
         citation=_cite("docs/protocol/v1/extensibility.mdx:10,33-37,39 (Reqs 41, 43)"),
-        source_report="acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-ERROR-001",
@@ -753,7 +703,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         citation=_cite(
             "agent-client-protocol-schema/src/v1/error.rs:149-224 (E3)"
         ),
-        source_report="acp-v1-transport-and-jsonrpc.md",
     ),
     Requirement(
         id="ACP-SHUTDOWN-001",
@@ -768,7 +717,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         citation=_cite(
             "docs/protocol/v1/overview.mdx (no shutdown method defined; Testability note 11)"
         ),
-        source_report="acp-v1-transport-and-jsonrpc.md",
     ),
     Requirement(
         id="ACP-SCHEMA-002",
@@ -787,7 +735,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "downgrade (review-slices-7.md N4), not a claim that Req 41 is itself only SHOULD/MAY."
         ),
         citation=_cite("docs/protocol/v1/extensibility.mdx:39 (Req 41)"),
-        source_report="acp-v1-protocol-surface.md",
     ),
     Requirement(
         id="ACP-STDERR-001",
@@ -801,7 +748,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "the probe correctly surfaces (review-slices-7.md N2)."
         ),
         citation=_cite("docs/protocol/v1/transports.mdx (Testability note T6)"),
-        source_report="acp-v1-transport-and-jsonrpc.md",
     ),
     Requirement(
         id="ACP-INFO-PARSE-001",
@@ -819,7 +765,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "agent-client-protocol-schema (spec silent); rust-sdk vs python-sdk divergence "
             "(Assertable only as warnings/informational)"
         ),
-        source_report="acp-v1-transport-and-jsonrpc.md",
     ),
     Requirement(
         id="ACP-INFO-INVALIDREQ-001",
@@ -836,7 +781,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "agent-client-protocol-schema (spec silent); rust-sdk vs python-sdk divergence "
             "(Assertable only as warnings/informational)"
         ),
-        source_report="acp-v1-transport-and-jsonrpc.md",
     ),
     Requirement(
         id="ACP-INFO-UNKNOWNSESSION-001",
@@ -850,7 +794,6 @@ _DECLARATIONS: tuple[Requirement, ...] = (
             "`session/new` handshake fails (review-slices-7.md N2)."
         ),
         citation=_cite("docs/protocol/v1/error.mdx (stub; Discrepancy 6)"),
-        source_report="acp-v1-protocol-surface.md",
     ),
 )
 

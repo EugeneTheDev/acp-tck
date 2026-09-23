@@ -214,7 +214,6 @@ def test_text_and_citation_are_non_empty():
     for requirement in REGISTRY.values():
         assert requirement.text.strip(), f"{requirement.id} has empty text"
         assert requirement.citation.strip(), f"{requirement.id} has empty citation"
-        assert requirement.source_report.strip(), f"{requirement.id} has empty source_report"
 
 
 def test_citation_mentions_a_spec_revision_hash():

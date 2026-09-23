@@ -34,7 +34,6 @@ class Requirement:
     capability: str | None
     text: str
     citation: str
-    source_report: str
 
     def __post_init__(self) -> None:
         if self.tier is Tier.CAPABILITY and not self.capability:
