@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
-"""Non-conforming fixture: every non-empty batch array, regardless of contents, gets treated as
-if it were the *empty*-batch case -- a single top-level Invalid Request (`-32600`, `id: null`)
-object, never a per-entry response, never a response array, and never silence for a
-notification-only batch.
+"""Non-conforming fixture: every batch, empty or not, gets the empty-batch response -- a single
+top-level Invalid Request (`-32600`, `id: null`) object, never per-entry handling.
 
-This coincidentally still satisfies `ACP-BATCH-201` (the empty-array case itself, `[]` -> one
-`-32600`/`id: null` object, is exactly what this fixture already does for every batch). It FAILs
-`ACP-BATCH-202` (a notification-only batch gets a bogus reply instead of no output at all),
-`ACP-BATCH-203` (an invalid entry's valid sibling never runs -- there is no per-entry handling at
-all), and the shared `ACP-BATCH-204`/`205` test (no response array matching the batch's own
-requests is ever produced). None of `test_transport.py`/`test_jsonrpc.py` is affected: neither
-drives a batch-shaped line at all.
+Coincidentally still PASSes `ACP-BATCH-201` (the empty-array case is exactly this behavior).
+FAILs `ACP-BATCH-202` (notification-only batch gets a bogus reply instead of silence),
+`ACP-BATCH-203` (a valid entry alongside an invalid one never runs), and `ACP-BATCH-204`/`205`
+(no response array is ever produced).
 """
 
 import sys

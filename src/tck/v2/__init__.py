@@ -15,9 +15,8 @@ from .requirements import REGISTRY
 
 
 def _initialize_params() -> dict[str, Any]:
-    """`params` for v2's `initialize` request (`.agents/research/acp-v2-version-negotiation.md`):
-    unlike v1, `info` is required on *both* sides, and the capabilities field is named
-    `capabilities` (not `clientCapabilities`)."""
+    """`params` for v2's `initialize` request: unlike v1, `info` is required on *both* sides,
+    and the capabilities field is named `capabilities` (not `clientCapabilities`)."""
     return {
         "protocolVersion": PROTOCOL_VERSION,
         "info": {"name": "acp-tck", "version": _tck_version()},

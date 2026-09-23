@@ -35,10 +35,9 @@ class TranscriptEntry:
     parse_error: str | None
     """`str()` of the `json.JSONDecodeError`, if `text` was not valid JSON."""
     oversize: bool = False
-    """True if this line exceeded the harness's stream buffer limit (`AgentLaunch.max_line_bytes`)
-    while being read. The full raw bytes are still recovered and recorded -- this harness never
-    drops bytes just because a line is unexpectedly large -- but a line this big is itself worth
-    flagging separately from an ordinary parse failure."""
+    """True if this line exceeded `AgentLaunch.max_line_bytes` while being read. The full raw
+    bytes are still recovered and recorded; this flag just distinguishes an oversize line from
+    an ordinary parse failure."""
 
     @staticmethod
     def build(

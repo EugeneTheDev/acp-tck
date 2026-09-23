@@ -2,21 +2,16 @@
 """`AsksPermissionAgent` plus `sessionCapabilities.close` support, used as the self-test for
 `ACP-CLOSE-002` against a conforming, permission-asking agent: `session/close` on an in-flight,
 permission-pending prompt must resolve it as cancelled, and `run_prompt`'s `on_action` hook must
-answer the outstanding `session/request_permission` instead of deadlocking. This fixture should
-make `ACP-CLOSE-002` PASS.
+answer the outstanding `session/request_permission` instead of deadlocking.
 
-`_handle_prompt` deliberately delays sending the permission request past `run_prompt`'s short
-post-update peek window (`cancel_race_peek`) so the mock client has already committed to firing
-`session/close` (the "trigger") by the time the permission request is read: this makes the
-permission response deterministically "cancelled" (`run_prompt` only answers "cancelled" once its
-trigger has fired) rather than racing against the peek and getting resolved as "selected" before
-`session/close` is even sent. Without the delay, the fixture would still work but flakily
-`pytest.skip` instead of `PASS` depending on scheduling.
+`_handle_prompt` delays sending the permission request past `run_prompt`'s post-update peek
+window (`cancel_race_peek`) so `session/close` is deterministically sent first, making the
+permission response resolve as "cancelled" rather than racing and getting "selected". Without
+the delay this would flakily `pytest.skip` instead of `PASS`.
 
-`_handle_close` also has to resolve `self._awaiting_permission` (the state
-`AsksPermissionAgent` uses for its own outstanding permission request) as cancelled itself:
-`_base.py`'s stock `_handle_close` only knows about `self._pending_prompt` (the `__hang__`
-mechanism used by fixtures that don't ask permission), which this agent never sets.
+`_handle_close` also resolves `self._awaiting_permission` itself, since `_base.py`'s stock
+`_handle_close` only knows about `self._pending_prompt` (the `__hang__` mechanism), which this
+agent never sets.
 """
 
 from __future__ import annotations
@@ -32,12 +27,9 @@ from asks_permission import AsksPermissionAgent  # noqa: E402
 
 CAPABILITIES = {"sessionCapabilities": {"close": {}}}
 
-# Comfortably longer than `cancel_race_peek`'s value at the `--timeout 5` the self-tests use
-# (`cancel_race_peek(5) == 0.1`) so the mock client's post-update peek always misses this
-# fixture's permission request and falls through to firing `session/close`, and comfortably
-# shorter than the test's own timeout (`default_timeout`). Kept small (rather than the widest
-# possible `cancel_race_peek` value, 0.5s) since every prompt turn against this fixture pays this
-# delay and it is used by more than one self-test.
+# Longer than `cancel_race_peek(5) == 0.1` (the `--timeout 5` self-tests use) so the peek always
+# misses this fixture's permission request, but short enough to not pad every prompt turn much,
+# since more than one self-test pays this delay.
 _PERMISSION_REQUEST_DELAY_S = 0.3
 
 
@@ -83,18 +75,11 @@ class AsksPermissionClosableAgent(AsksPermissionAgent):
         session_id = params.get("sessionId")
         pending = self._awaiting_permission
         self._sessions.pop(session_id, None)
-        # Reply to `session/close` itself before resolving the pending prompt: this fixture's
-        # self-test (`test_close_in_flight_prompt_resolves_cancelled`) records the close response
-        # as soon as it sees it, then returns as soon as it sees the prompt's own response -- if
-        # the prompt response went out first, the close response would still be sitting unread
-        # on `run_prompt`'s side when it returned, and the test would `pytest.skip` ("not
-        # exercised") instead of asserting the close-cancellation behavior it exists to check.
+        # Reply to `session/close` before resolving the pending prompt, or the close response
+        # would still be unread when the test returns and it would `pytest.skip` instead of
+        # asserting the close-cancellation behavior.
         self._reply(msg_id, {})
         if pending is not None:
-            # Mirror `_base.py`'s own `_pending_prompt`-cancellation handling in `_handle_close`,
-            # but for this subclass's permission-based pending state: resolve the prompt as
-            # cancelled and stop waiting for the client's permission answer, which may never
-            # come once the session is closing.
             self._awaiting_permission = None
             self._reply(pending["prompt_id"], {"stopReason": "cancelled"})
 

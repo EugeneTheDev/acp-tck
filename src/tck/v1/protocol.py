@@ -14,18 +14,17 @@ from typing import Any
 
 PROTOCOL_VERSION = 1
 """The ACP protocol version `tck.v1` speaks. Wire encoding is a bare JSON integer, not a
-version string (`.agents/research/acp-v1-protocol-surface.md` §2). `tck.v2` declares its own
-`PROTOCOL_VERSION` in `tck/v2/protocol.py` -- see `tck.common.version.VersionSpec`
-for how the two coexist in one process without either module reading the other's constant.
+version string. `tck.v2` declares its own `PROTOCOL_VERSION` in `tck/v2/protocol.py` -- see
+`tck.common.version.VersionSpec` for how the two coexist without either module reading the
+other's constant.
 """
 
 SCHEMA_DIR = Path(__file__).parent / "schema"
 
 SCHEMA_REVISION = "6d08f412a7a1370d3cc9a124e3be3d6acf92641e"
-"""The spec commit the vendored `schema/{schema,meta}.json` -- and every requirement
-citation in `tck.v1.requirements` -- are pinned to (see `schema/VENDORED.md`). This is the
-single place that constant lives; `tck.v1.requirements.SPEC_REVISION` and `tck.common.report.Report`'s
-`schema_revision` field both read it from here."""
+"""The spec commit the vendored `schema/{schema,meta}.json` -- and every requirement citation
+in `tck.v1.requirements` -- are pinned to (see `schema/VENDORED.md`). Single source of truth:
+`tck.v1.requirements.SPEC_REVISION` and `Report.schema_revision` both read it from here."""
 
 # JSON-RPC / ACP error codes (schema/schema.json `ErrorCode`, :3503-3569). Names follow
 # the schema's own `title` for each variant.
@@ -59,13 +58,10 @@ STOP_REASONS = frozenset(
 def load_meta() -> dict[str, Any]:
     """Parse `schema/meta.json`.
 
-    Real structure (verified against the vendored file): a `version` int, plus three flat
-    `{internal_name: "wire/method"}` dicts -- `agentMethods` (methods the agent handles,
-    requests and notifications alike, e.g. `session_cancel` -> `session/cancel`),
-    `clientMethods` (methods the client handles, e.g. `session_update` -> `session/update`),
-    and `protocolMethods` (bidirectional protocol-level notifications, just
-    `cancel_request` -> `$/cancel_request`). It does not itself distinguish requests from
-    notifications -- that split is derived from `schema.json` below.
+    Structure: a `version` int, plus three flat `{internal_name: "wire/method"}` dicts --
+    `agentMethods`, `clientMethods`, `protocolMethods` (bidirectional, e.g. `$/cancel_request`).
+    It doesn't distinguish requests from notifications -- that split is derived from
+    `schema.json` below.
     """
     return json.loads((SCHEMA_DIR / "meta.json").read_text())
 

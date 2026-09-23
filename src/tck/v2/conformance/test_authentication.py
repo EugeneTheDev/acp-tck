@@ -3,16 +3,13 @@ gate, the `auth/login`/`auth/logout`/`session/new` flow, and the open-enum `type
 (ACP-AUTH-201..207).
 
 v2 renames v1's `authenticate`/`logout` to `auth/login`/`auth/logout` and drops the separate
-`agentCapabilities.auth.logout` marker entirely -- see `tck.v2.requirements`'s module docstring
-"Authentication" section for the full id-namespacing rationale (which ids are re-cited from v1,
-which are genuinely new, and why `ACP-AUTH-002` is not reused verbatim as `ACP-AUTH-202`).
+`agentCapabilities.auth.logout` marker -- see `tck.v2.requirements`'s "Authentication" section
+for the id-namespacing rationale (which ids are re-cited from v1, which are genuinely new).
 
-See `.agents/research/acp-v2-authentication.md` for the full tiered assertion list this module
-draws from. Deliberately not asserted here (the report's "must NOT" list): that a non-empty
-`authMethods` implies `session/new` fails with `-32000` before authentication (still a MAY, not
-a MUST); anything about session state after `auth/logout`; that `auth/login`/`auth/logout`
-themselves succeed as a hard requirement (a real agent may legitimately reject bad/expired
-credentials -- a failure there SKIPs with a diagnosable reason instead of FAILing).
+Deliberately not asserted: that non-empty `authMethods` implies `session/new` fails with
+`-32000` before authentication (a MAY, not a MUST); session state after `auth/logout`; that
+`auth/login`/`auth/logout` themselves succeed (a real agent may legitimately reject
+bad/expired credentials -- that SKIPs with a diagnosable reason instead of FAILing).
 """
 
 from __future__ import annotations
@@ -30,15 +27,10 @@ from ._helpers import connected_agent, new_session, skip_if_version_mismatch, va
 
 @contextlib.asynccontextmanager
 async def _initialized_agent(agent_launch, *, capabilities=None):
-    """A fresh connection, one manual `initialize` (with an optional `capabilities` override),
-    and a `VERSION-MISMATCH:` skip unless the agent actually negotiated v2 -- mirrors
-    `test_session_config.py`'s local `_v2_only_agent` helper, kept local here too (honest
-    duplication over shared machinery for these small, test-module-specific connection helpers);
-    this module's tests need `handshake=False` so they can control the `auth/login` step
-    themselves, in an order relative to their own SKIP checks that `connected_agent`'s own
-    auto-login can't give them. Yields `(agent, init_result)` since every test in this module
-    needs to inspect the `initialize` result itself (`authMethods`), not just get a connected
-    agent.
+    """A fresh connection with a manual `initialize` (optional `capabilities` override), SKIPping
+    with `VERSION-MISMATCH:` unless the agent negotiated v2. Kept local rather than shared,
+    since these tests need `handshake=False` to control `auth/login` timing relative to their
+    own SKIP checks. Yields `(agent, init_result)`.
     """
     async with connected_agent(agent_launch, handshake=False) as agent:
         params = SPEC.initialize_params()
@@ -57,12 +49,10 @@ async def _initialized_agent(agent_launch, *, capabilities=None):
 @pytest.mark.requirement("ACP-AUTH-201")
 async def test_auth_methods_have_unique_method_ids(agent_initialize_result):
     """ACP-AUTH-201 (ADVISORY; re-cites v1's ACP-AUTH-001, field renamed `id` -> `methodId`).
-    Schema-shape validation of the whole `initialize` result (including `authMethods`) is
-    already covered by ACP-SCHEMA-001; this test adds the id-uniqueness check that schema
-    validation alone cannot express.
-
-    Reads the cached `agent_initialize_result` (one real handshake per session) rather than
-    opening a second connection -- v2 never requires a testable second `initialize`."""
+    Schema-shape validation of `authMethods` is already covered by ACP-SCHEMA-001; this adds the
+    id-uniqueness check schema validation alone can't express. Uses the cached
+    `agent_initialize_result` rather than a second connection -- v2 never requires a testable
+    second `initialize`."""
     outcome = agent_initialize_result
     assert outcome.result is not None, f"initialize did not succeed: {outcome.error_message}"
     skip_if_version_mismatch(outcome.result)
@@ -85,9 +75,8 @@ async def test_auth_method_type_is_a_defined_or_prefixed_value(agent_initialize_
     skip_if_version_mismatch(outcome.result)
     auth_methods = outcome.result.get("authMethods") or []
     if not auth_methods:
-        # A vacuous PASS on an agent with no auth surface at all is the more misleading outcome
-        # for a MANDATORY row -- SKIP instead (MANDATORY SKIPPED does not block the conformant
-        # verdict; only FAIL/NOT_TESTED do).
+        # A vacuous PASS is more misleading than a SKIP for a MANDATORY row (SKIPPED doesn't
+        # block conformance; FAIL/NOT_TESTED do).
         pytest.skip("agent advertises no authMethods")
     defined = frozenset({"agent", "terminal"})
     for method in auth_methods:
@@ -153,26 +142,18 @@ async def test_terminal_auth_method_descriptor_shape(agent_launch):
 @pytest.mark.requirement("ACP-AUTH-204")
 async def test_login_then_session_new_succeeds(agent_launch, tmp_path):
     """ACP-AUTH-204 (CAPABILITY, `capability="inferred:authMethods"` -- mirrors v1's
-    `ACP-AUTH-003` exactly, method renamed `authenticate` -> `auth/login`). Only exercised when
-    `authMethods` is non-empty AND `--tck-auth-method` was given -- SKIPs otherwise, since the
-    TCK cannot guess a valid `methodId`.
+    `ACP-AUTH-003`, method renamed `authenticate` -> `auth/login`). SKIPs unless `authMethods`
+    is non-empty and `--tck-auth-method` was given (the TCK cannot guess a `methodId`), or if
+    `validate_login_method_id` rejects an unadvertised/terminal id.
 
-    `auth/login` succeeding is never asserted as a hard requirement -- a real agent may
-    legitimately reject bad/expired/cancelled credentials; a failure SKIPs with a distinct,
-    diagnosable reason. When it does return a result: the result is a JSON object (shape-only);
-    the one hard assertion is that a subsequent `session/new` on the same connection does not
-    fail with `-32000`.
+    `auth/login` succeeding is not a hard requirement -- an agent may legitimately reject
+    bad/expired credentials, which SKIPs with a diagnosable reason instead of failing. The one
+    hard assertion: a subsequent `session/new` on the same connection does not fail with
+    `-32000`.
 
-    Before ever sending `auth/login`, `validate_login_method_id` SKIPs with an `AUTH-GATED:`
-    reason if `--tck-auth-method`'s id is not among the advertised `authMethods`, or names a
-    `type: "terminal"` entry -- the TCK itself must not send `auth/login` with an unadvertised
-    or terminal `methodId`.
-
-    The `--tck-auth-method` presence check happens *inside* `_initialized_agent`, after
-    `skip_if_version_mismatch` has already had a chance to fire (mirrors
-    `test_logout_succeeds`'s ordering) -- a version-mismatched agent must SKIP with the
-    `VERSION-MISMATCH:` marker regardless of `--auth-method`, and checking that first would mask
-    it with an unrelated reason."""
+    The `--tck-auth-method` check happens inside `_initialized_agent`, after the
+    version-mismatch check has already had a chance to fire, so a version-mismatched agent
+    SKIPs with `VERSION-MISMATCH:` rather than an unrelated reason."""
     async with _initialized_agent(agent_launch) as (agent, init_result):
         method_id = current_auth_method_id()
         if method_id is None:
@@ -212,19 +193,14 @@ async def test_session_new_not_gated_when_no_auth_methods_advertised(agent_launc
 @pytest.mark.requirement("ACP-AUTH-203")
 async def test_logout_succeeds(agent_launch):
     """ACP-AUTH-203 (CAPABILITY, `capability="inferred:authMethods"` -- replaces v1's
-    `ACP-AUTH-004` outright, since v2 has no `agentCapabilities.auth.logout` marker to gate on).
-    SKIPs when the agent advertises no `authMethods`, and -- separately -- unless
-    `--allow-logout`/`--tck-allow-logout` was given, since calling `auth/logout` for real may
-    revoke the operator's own credentials for whatever account the agent is authenticated as.
+    `ACP-AUTH-004` outright, since v2 has no `agentCapabilities.auth.logout` marker). SKIPs when
+    the agent advertises no `authMethods`, or unless `--allow-logout`/`--tck-allow-logout` was
+    given, since a real `auth/logout` may revoke the operator's own credentials.
 
-    If `--tck-auth-method` was given, this test logs in itself first (mirroring
-    `connected_agent`'s own auto-login step, done manually here since `_initialized_agent`
-    connects with `handshake=False`) before calling `auth/logout` -- gated by the same
-    `validate_login_method_id` check as `test_login_then_session_new_succeeds`, so an
-    unadvertised or terminal `--tck-auth-method` id SKIPs instead of sending a spec-forbidden
-    `auth/login`. Otherwise `auth/logout` is called standalone; only its own success (a
-    schema-valid object result) is checked -- nothing about session state after
-    logout."""
+    If `--tck-auth-method` was given, logs in first (gated by the same `validate_login_method_id`
+    check as ACP-AUTH-204, so an unadvertised/terminal id SKIPs rather than sending a
+    spec-forbidden `auth/login`). Only `auth/logout`'s own success (a schema-valid object
+    result) is checked -- nothing about session state after logout."""
     async with _initialized_agent(agent_launch) as (agent, init_result):
         auth_methods = init_result.get("authMethods") or []
         if not auth_methods:

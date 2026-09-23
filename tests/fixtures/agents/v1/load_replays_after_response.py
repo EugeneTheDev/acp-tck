@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Non-conforming fixture: advertises `loadSession` but responds to `session/load` BEFORE
 replaying the stored `session/update` history, instead of after. Violates ACP-LOAD-002
-(`.agents/research/acp-v1-session-capabilities.md` L2/L3: replay MUST happen before the
-response). ACP-LOAD-001 still PASSes (the response itself is a valid, schema-conformant
-`{}`) -- only the ordering requirement is violated.
+(replay MUST happen before the response). ACP-LOAD-001 still PASSes -- the response itself
+is a valid, schema-conformant `{}` -- only the ordering requirement is violated.
 """
 
 import sys

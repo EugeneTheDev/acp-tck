@@ -13,14 +13,10 @@ from ._helpers import connected_agent, skip_if_auth_gated
 
 @pytest.mark.requirement("ACP-ERROR-001")
 async def test_error_messages_are_non_empty_single_line(agent_launch):
-    """ACP-ERROR-001 (ADVISORY -- `schema/v1/schema.json`'s `Error` def documents `message` as
-    a "short description" but never pins down "non-empty"/"no embedded newline" as a MUST; an
-    empty or multi-line message is poor practice worth flagging, not failing a run over).
-    Evidence: the reply to an unrecognised method, and the reply to a `session/new` with an
-    invalid/missing required `cwd` -- both MUST exist per ACP-JSONRPC-002, so this reuses them
-    rather than inventing a third exchange. `data`, if present, is only checked for being
-    JSON-shaped (already true since it parsed as part of the outer message); nothing about its
-    structure is asserted."""
+    """ACP-ERROR-001 (ADVISORY -- `Error.message` is documented as a "short description" but
+    "non-empty"/"no embedded newline" is never pinned down as a MUST, so this flags rather than
+    fails). Reuses the error replies already required by ACP-JSONRPC-002 (unrecognised method,
+    `session/new` missing `cwd`) instead of inventing a third exchange."""
     async with connected_agent(agent_launch, handshake=False) as agent:
         init_id = await agent.send_request(
             "initialize", {"protocolVersion": PROTOCOL_VERSION, "clientCapabilities": {}}
@@ -45,18 +41,16 @@ async def test_error_messages_are_non_empty_single_line(agent_launch):
         assert "\n" not in message, f"{what}: error.message must not contain a newline: {message!r}"
         data = error.get("data")
         if data is not None:
-            # already parsed as part of the outer JSON message -- reaching here at all proves
-            # it is JSON-shaped; nothing further about its structure is asserted.
+            # only confirms it's JSON-shaped; structure isn't asserted
             json.dumps(data)
 
 
 @pytest.mark.requirement("ACP-SHUTDOWN-001")
 async def test_agent_exits_promptly_after_stdin_close(agent_launch, tmp_path):
-    """ACP-SHUTDOWN-001 (ADVISORY -- the spec is silent on shutdown timing; a well-behaved agent
-    is still expected to notice stdin EOF and exit on its own rather than needing SIGTERM/
-    SIGKILL). Runs one ordinary session/new exchange, then relies on `connected_agent`'s
-    `close()` ladder (stdin close -> grace -> SIGTERM -> grace -> SIGKILL) and reports whether
-    the agent exited during the first rung, via `AgentProcess.exited_on_stdin_close`."""
+    """ACP-SHUTDOWN-001 (ADVISORY -- the spec is silent on shutdown timing, but a well-behaved
+    agent should exit on stdin EOF without needing SIGTERM/SIGKILL). Relies on
+    `connected_agent`'s close() ladder and `AgentProcess.exited_on_stdin_close` to report whether
+    it exited on the first rung."""
     async with connected_agent(agent_launch) as agent:
         req_id = await agent.send_request("session/new", {"cwd": str(tmp_path), "mcpServers": []})
         entry = await agent.wait_for_response(req_id, timeout=agent_launch.default_timeout)

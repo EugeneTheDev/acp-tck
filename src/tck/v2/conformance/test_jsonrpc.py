@@ -1,32 +1,19 @@
 """JSON-RPC envelope conformance: ACP-JSONRPC-001..005.
 
-Batch-widened v2 counterpart of `tck.v1.conformance.test_jsonrpc` (honest duplication, not
-shared machinery). Per `tck.v2.requirements`'s "Transport/JSON-RPC" notes,
-`ACP-JSONRPC-001..003` (id echo, result-xor-error shape, notification silence) reuse their v1
-numbers unchanged -- the underlying wire assertion itself did not change, only the
-evidence-gathering probes widen to also cover a batch-delivered response/notification.
-`ACP-JSONRPC-004`/`005` (unknown-method code, connection survives an error) are likewise
-byte-identical carryovers, widened to also exercise an invalid/empty batch as the "erroneous
-request".
-
-This file's own probes are single-message only; it never sends or receives a batch-shaped
-message. `ACP-JSONRPC-001`'s, `-003`'s, and `-005`'s texts also cover a batch-delivered
-response/notification/erroneous-request, but that half of the evidence lives entirely in
-`test_batch.py` -- the two files' `@pytest.mark.requirement(...)` markers jointly satisfy each
-id; see `test_batch.py`'s
-`test_batch_of_requests_replies_with_matching_responses`,
+v2 counterpart of `tck.v1.conformance.test_jsonrpc` (honest duplication, not shared machinery).
+Per `tck.v2.requirements`, all five ids reuse their v1 wire assertions unchanged, widened only to
+also cover a batch-delivered response/notification/erroneous-request -- but this file's own
+probes are single-message only. That batch half of the evidence lives entirely in
+`test_batch.py` (`@pytest.mark.requirement(...)` markers in both files jointly satisfy each id);
+see its `test_batch_of_requests_replies_with_matching_responses`,
 `test_notification_only_batch_produces_no_output`, and
-`test_invalid_batch_entries_get_per_entry_invalid_request` for the batch half of each).
+`test_invalid_batch_entries_get_per_entry_invalid_request`.
 
-None of the rows in *this* file need `skip_if_version_mismatch`: a v1-only agent forced under
-`--protocol-version 2` never receives a batch-shaped probe here (batching itself is
-`test_batch.py`'s exclusive concern, and that file's own `v2_only_agent` handles the mismatch
-skip on its side), and its ordinary single-message replies are judged by exactly the same rule v1
-already holds it to.
+No row here needs `skip_if_version_mismatch`: a v1-only agent never receives a batch-shaped probe
+in this file, and its single-message replies are judged by the same rule v1 already holds it to.
 
-The TCK's own probe method for "does this agent even reply to something it doesn't recognise" is
-`_tck/does_not_exist` -- `_`-prefixed, per the extensibility rule (custom methods must be
-`_`-prefixed) the TCK holds itself to as well (mirrors v1's `test_jsonrpc.py`).
+The unknown-method probe is `_tck/does_not_exist` -- `_`-prefixed per the extensibility rule
+(mirrors v1's `test_jsonrpc.py`).
 """
 
 from __future__ import annotations
@@ -121,11 +108,10 @@ async def test_unknown_method_yields_method_not_found(agent_launch):
 
 @pytest.mark.requirement("ACP-JSONRPC-005")
 async def test_connection_survives_an_erroneous_request(agent_launch, tmp_path):
-    """ACP-JSONRPC-005 (ADVISORY). Replying to an unrecognised method at all is only SHOULD (see
-    `ACP-JSONRPC-004`), so an agent that silently ignores `_tck/does_not_exist` has not failed
-    anything -- it has, in fact, already demonstrated the property this test checks (the
-    connection survives an erroneous request), which is why the wait for that reply is bounded by
-    `quiet_period()` and a timeout is suppressed rather than propagated."""
+    """ACP-JSONRPC-005 (ADVISORY). Replying to `_tck/does_not_exist` at all is only SHOULD (see
+    `ACP-JSONRPC-004`), so silence isn't a failure here -- it already demonstrates the connection
+    survived, which is why the reply wait is bounded by `quiet_period()` and a timeout is
+    suppressed rather than propagated."""
     async with connected_agent(agent_launch) as agent:
         bad_id = await agent.send_request("_tck/does_not_exist")
         with contextlib.suppress(AgentTimeout):

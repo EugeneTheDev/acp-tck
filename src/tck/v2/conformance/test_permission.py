@@ -1,11 +1,10 @@
-"""Permission-request shape: ACP-PERM-201 (new id -- no v1 counterpart at all: v1's own
-`session/request_permission` params shape differs and has no `title`).
+"""Permission-request shape: ACP-PERM-201 (new id -- v1's own `session/request_permission`
+params shape differs and has no `title`).
 
-`Tier.CAPABILITY`, `capability="capabilities.session"` per the "v2 tiering rule for
-session-baseline rows" -- see `tck.v2.requirements`'s module docstring (the source research
-report's own table suggests MANDATORY "vacuous when unseen"; superseded). SKIPs "no permission
-request observed" whenever the agent's turn never sends `session/request_permission` at all --
-sending one is only MAY (research row C1), so there is then nothing to validate.
+`Tier.CAPABILITY`, `capability="capabilities.session"` -- see `tck.v2.requirements`'s module
+docstring for the tiering rule. SKIPs "no permission request observed" whenever the agent's turn
+never sends `session/request_permission` at all -- sending one is only MAY, so there is then
+nothing to validate.
 """
 
 from __future__ import annotations
@@ -24,9 +23,9 @@ _PROMPT_TEXT = "hi"
 async def test_request_permission_shape_and_turn_completes(agent_launch, tmp_path):
     """ACP-PERM-201. Any `session/request_permission` request observed during the turn
     validates against the v2 schema, and specifically carries a non-empty string `title` (new in
-    v2 -- research row C2) and a non-empty `options` array, each option carrying
-    `optionId`/`name`/`kind` (row C3). Once the mock client answers with a `selected` outcome
-    (`run_prompt`'s default), the turn still reaches a terminating idle.
+    v2) and a non-empty `options` array, each option carrying `optionId`/`name`/`kind`. Once the
+    mock client answers with a `selected` outcome (`run_prompt`'s default), the turn still
+    reaches a terminating idle.
     """
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)

@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 """Non-conforming fixture: `session/resume` with `replayFrom: {"type": "start"}` replies to the
-`session/resume` request *before* replaying the session's retained history, instead of after --
-the reverse of R2's required ordering.
+`session/resume` request *before* replaying the session's retained history, instead of after.
 
 FAILs exactly `ACP-RESUME-202` (the replay-before-response ordering check). `ACP-RESUME-201`
-(resume itself succeeds) is unaffected. `ACP-RESUME-203` (no `replayFrom` -> no replay) is also
-unaffected -- this fixture only reorders the `{"type": "start"}` case. `ACP-RESUME-204` (the
-replayed message's `messageId` matches) legitimately SKIPs rather than FAILs here: the helper's
-single-response-tracking read loop (`_helpers.resume_session`) returns as soon as it sees the
-response, before ever reading the trailing replay notifications that are still queued in the
-pipe -- so `updates` comes back empty and ACP-RESUME-204 correctly reports "the retained user
-message was not replayed at all" (from its own perspective) rather than fabricating a false
-FAIL/PASS from data it never actually observed.
+and `ACP-RESUME-203` are unaffected -- this fixture only reorders the `{"type": "start"}` case.
+`ACP-RESUME-204` legitimately SKIPs rather than FAILs: `_helpers.resume_session`'s
+single-response-tracking read loop returns as soon as it sees the response, before ever reading
+the trailing replay notifications still queued in the pipe -- so `updates` comes back empty and
+ACP-RESUME-204 correctly reports the message as not replayed, rather than fabricating a false
+FAIL/PASS from data it never observed.
 """
 
 import sys

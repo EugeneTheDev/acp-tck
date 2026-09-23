@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Non-conforming (ADVISORY-only) fixture: advertises `loadSession`, replays history correctly
 (so ACP-LOAD-001/002 PASS -- the schema layer accepts a literal JSON `null` result for an
-all-optional object response, per `.agents/research/acp-v1-session-capabilities.md` L4's
-leniency note), but responds to `session/load` with `null` instead of `{}`. This should FAIL
-only the ADVISORY ACP-LOAD-003 check, which is stricter than schema validation.
+all-optional object response), but responds to `session/load` with `null` instead of `{}`. This
+should FAIL only the ADVISORY ACP-LOAD-003 check, which is stricter than schema validation.
 """
 
 import sys

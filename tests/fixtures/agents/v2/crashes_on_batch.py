@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
 """Non-conforming fixture: exits the moment it sees any batch-shaped (top-level JSON array) line
-on stdin -- otherwise fully conforming, including for every non-batch single-message exchange.
-
-FAILs every requirement whose own test actually sends a batch line: `ACP-BATCH-201`/`202`/`203`,
-the shared `ACP-BATCH-204`/`205` test, and `ACP-INFO-BATCH-201`/`202` (INFORMATIONAL -- but the
-prerequisite handshake inside `_v2_only_agent` still succeeds, only the batch probe itself dies,
-so these become `AgentExited` FAILs rather than a recorded behaviour). `ACP-BATCH-206`/`207`/`208`
-are unaffected -- they are unconditional record-only SKIPs that never send anything at all.
-Every non-batch id (`ACP-TRANSPORT-*`, `ACP-JSONRPC-*`, cancellation) is unaffected too, since
-none of those tests ever sends a batch-shaped line -- a fixture that fails *only* batch rows.
+on stdin -- otherwise fully conforming. FAILs only the requirements whose tests send a batch
+line (`ACP-BATCH-*`, `ACP-INFO-BATCH-*`) via `AgentExited`; unrelated ids are unaffected since
+their tests never send a batch-shaped line.
 """
 
 import sys

@@ -55,31 +55,21 @@ async def test_requested_v1_is_echoed(agent_launch):
 
 @pytest.mark.requirement("ACP-INIT-003")
 async def test_unsupported_version_still_succeeds(agent_launch):
-    """ACP-INIT-003: a successful result with an integer protocolVersion is not sufficient,
-    since both `testy` and `examples/echo_agent.py` echo the client's unsupported requested
-    version (65535) verbatim, which the requirement text ("its latest supported version")
-    forbids. This needs a reference point: whatever the same agent returns for a plain v1
-    request (ACP-INIT-002).
+    """ACP-INIT-003: a successful result with an integer protocolVersion isn't sufficient --
+    both `testy` and `examples/echo_agent.py` echo the unsupported requested version (65535)
+    verbatim, which the requirement text ("its latest supported version") forbids. Checking
+    against a reference point (the same agent's plain v1 answer, ACP-INIT-002) needs two fresh
+    processes, one per `initialize` call.
 
-    The rule is `!= 65535 and >= latest_supported`, NOT equality: an agent legitimately
-    supporting more than one version may answer `1` for a v1 request but
-    something higher for an unsupported/future one (e.g. `2` for anything `>= 2`) -- equality
-    would falsely FAIL that agent even though it never echoed 65535 and never answered *lower*
-    than its own v1 answer, which is the actual defect this requirement exists to catch.
+    The rule is `!= 65535 and >= latest_supported`, not equality: an agent may legitimately
+    answer higher than its own v1 answer for an unsupported/future version without ever having
+    echoed 65535 -- equality would falsely FAIL that agent for a defect it didn't commit.
 
-    Two fresh processes are used (one per `initialize` call) rather than two handshakes over one
-    connection, matching every other test's "one fresh agent process" pattern.
-
-    The 65535 probe's params also carry a v2-shaped `info` object alongside the ordinary v1
-    fields (`.agents/research/acp-v2-version-negotiation.md`, "Router trap for the TCK"): a
-    dual-version *router* agent (both reference SDKs ship one) selects v2 for any
-    requested version `>= 2`, including 65535, and validates the params as a v2
-    `InitializeRequest`, whose `info` is REQUIRED. Without it, such an agent legitimately
-    answers `-32602` for a params-shape reason that has nothing to do with version negotiation
-    -- a false MANDATORY FAIL. The probe represents a future-version client, so it legitimately
-    carries every version's required client fields; extra keys are harmless for a plain v1
-    agent (no schema anywhere sets `additionalProperties: false`, per
-    `tck.v1.validation`'s documented quirks)."""
+    The 65535 probe's params also carry a v2-shaped `info` object: a dual-version router agent
+    selects v2 for any requested version >= 2, including 65535, and its v2 InitializeRequest
+    requires `info`. Without it such an agent would answer -32602 for an unrelated params-shape
+    reason -- a false MANDATORY FAIL. Extra keys are harmless for a plain v1 agent (no schema
+    here sets `additionalProperties: false`)."""
     async with connected_agent(agent_launch, handshake=False) as reference_agent:
         v1_req_id = await reference_agent.send_request(
             "initialize", {"protocolVersion": 1, "clientCapabilities": {}}
@@ -99,12 +89,8 @@ async def test_unsupported_version_still_succeeds(agent_launch):
             {
                 "protocolVersion": 65535,
                 "clientCapabilities": {},
-                # This probe represents a future-version client, so its params legitimately
-                # carry every version's required client fields -- including v2's REQUIRED
-                # `info` object (see the module-level docstring above and
-                # `.agents/research/acp-v2-version-negotiation.md`). A plain v1 agent ignores
-                # the extra key; a dual-version router agent needs it to select v2 without
-                # rejecting the params as invalid.
+                # v2's InitializeRequest requires `info`; a dual-version router agent needs
+                # it to select v2 without rejecting these params (see docstring above).
                 "info": {"name": "acp-tck", "version": current_tck_version()},
             },
         )
@@ -157,25 +143,20 @@ async def test_full_exchange_validates_against_schema(agent_launch, agent_initia
     """ACP-SCHEMA-001. Every message the agent emits during initialize -> session/new ->
     session/prompt validates against the vendored v1 schema.
 
-    Driven through `run_prompt`: a real agent that asks for permission or calls
-    `fs/*`/`terminal/*` mid-turn must not deadlock this MANDATORY requirement just because
-    nothing here answers it. `method_by_id` -- needed to know which method's response schema
-    each reply must validate against -- is derived automatically by scanning the SENT
-    transcript for `{"method", "id"}` pairs rather than threading it through the helpers by
-    hand, so this test stays agnostic to how `run_prompt`/`new_session` are implemented.
+    Driven through `run_prompt` (not a hand-rolled exchange) so a real agent that asks for
+    permission or calls `fs/*`/`terminal/*` mid-turn doesn't deadlock this MANDATORY
+    requirement. `method_by_id` is derived by scanning the sent transcript for
+    `{"method", "id"}` pairs rather than threaded through by hand, keeping this test agnostic
+    to how `run_prompt`/`new_session` are implemented.
 
-    Uses `connected_agent`'s default `handshake=True` (not a hand-rolled `initialize` call like
-    the other tests in this module) specifically so its built-in auto-`authenticate` step (when
-    `--tck-auth-method` is given) runs before `session/new` -- an agent that gates `session/new`
-    behind authentication must not fail this MANDATORY requirement just because the harness
-    never authenticated. The `initialize` (and, if it ran, `authenticate`) traffic is still
-    present in `agent.transcript` and still schema-validated below, exactly as if this test had
-    sent it by hand.
+    Uses `connected_agent`'s default `handshake=True` so its auto-`authenticate` step (when
+    `--tck-auth-method` is given) runs before `session/new` -- an agent gating `session/new`
+    behind authentication mustn't fail this requirement just because the harness never
+    authenticated. That traffic is still captured in `agent.transcript` and validated below.
 
-    `connected_agent` never hands its own `initialize` result back, so this reads the
-    session-scoped `agent_initialize_result` fixture instead -- it performs the identical
-    `initialize` call (same params, same agent command) and is used purely to decide whether to
-    `skip_if_version_mismatch` before driving the exchange at all.
+    `connected_agent` doesn't hand back its own `initialize` result, so this reads the
+    session-scoped `agent_initialize_result` fixture (same params/command) purely to decide
+    whether to `skip_if_version_mismatch` before driving the exchange.
     """
     if agent_initialize_result.result is not None:
         skip_if_version_mismatch(agent_initialize_result.result)

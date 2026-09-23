@@ -15,17 +15,14 @@ from ._helpers import connected_agent, new_session, run_prompt, skip_if_version_
 
 @pytest.mark.requirement("ACP-EXT-001")
 async def test_unknown_custom_method_receives_a_response(agent_launch):
-    """ACP-EXT-001 (MANDATORY, judgment call -- see `tck.v1.requirements` for the rationale): Req
-    42's "recipients must respond to custom requests" (extensibility.mdx:43,52,65,109) is
-    phrased as a MUST, distinct from the separate SHOULD about which specific error *code* an
-    unrecognised method gets in general (extensibility.mdx:80-92, ACP-JSONRPC-004). This test
-    only asserts that *some* response -- a result, or an error with any code -- arrives at all
-    for a `_`-prefixed custom method; the `-32601` code specifically remains ACP-JSONRPC-004's
-    ADVISORY concern and is not re-checked here.
+    """ACP-EXT-001 (MANDATORY, judgment call -- see `tck.v1.requirements`): Req 42 requires
+    recipients to respond to custom requests (extensibility.mdx:43,52,65,109), separate from
+    the SHOULD on which error *code* an unrecognised method gets (extensibility.mdx:80-92,
+    ACP-JSONRPC-004). Only asserts *some* response arrives for a `_`-prefixed method; the
+    `-32601` code itself is ACP-JSONRPC-004's concern.
 
-    An agent that never replies at all is caught explicitly (rather than letting
-    `wait_for_response` raise a bare `AgentTimeout`/`AgentExited`) so this -- the one MANDATORY
-    assertion in the module -- fails with the Req-42 wording, not a harness exception."""
+    Catches `AgentTimeout`/`AgentExited` explicitly so a non-responding agent fails with the
+    Req-42 wording rather than a bare harness exception."""
     async with connected_agent(agent_launch) as agent:
         req_id = await agent.send_request("_tck/unknown")
         try:
@@ -44,13 +41,10 @@ async def test_unknown_custom_method_receives_a_response(agent_launch):
 @pytest.mark.requirement("ACP-META-001")
 async def test_prompt_meta_field_is_accepted(agent_launch, agent_initialize_result, tmp_path):
     """ACP-META-001 (ADVISORY; Reqs 41, 43). A `session/prompt` carrying `_meta` with a
-    `traceparent` key (SHOULD-reserved by Req 43) is accepted and resolves normally -- proves
-    the agent does not choke on `_meta` placed exactly where the spec says custom data
-    belongs.
+    `traceparent` key (SHOULD-reserved by Req 43) must be accepted and resolve normally.
 
-    `skip_if_version_mismatch` on the session-scoped `agent_initialize_result` (see
-    `test_full_exchange_validates_against_schema`'s docstring) SKIPs first, since a v1-shaped
-    `session/prompt` result cannot be judged against an agent that never negotiated v1."""
+    `skip_if_version_mismatch` first, since a v1-shaped `session/prompt` result can't be
+    judged against an agent that never negotiated v1."""
     if agent_initialize_result.result is not None:
         skip_if_version_mismatch(agent_initialize_result.result)
     async with connected_agent(agent_launch) as agent:
@@ -81,15 +75,13 @@ async def test_full_exchange_has_no_unknown_root_keys(agent_launch, agent_initia
     """ACP-SCHEMA-002 (ADVISORY; Req 41 -- implementations MUST NOT add custom root fields to a
     spec type, `_meta` is for custom data instead). The vendored schema has no
     `additionalProperties: false` anywhere, so mandatory schema validation (ACP-SCHEMA-001)
-    cannot catch this on its own --
-    `validation.find_unknown_root_keys` implements the comparison by hand: for every
-    agent-emitted request/notification `params` and every successful response `result`,
-    resolve the full property-name union of its `$def` (following `allOf`/`anyOf`/`oneOf`/
-    `$ref`) and flag any key not in that union. Swept over the same
-    initialize -> session/new -> session/prompt exchange ACP-SCHEMA-001 validates, using the
-    same "derive `method_by_id` from the SENT transcript" trick as
-    `test_initialize.py::test_full_exchange_validates_against_schema`, including that same
-    test's `skip_if_version_mismatch` guard."""
+    can't catch this on its own -- `validation.find_unknown_root_keys` resolves each `$def`'s
+    full property union (following `allOf`/`anyOf`/`oneOf`/`$ref`) and flags any key outside
+    it, for every agent-emitted request/notification `params` and response `result`.
+
+    Swept over the same initialize -> session/new -> session/prompt exchange as
+    `test_initialize.py::test_full_exchange_validates_against_schema`, reusing its
+    `method_by_id`-from-transcript trick and `skip_if_version_mismatch` guard."""
     if agent_initialize_result.result is not None:
         skip_if_version_mismatch(agent_initialize_result.result)
     async with connected_agent(agent_launch) as agent:

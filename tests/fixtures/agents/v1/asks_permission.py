@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """Conforming fixture that asks for permission mid-turn: on `session/prompt` it sends
-`session/request_permission` (the normal shape a real tool-using agent produces --
-`docs/protocol/v1/prompt-turn.mdx:32-43`) and only resolves the prompt once the client answers,
-honoring whichever option the client selected (or the "cancelled" outcome if the client answers
-that way after `session/cancel`).
+`session/request_permission` (`docs/protocol/v1/prompt-turn.mdx:32-43`) and only resolves the
+prompt once the client answers, honoring whichever option was selected (or "cancelled" if the
+client answers that way after `session/cancel`).
 
-Exists to exercise the mock client's permission-answering path
-(`tck.v1.conformance._helpers.run_prompt`), which nothing else in `tests/fixtures/agents/`
-exercises -- every prompt/cancel test in the real suite depends on that path working, so it
-needs its own self-test coverage.
+Exercises the mock client's permission-answering path (`tck.v1.conformance._helpers.run_prompt`),
+which nothing else in `tests/fixtures/agents/` covers, even though every prompt/cancel test
+depends on it.
 """
 
 from __future__ import annotations
@@ -78,11 +76,9 @@ class AsksPermissionAgent(ConformingAgent):
 
     def _handle_notification(self, method: str, params: dict[str, Any]) -> None:
         if method == "session/cancel" and self._awaiting_permission is not None:
-            # Cancellation while a permission request is outstanding: the mock client answers
-            # the outstanding request with the "cancelled" outcome (see `run_prompt`), which
-            # `_handle_client_response` above turns into the prompt's own cancelled response --
-            # nothing else to do here, just don't fall through to the base class's
-            # `_pending_prompt`-based cancel handling (unused by this fixture).
+            # The mock client answers the outstanding permission request with "cancelled"
+            # (see `run_prompt`), which `_handle_client_response` turns into the prompt's own
+            # cancelled response -- skip the base class's `_pending_prompt` cancel handling.
             return
         super()._handle_notification(method, params)
 

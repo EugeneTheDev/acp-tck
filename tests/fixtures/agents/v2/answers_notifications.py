@@ -3,11 +3,10 @@
 (`{"id": null, "result": null}`). Violates ACP-JSONRPC-003 -- notifications never receive a
 response. Mirrors v1's `answers_notifications.py` on top of v2's `_base.py`.
 
-v2's `_base.py` has no generic `_handle_notification` hook like v1's -- `session/cancel` is the
-only notification method `ConformingAgent._handle` recognizes at all, dispatched straight to
-`_handle_cancel` -- so this overrides that method instead, unconditionally, regardless of
-whether a hanging `__hang__` prompt is actually outstanding for the session (deliberately never
-calling `super()._handle_cancel(...)`, so no prompt is ever legitimately cancelled either).
+v2's `_base.py` has no generic `_handle_notification` hook -- `session/cancel` is the only
+notification `ConformingAgent._handle` recognizes, dispatched to `_handle_cancel` -- so this
+overrides that method unconditionally, never calling `super()._handle_cancel(...)`, so no
+prompt is ever legitimately cancelled either.
 """
 
 import sys

@@ -1,24 +1,18 @@
-"""Patch/upsert semantics: ACP-PATCH-201, ACP-PATCH-203..209
-(`.agents/research/acp-v2-patches-enums-extensibility.md` "Patch/upsert -- new family").
+"""Patch/upsert semantics: ACP-PATCH-201, ACP-PATCH-203..209.
 
 `ACP-PATCH-202` (the `session/prompt` result's `messageId` matches the `user_message`/
 `user_message_chunk` updates' own `messageId`) is deliberately **not** registered here: it is
-already fully covered by the combination of `ACP-PROMPT-201` (response shape: `{messageId:
-<non-empty string>}`) and `ACP-PROMPT-203` (the response's `messageId` matches the echoed
-`user_message`'s own id).
+already fully covered by `ACP-PROMPT-201` + `ACP-PROMPT-203`.
 
-Every id here is turn-observable, so each is `Tier.CAPABILITY`, `capability="capabilities.session"`
-(ACP-PATCH-201/203/204/205/206/207) or `Tier.ADVISORY`, `capability=None` with only the *test*
-still `@pytest.mark.capability`-gated for the SKIP (ACP-PATCH-208/209) -- per the "v2 tiering rule
-for session-baseline rows" (MANDATORY-observed rows promote to CAPABILITY; ADVISORY rows do not).
+ACP-PATCH-201/203/204/205/206/207 are `Tier.CAPABILITY` (`capabilities.session`);
+ACP-PATCH-208/209 are `Tier.ADVISORY` with only the *test* capability-gated for the SKIP.
 
-Per the report's own testability notes (A12-A15/`ACP-PATCH-204/205/206/207`), most of these are
-pure shape checks over whatever the agent happens to emit during one driven turn: SKIP "no
-<variant> observed" whenever the relevant update kind never appears at all, rather than either a
-vacuous PASS or an unjustified FAIL -- judging only what was actually observed. Neither reference
-SDK exercises tool calls/plans/terminals over v2 yet, so these rows SKIP against
-`testy`/`echo_agent` and only PASS for real against the repo's own `conforming_full.py` (opted in
-via `emit_rich_turn_updates=True`) and its defect fixtures.
+Most of these are pure shape checks over whatever the agent happens to emit during one driven
+turn: SKIP "no <variant> observed" whenever the relevant update kind never appears, rather than a
+vacuous PASS or an unjustified FAIL. Neither reference SDK exercises tool calls/plans/terminals
+over v2 yet, so these rows SKIP against `testy`/`echo_agent` and only PASS for real against the
+repo's own `conforming_full.py` (opted in via `emit_rich_turn_updates=True`) and its defect
+fixtures.
 """
 
 from __future__ import annotations
@@ -300,8 +294,6 @@ async def test_requires_action_reported_around_permission_request(agent_launch, 
             "foreground work, so there is nothing to check for a 'running' state after "
             "requires_action"
         )
-    # `running` must appear again after the (last) requires_action, i.e. the agent resumed
-    # foreground work once the permission answer came back.
     last_requires_action = max(i for i, s in enumerate(states) if s == "requires_action")
     assert "running" in states[last_requires_action + 1 :], (
         f"agent never reported state_update {{state: 'running'}} again after "

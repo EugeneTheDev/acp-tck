@@ -1,23 +1,18 @@
 """`tck.v1.plugin`: the pytest plugin for the ACP v1 conformance suite.
 
-A thin shim over `tck.common.plugin` (see that module's docstring): it copies every hook and
-fixture from `tck.common.plugin`'s namespace into its own -- including underscore-named autouse
-fixtures (`_tck_capability_gate`, ...) that a plain `from ... import *` would silently skip,
-since pytest discovers a plugin's hooks/fixtures via `dir()`/`vars()` on the plugin module
-itself, not on whatever re-exports are importable from it. It then overrides `pytest_configure`
-to stash `tck.v1.SPEC` in `config.stash[VERSION_SPEC_KEY]` *before* delegating to
-`tck.common.plugin.pytest_configure` -- every other common hook that reads the stash
-(`pytest_collection_modifyitems`, `agent_initialize_result`, `pytest_sessionfinish`,
-`pytest_terminal_summary`, ...) only ever runs after this has set it.
+A thin shim over `tck.common.plugin`: copies every hook/fixture into this module's namespace via
+`vars()`, not `import *`, so underscore-named autouse fixtures (`_tck_capability_gate`, ...)
+aren't skipped -- pytest discovers a plugin's hooks/fixtures via `dir()`/`vars()` on the module
+itself, not via re-exports. Then overrides `pytest_configure` to stash `tck.v1.SPEC` in
+`config.stash[VERSION_SPEC_KEY]` before delegating to `tck.common.plugin.pytest_configure`,
+since every other common hook reads that stash.
 
-Always load this module, never `tck.common.plugin` directly (`-p tck.v1.plugin`, as done by the
-`acp-tck` CLI and by hand when running `pytest src/tck/v1/conformance -p tck.v1.plugin ...`).
+Always load via `-p tck.v1.plugin`, never `tck.common.plugin` directly.
 
-Footgun: the copied functions keep `__globals__` pointing at `tck.common.plugin`'s own module
-namespace, so only a function pytest resolves *by name as a hook* (like `pytest_configure`
-above) can actually be overridden here. Redefining a helper such as `_build_report` in this
-module would silently have no effect -- every copied hook would still call
-`tck.common.plugin`'s original helper, not this module's.
+Footgun: copied functions keep `__globals__` pointing at `tck.common.plugin`, so only a function
+pytest resolves by name as a hook (like `pytest_configure`) can actually be overridden here --
+redefining a plain helper (e.g. `_build_report`) would silently do nothing, since every copied
+hook still calls the original.
 """
 
 from __future__ import annotations

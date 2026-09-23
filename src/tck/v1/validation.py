@@ -120,8 +120,7 @@ def _response_method_defs() -> dict[str, str]:
     """
     defs = load_schema()["$defs"]
     # Select the branch by content (`properties` containing `result`), not position -- a schema
-    # refresh that reorders `AgentResponse`'s `anyOf` must not silently map every method to the
-    # error branch and empty this mapping out.
+    # refresh reordering `AgentResponse`'s `anyOf` must not silently empty this mapping out.
     result_branch = next(
         branch for branch in defs["AgentResponse"]["anyOf"] if "result" in branch.get("properties", {})
     )
@@ -152,9 +151,9 @@ def _ref_names_under(node: Any) -> list[str]:
 def _response_schema_permits_null(def_name: str) -> bool:
     """True if `#/$defs/{def_name}` is an object type with no required properties, in which
     case `null` and `{}` are equivalent in practice even though the schema only spells out
-    `{}` (documented quirk: `.agents/research/acp-v1-protocol-surface.md` Discrepancy 3 --
-    `session/load`'s and `fs/write_text_file`'s docs show `"result": null`, but their schema
-    `$def`s are `type: "object"` with no required fields, which literally rejects `null`).
+    `{}`. Quirk: `session/load`'s and `fs/write_text_file`'s docs show `"result": null`, but
+    their schema `$def`s are `type: "object"` with no required fields, which literally rejects
+    `null`.
     """
     definition = load_schema()["$defs"].get(def_name, {})
     return definition.get("type") == "object" and not definition.get("required")
@@ -341,9 +340,7 @@ def _allowed_root_properties(def_name: str) -> set[str] | None:
                 _walk(defs.get(name, {}))
             # JSON Schema 2020-12 allows keywords alongside `$ref` on the same node -- fall
             # through to the sibling handling below instead of returning, so a `properties`/
-            # `allOf`/etc. next to a `$ref` is not silently dropped. No-op today: a full walk
-            # of the vendored schema found no node carrying `$ref` alongside anything but
-            # `description`/`title`/`x-method`/`x-side`.
+            # `allOf`/etc. next to a `$ref` isn't silently dropped.
         props = node.get("properties")
         if isinstance(props, dict) and props:
             found_any_properties = True
@@ -383,8 +380,8 @@ def validate_agent_response(method: str, msg: dict[str, Any]) -> list[Validation
     Validates the JSON-RPC envelope (`validate_response_envelope`) plus, for a successful
     response, `result` against `method`'s specific response schema. For an error response,
     `error` is checked against the hand-written envelope only (`code` an integer, `message` a
-    string) -- not the full `Error` schema, and `data` is never inspected, since the transport
-    report says to accept `data` absent or `null` without asserting its shape.
+    string) -- not the full `Error` schema; `data` is never inspected, since it may be absent
+    or `null` without asserting its shape.
     """
     if not isinstance(msg, dict):
         return [
@@ -415,8 +412,7 @@ def validate_agent_response(method: str, msg: dict[str, Any]) -> list[Validation
 
     result = msg["result"]
     if result is None and _response_schema_permits_null(def_name):
-        # Documented quirk (Discrepancy 3): docs show `null` for all-optional object
-        # responses; treat it as equivalent to `{}`.
+        # Quirk: docs show `null` for all-optional object responses; treat as equivalent to `{}`.
         return issues
 
     validator = _def_validator(def_name)

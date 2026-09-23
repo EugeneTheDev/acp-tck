@@ -1,14 +1,12 @@
 """Prompt-turn conformance: ACP-PROMPT-201, ACP-PROMPT-203, ACP-STATE-201..203, ACP-PROMPT-205
-(NOT a reuse of v1's ACP-PROMPT-002 -- the tier changed, see `tck.v2.requirements`'s module
-docstring for the id-namespacing decisions), and ACP-PROMPT-003 (reused from v1, unchanged
+(new ids, not a reuse of v1's ACP-PROMPT-002 -- the tier changed, see `tck.v2.requirements`'s
+module docstring for the id-namespacing rule), and ACP-PROMPT-003 (reused from v1, unchanged
 ADVISORY tier -- the text+resource_link doc conflict survives verbatim into v2).
 
-The first six are `Tier.CAPABILITY`, `capability="capabilities.session"` -- `session/prompt` is
-part of the seven-method baseline an agent commits to by advertising `capabilities.session` at
-all, exactly like `ACP-SESSION-001/002`. `ACP-PROMPT-003` is `Tier.ADVISORY` on the
-`Requirement` itself (`capability=None`, per `Requirement.__post_init__`'s invariant), but its
-test still carries the same `@pytest.mark.capability("capabilities.session")` marker for the
-SKIP gate -- `_tck_capability_gate` reads only the marker, independent of the registered tier.
+The first six are `Tier.CAPABILITY`, `capability="capabilities.session"`, like
+`ACP-SESSION-001/002`. `ACP-PROMPT-003` is `Tier.ADVISORY` on the `Requirement` itself
+(`capability=None`), but its test still carries the same capability marker for the SKIP gate --
+`_tck_capability_gate` reads only the marker, independent of the registered tier.
 """
 
 from __future__ import annotations
@@ -27,8 +25,8 @@ _PROMPT_TEXT = "hi"
 @pytest.mark.capability("capabilities.session")
 async def test_prompt_response_is_an_acceptance_receipt_with_a_message_id(agent_launch, tmp_path):
     """ACP-PROMPT-201. The `session/prompt` response is a non-error result whose `messageId` is
-    a non-empty string -- the acceptance-receipt shape (no `stopReason` here at all; the turn's
-    outcome is learned only from a later `session/update`, see `ACP-STATE-201..203` below).
+    a non-empty string -- an acceptance receipt, no `stopReason`; the turn's outcome is learned
+    later from `session/update` (see `ACP-STATE-201..203` below).
     """
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
@@ -55,9 +53,8 @@ async def test_agent_echoes_the_inserted_user_message(agent_launch, tmp_path):
     (or at least one `user_message_chunk` update) carrying the *same* `messageId` as the
     `session/prompt` response, for the prompted session.
 
-    SKIPs (rather than asserting against `None`) whenever `turn.message_id` is not itself a
-    valid non-empty string -- `ACP-PROMPT-201` is the row that already FAILs that case with a
-    more precise diagnostic; this row has nothing meaningful to check the echo against then.
+    SKIPs when `turn.message_id` is not a valid non-empty string -- `ACP-PROMPT-201` already
+    FAILs that case with a more precise diagnostic.
     """
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
@@ -101,9 +98,8 @@ async def test_running_precedes_a_turn_ending_idle(agent_launch, tmp_path, recor
     in the same turn.
 
     Gated on the idle, not on `running` itself (see `tck.v2.requirements`'s `ACP-STATE-201`
-    docstring for why this differs from `ACP-STATE-202`/`ACP-STATE-203`'s own gate): SKIPs as
-    "no turn-ending idle observed" only when the turn's idle never carried a `stopReason` at
-    all. A turn-ending idle with no preceding `running` FAILs this row rather than SKIPping it.
+    docstring for why this differs from `ACP-STATE-202`/`-203`'s gate): a turn-ending idle with
+    no preceding `running` FAILs rather than SKIPping.
     """
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
@@ -130,9 +126,8 @@ async def test_idle_follows_running_within_the_turn_deadline(agent_launch, tmp_p
     {state: "running"}`, an idle `state_update` for that session arrives within the turn's
     `--timeout` budget.
 
-    SKIPs as "no foreground work observed" when `running` was never observed at all -- the spec
-    does not say whether a zero-work prompt must still emit `running`, so a turn that never
-    shows it is not scored a defect by this row.
+    SKIPs when `running` was never observed -- the spec doesn't say a zero-work prompt must
+    still emit it.
     """
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)

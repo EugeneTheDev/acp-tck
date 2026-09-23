@@ -1,73 +1,48 @@
 """Cancellation conformance: ACP-CANCEL-201..208, ACP-INFO-CANCEL-201/202.
 
-`ACP-CLOSE-202` is additionally bound to `test_close_cancels_foreground_work` below, via a
-second `@pytest.mark.requirement(...)` id on the same test -- see `tck.v2.requirements`'s
-module docstring, "Session management", for why this is a deliberate reuse rather than a
-duplicate probe (precedent: `ACP-CANCEL-201`/`ACP-CANCEL-207`).
+`ACP-CLOSE-202` is also bound to `test_close_cancels_foreground_work` below, alongside its own
+`ACP-CANCEL-208` id -- see `tck.v2.requirements` for why this is a deliberate reuse rather than
+a duplicate probe.
 
-v2 moves cancellation's confirmation off the `session/prompt` response (which is only ever an
-acceptance receipt, `{messageId}`) onto a *separate*, terminating `session/update`
-`state_update {state: "idle", stopReason: "cancelled"}` notification
-(`.agents/research/acp-v2-cancellation-and-batching.md` "Answer" / prompt-lifecycle.mdx:519,526).
-`ACP-CANCEL-201/202/203/205/206/207/208` are `Tier.CAPABILITY`, `capability="capabilities.session"`
--- `session/cancel` is named directly in the seven-method session baseline (the session-baseline
-rows rule), exactly like `ACP-SESSION-001/002`/`ACP-PROMPT-201` etc. `ACP-CANCEL-204`
-("as soon as possible") is `Tier.INFORMATIONAL` on the `Requirement` itself (`capability=None`,
-per `Requirement.__post_init__`'s invariant) since a client-only TCK has no wire-observable way
-to judge promptness at all; its test still carries the `capabilities.session` marker for the SKIP
-gate and always ends in an explicit `pytest.skip(...)`, never an assertion. It records
-`acp_tck_cancel_sent`/`acp_tck_stop_reason` first so the always-SKIP is not vacuous -- an
-INFORMATIONAL/record-only row should still leave evidence in the report.
+v2 confirms cancellation via a terminating `session/update` `state_update {state: "idle",
+stopReason: "cancelled"}` notification, not the `session/prompt` response (which is only an
+acceptance receipt, `{messageId}`; prompt-lifecycle.mdx:519,526).
+`ACP-CANCEL-201/202/203/205/206/207/208` are `Tier.CAPABILITY`, `capability="capabilities.session"`.
+`ACP-CANCEL-204` ("as soon as possible") is `Tier.INFORMATIONAL` since promptness has no
+wire-observable signal; its test still carries the `capabilities.session` marker for the SKIP
+gate and always ends in `pytest.skip(...)`, recording `acp_tck_cancel_sent`/`acp_tck_stop_reason`
+first so the always-SKIP isn't vacuous.
 
-**The race, and the honest-SKIP pattern** (ported from v1's `test_cancel.py`, re-keyed to v2's
-idle-based turn end instead of the response): `run_prompt(..., on_cancel=True)` fires
+**The race, and the honest-SKIP pattern**: `run_prompt(..., on_cancel=True)` fires
 `session/cancel` on the transition to `state_update {state: "running"}` (or after `cancel_wait`
-elapses if `running` is never observed) -- see `_helpers.run_prompt`'s own docstring. Even so, a
-fast agent may finish the whole turn -- including its terminating idle -- before it ever reads
-the cancel notification. `_skip_if_cancel_not_exercised` (below) treats this as **not exercised**,
-not as a defect, in exactly two situations:
+elapses if `running` is never observed). `_skip_if_cancel_not_exercised` (below) treats two
+situations as **not exercised**, not a defect:
 
-1. `turn.cancelled_at_index is None` -- the turn ended (idle, or an outright rejection) before
-   `run_prompt` ever got to send `session/cancel` at all.
-2. `session/cancel` *was* sent, but the terminating idle arrives with a valid, non-`"cancelled"`
-   `stopReason` within `quiet_period(agent_launch.default_timeout)` of the cancel notification --
-   the agent may simply have finished on its own before reading it.
+1. `turn.cancelled_at_index is None` -- the turn ended before `session/cancel` could be sent.
+2. The cancel *was* sent, but the terminating idle arrives with a valid, non-`"cancelled"`
+   `stopReason` within `quiet_period(agent_launch.default_timeout)` -- the agent may simply have
+   finished on its own first.
 
-Outside those two situations, cancellation is judged for real. `ACP-CANCEL-201`/`207` (folded
-into one test -- see below) only skip (deferring the diagnostic to `ACP-CANCEL-203`) when the
-turn ended via a JSON-RPC error instead of an idle -- there is nothing for their own
-`stopReason == "cancelled"` assertion to check against in that case. `ACP-CANCEL-203`'s own
-registered text (`tck.v2.requirements`) explicitly covers *both* "ends with a JSON-RPC error" and
-"ends with an idle whose stopReason is a non-cancelled known value" -- the second half genuinely
-overlaps `ACP-CANCEL-201`/`207`'s own positive claim. This is intentional, source-mandated
-duplication, not a test bug: an agent that resolves a cancelled turn with e.g. `stopReason:
-"end_turn"` really does violate both rows at once (it failed to signal cancellation, *and* it
-surfaced non-cancellation as if the turn simply ended normally), so both legitimately FAIL
-together on that one defect.
+Outside those, cancellation is judged for real. `ACP-CANCEL-201`/`207` (folded into one test)
+skip when the turn ended via a JSON-RPC error instead of an idle -- `ACP-CANCEL-203` owns that
+diagnostic. `ACP-CANCEL-203`'s registered text deliberately covers both "ends with an error" and
+"ends with an idle whose stopReason is a non-cancelled known value" -- an agent resolving with
+e.g. `stopReason: "end_turn"` genuinely violates both rows at once, so this overlap is intentional.
 
-`ACP-CANCEL-201` and `ACP-CANCEL-207` share one test function
-(`@pytest.mark.requirement("ACP-CANCEL-201", "ACP-CANCEL-207")`): both rows are evidenced by the
-exact same wire fact (the terminating idle's `stopReason` value after a cancel) -- 201 from the
-"MUST send a cancelled idle" angle, 207 from the "no illegal non-`_`-prefixed substitute value"
-angle -- so a single `stop_reason == "cancelled"` assertion honestly resolves both simultaneously;
-this is not the same as `ACP-BATCH-204`/`205`'s ADVISORY-only sharing (see `test_batch.py`), but
-sharing is still safe here because both rows are the *same* tier (`CAPABILITY`) and a real defect
-here (e.g. `stopReason: "aborted"`) genuinely violates both at once, not just one of them.
+`ACP-CANCEL-201`/`207` share one test: a single `stopReason == "cancelled"` check evidences both
+201's "MUST send a cancelled idle" and 207's "no illegal substitute value". Safe to share since
+both are the same tier and a real defect violates both at once -- unlike `ACP-BATCH-204`/`205`'s
+ADVISORY-only sharing (see `test_batch.py`).
 
-`ACP-CANCEL-208` ("`session/close` MUST cancel any foreground work for that session first") reuses
-`ACP-CANCEL-201`'s evidence shape (a terminating idle with `stopReason: "cancelled"`), but the
-*trigger* is `session/close`, not `session/cancel` -- driven via `run_prompt`'s `on_action`
-parameter instead of `on_cancel`. This does **not** duplicate `session/close`'s own-contract rows
-(`ACP-CLOSE-201`/`202`): those cover `session/close`'s own result shape and idempotency; this row
-covers only the cancellation *side effect* `session/close` must have on in-flight work.
+`ACP-CANCEL-208` ("`session/close` MUST cancel foreground work first") reuses `ACP-CANCEL-201`'s
+evidence shape but triggers via `session/close` (through `run_prompt`'s `on_action`, not
+`on_cancel`). It does not duplicate `session/close`'s own result/idempotency rows
+(`ACP-CLOSE-201`/`202`) -- only the cancellation side effect.
 
-`ACP-INFO-CANCEL-201`/`202` are `Tier.INFORMATIONAL`: cancelling a session with no foreground work
-in flight, and cancelling while a `session/request_permission` is pending, are both left
-unspecified by the v2 docs the report could find (`acp-v2-cancellation-and-batching.md`
-Testability notes) -- each records what the agent actually does via `record_property`, never
-asserts on it, and is gated on `capabilities.session` purely for the SKIP mechanism (same
-independence between the `Requirement`'s own `capability=None` and the test marker used
-throughout this registry; see `tck.v2.requirements`'s module docstring).
+`ACP-INFO-CANCEL-201`/`202` are `Tier.INFORMATIONAL`: cancelling a session with no foreground
+work, and cancelling while `session/request_permission` is pending, are both left unspecified by
+the v2 docs. Each records the agent's actual behavior via `record_property` without asserting,
+gated on `capabilities.session` purely for the SKIP mechanism.
 """
 
 from __future__ import annotations
@@ -219,8 +194,8 @@ async def test_no_further_state_update_after_the_cancelled_idle(
     """ACP-CANCEL-202. Once the turn has resolved with `stopReason: "cancelled"`, no further
     `state_update` for the same session arrives within `quiet_period` -- i.e. the cancelled idle
     really is the end of this turn's foreground-state machinery. (Other `session/update` kinds
-    -- e.g. background content -- are explicitly allowed after it; see the report's own note that
-    only *state_update*s for the cancelled foreground work are constrained here.)
+    -- e.g. background content -- are explicitly allowed after it; only *state_update*s for the
+    cancelled foreground work are constrained here.)
 
     SKIPs (deferring to `ACP-CANCEL-201`/`207`) whenever the turn didn't actually resolve as
     `stopReason: "cancelled"` in the first place -- this row has nothing to check the "no further
@@ -480,7 +455,7 @@ async def test_cancel_during_pending_permission_request_behaviour(
     arrives while a permission request is outstanding. `_helpers.run_prompt` already answers a
     pending permission request with `{"outcome": "cancelled"}` once cancel has been sent
     (`tool-calls.mdx:304`); this row simply records the resulting shape rather than asserting on
-    it, since the report found no explicit MUST/SHOULD tying the two together."""
+    it, since there is no explicit MUST/SHOULD tying the two together."""
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         turn = await run_prompt(

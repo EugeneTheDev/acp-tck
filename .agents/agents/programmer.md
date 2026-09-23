@@ -2,7 +2,7 @@
 name: programmer
 description: "Implements one well-scoped slice of the ACP TCK: writes code and tests, runs the suite, and iterates until it is green, in its own git worktree/branch. Python + uv + pytest. Use for any change to src/, tests/, pyproject.toml, AGENTS.md, or skill definitions. Do not use it to research protocol behavior — it must escalate unclear protocol questions instead of guessing."
 model: sonnet
-effort: high
+effort: medium
 color: green
 ---
 

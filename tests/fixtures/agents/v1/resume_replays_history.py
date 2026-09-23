@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Non-conforming fixture: advertises `sessionCapabilities.resume` but replays stored
-`session/update` history BEFORE responding to `session/resume`, which `session/resume` MUST
-NOT do (`.agents/research/acp-v1-session-capabilities.md` R2 -- unlike `session/load`,
-resume must not replay history-kind updates before its response). ACP-RESUME-001 still
+`session/update` history BEFORE responding to `session/resume` -- unlike `session/load`,
+resume must not replay history-kind updates before its response. ACP-RESUME-001 still
 PASSes (the response is a valid, schema-conformant `{}`); only ACP-RESUME-002 fails.
 """
 
@@ -24,7 +23,7 @@ class ResumeReplaysHistoryAgent(ConformingAgent):
         if session is None:
             session = {"cwd": params.get("cwd"), "history": []}
             self._sessions[session_id] = session
-        # Deliberately violates R2: replay history before responding.
+        # Deliberately violates the ordering rule: replay history before responding.
         for update_params in session["history"]:
             self._notify("session/update", update_params)
         self._reply(msg_id, {})

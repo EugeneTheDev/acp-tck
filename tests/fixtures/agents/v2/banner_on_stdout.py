@@ -5,8 +5,7 @@ valid ACP message" transport rule (`ACP-TRANSPORT-201`). Mirrors v1's `banner_on
 on top of v2's `_base.py` -- never imports v1's own fixture module.
 
 v2's `ConformingAgent` has no `on_start` hook (unlike v1's), so the banner is printed directly
-in `main()`, strictly before the agent's own `run()` loop ever touches stdout -- the banner is
-therefore always the very first line any connection to this fixture sees.
+in `main()` before `run()` ever touches stdout.
 """
 
 import sys

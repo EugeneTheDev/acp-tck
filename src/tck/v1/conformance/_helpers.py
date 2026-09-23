@@ -56,12 +56,10 @@ async def connected_agent(
                 auth_id = await agent.send_request("authenticate", {"methodId": method_id})
                 auth_entry = await agent.wait_for_response(auth_id, timeout=launch.startup_timeout)
                 auth_msg = auth_entry.parsed
-                # `authenticate` succeeding is never a MANDATORY assertion (research
-                # `.agents/research/acp-v1-authentication.md`, "must NOT assert" #10: a real
-                # agent may legitimately reject bad/expired/cancelled credentials) -- an error
-                # response here means the TCK cannot exercise anything session-dependent against
-                # this agent with the given --auth-method, so every dependent test SKIPs with a
-                # clear reason instead of failing on an AssertionError that looks like a TCK bug.
+                # `authenticate` succeeding is never a MANDATORY assertion -- a real agent may
+                # legitimately reject bad/expired/cancelled credentials. An error response here
+                # means the TCK can't exercise session-dependent tests with this --auth-method,
+                # so they SKIP with a clear reason instead of failing on an AssertionError.
                 if not (isinstance(auth_msg, dict) and isinstance(auth_msg.get("result"), dict)):
                     detail = (
                         auth_msg.get("error") if isinstance(auth_msg, dict) else None
@@ -78,17 +76,15 @@ def skip_if_auth_gated(entry: TranscriptEntry) -> None:
     `session/new` response) is the `AUTHENTICATION_REQUIRED` (`-32000`) error.
 
     v1 never requires an agent to gate `session/new` behind authentication (it's a MAY, not a
-    MUST -- `.agents/research/acp-v1-authentication.md`), so this is not itself a conformance
-    failure; but it does mean the TCK cannot exercise session/prompt-dependent requirements
-    against this agent unless the harness operator supplies a valid `--auth-method <id>`. The
-    message is prefixed with the literal marker string `AUTH-GATED:` so `tck.common.plugin` can detect
-    this specific reason (as opposed to an ordinary capability-not-advertised skip) and set
-    `Verdict.blocked_by_auth`.
+    MUST), so this is not itself a conformance failure; but it does mean the TCK cannot exercise
+    session/prompt-dependent requirements against this agent unless the harness operator
+    supplies a valid `--auth-method <id>`. The message is prefixed with the literal marker
+    string `AUTH-GATED:` so `tck.common.plugin` can detect this specific reason (as opposed to
+    an ordinary capability-not-advertised skip) and set `Verdict.blocked_by_auth`.
 
     Only excuses the `-32000` when the cached `initialize` result actually advertised at least
-    one `authMethods` entry (AUTH-A1, `.agents/research/acp-v1-authentication.md` §5) -- an
-    agent that advertises none and still returns `-32000` has no defined remedy; this is left
-    as an ordinary, un-excused failure of whatever the caller was asserting (see
+    one `authMethods` entry (AUTH-A1) -- an agent that advertises none and still returns
+    `-32000` has no defined remedy; left as an ordinary, un-excused failure (see
     `ACP-AUTH-005`), not something the TCK can route around.
     """
     msg = entry.parsed
@@ -110,7 +106,7 @@ def skip_if_auth_gated(entry: TranscriptEntry) -> None:
 
 async def new_session(agent: AgentProcess, cwd: Path, *, timeout: float | None = None) -> str:
     """Send `session/new` with an absolute `cwd` and no MCP servers; return the `sessionId`
-    from the response (Req 9, `.agents/research/acp-v1-protocol-surface.md` §3).
+    from the response.
 
     Raises `AssertionError` with a protocol-level message (not a bare `TypeError`/`KeyError`)
     if the response is not a well-formed success -- callers see a diagnosis, not a Python
@@ -135,16 +131,11 @@ def skip_if_version_mismatch(init_result: dict[str, Any]) -> None:
     substring, scanned by `_build_report()` to set `Verdict.blocked_by_version_mismatch`) unless
     `init_result`'s negotiated `protocolVersion` is this suite's own `PROTOCOL_VERSION` (1).
 
-    An agent that negotiates a different version (e.g. a v2-only agent answering something other
-    than `1` to a v1 client) is not thereby "broken": the negotiation itself is judged normally
-    by `ACP-INIT-001`/`003`, which only ever assert on the negotiation outcome, never on the
-    *shape* of the result payload. But a test that goes on to assert v1-shape requirements
-    against that same result -- the echoed version being exactly `1` (`ACP-INIT-002`), `agentInfo`
-    being present (`ACP-INIT-004`), the exchange validating against the v1 schema
-    (`ACP-SCHEMA-001`/`002`), or prompt-turn/`_meta` behaviour that presumes a v1-shaped response
-    (`ACP-META-001`, `ACP-PROMPT-001`) -- cannot honestly judge a result the agent never claimed
-    was v1-shaped; call this right after such a test has its own `init_result` in hand, before
-    evaluating any v1-shape assertion."""
+    An agent negotiating a different version isn't thereby "broken" -- `ACP-INIT-001`/`003`
+    judge the negotiation outcome itself normally. But tests asserting v1-shape requirements on
+    that result (`ACP-INIT-002`/`004`, `ACP-SCHEMA-001`/`002`, `ACP-META-001`, `ACP-PROMPT-001`)
+    can't honestly judge a result the agent never claimed was v1-shaped; call this right after
+    such a test has its own `init_result` in hand, before evaluating any v1-shape assertion."""
     negotiated = init_result.get("protocolVersion")
     if negotiated != PROTOCOL_VERSION:
         pytest.skip(
@@ -156,11 +147,9 @@ def skip_if_version_mismatch(init_result: dict[str, Any]) -> None:
 
 def quiet_period(timeout: float) -> float:
     """The heuristic "nothing more is coming" wait used by tests that conclude absence (e.g. "no
-    response to a notification", "no update follows the response") -- derived from the same
-    `--tck-timeout` users are told to raise for a slow agent, instead of a hard-coded
-    sub-second constant that is a false negative by construction on a loaded machine. Clamped
-    to a sane range: never so short a fast local test is flaky, never so long a single
-    quiet-period check dominates the suite's runtime."""
+    response to a notification"). Derived from `--tck-timeout` rather than a hard-coded
+    sub-second constant, so it scales on a slow/loaded machine; clamped so it's never flaky-short
+    nor dominates the suite's runtime."""
     return max(0.5, min(2.0, timeout / 10))
 
 
@@ -239,15 +228,12 @@ async def run_prompt(
     dispatcher: nothing sent during an in-flight prompt turn is ever silently dropped. The
     action's response comes back as `PromptTurn.action_response`.
 
-    A subtlety: an agent that emits an update and then *immediately* replies (e.g. a non-hanging
-    fixture) may have already written its response to the pipe before we ever decide to send
-    `session/cancel` -- we just haven't read it yet. Committing to cancel purely because we just
-    read an update would misreport "cancel was sent while the turn was still in flight" for a
-    turn that had, in reality, already finished. To keep `cancelled_at_index` an honest signal,
-    we give a brief (`cancel_race_peek(timeout)`), non-blocking-ish look for the response
-    immediately after an update and before committing to cancel; if it is already sitting
-    there, we return it with `cancelled_at_index=None` (a race), exactly as if it had arrived
-    before we ever considered cancelling.
+    A subtlety: an agent that emits an update and then *immediately* replies may already have
+    written its response before we decide to cancel -- we just haven't read it yet. To keep
+    `cancelled_at_index` honest, we give a brief (`cancel_race_peek(timeout)`) look for the
+    response right after an update and before committing to cancel; if it's already there, we
+    return it with `cancelled_at_index=None` (a race), as if it arrived before cancel was ever
+    considered.
 
     `extra_params`, if given, is merged into the `session/prompt` request's own params
     (e.g. `{"_meta": {...}}` for ACP-META-001) -- it never overrides `sessionId`/`prompt`.
@@ -294,12 +280,9 @@ async def run_prompt(
         if entry.matches_id(prompt_id):
             if action_id is not None and action_response is None:
                 # The prompt's own response arrived before the `on_action` request's response --
-                # a valid ordering (must-NOT #8: no claim is made about relative order) that an
-                # agent replying to `session/close` *after* resolving the pending prompt (e.g.
-                # `_base.py`'s stock `_handle_close`) produces on every run, not just under a
-                # race. Give the action's response the same short, already-in-the-pipe-or-not
-                # look `cancel_race_peek` gives an update's immediate response, so it isn't lost
-                # just because we're about to return.
+                # a valid ordering (no claim is made about relative order). Give the action's
+                # response the same short already-in-the-pipe-or-not look `cancel_race_peek`
+                # gives an update, so it isn't lost just because we're about to return.
                 try:
                     peek_entry = await agent.read_line(timeout=peek_timeout)
                 except AgentTimeout:

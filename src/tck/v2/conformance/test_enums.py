@@ -1,10 +1,9 @@
-"""Open-enum emitter rules: ACP-ENUM-201, ACP-ENUM-202, ACP-ENUM-203
-(`.agents/research/acp-v2-patches-enums-extensibility.md` "Open enums -- new family", B.1/B.2/B.5).
+"""Open-enum emitter rules: ACP-ENUM-201, ACP-ENUM-202, ACP-ENUM-203.
 
 v2's schema is open at every scalar enum and tagged-union discriminator except
-`ElicitationSchemaType` and the JSON-RPC `jsonrpc` literal (B.4) -- but nine separate prose
-passages bind the *emitter* anyway: a value must be a defined constant OR begin with `_`
-(B.5). `tck.v2.protocol.is_valid_open_enum_value` is the hand-written check that enforces this
+`ElicitationSchemaType` and the JSON-RPC `jsonrpc` literal -- but prose still binds the
+*emitter*: a value must be a defined constant OR begin with `_`.
+`tck.v2.protocol.is_valid_open_enum_value` is the hand-written check that enforces this
 (the schema itself would happily accept `"kind": "sorcery"` via its own `other`-branch
 fallback). The defined-constant sets themselves (`TOOL_KIND`, `TOOL_CALL_STATUS`,
 `PLAN_ENTRY_PRIORITY`, `PLAN_ENTRY_STATUS`, `SESSION_UPDATE_KIND`, `STATE_UPDATE_STATE`,
@@ -16,16 +15,12 @@ The re-worded v1 `ACP-PROMPT-001` ("the idle's `stopReason` is a defined constan
 is deliberately **not** re-registered here: it is already fully covered by `ACP-STATE-203`, which
 already combines "carries a `stopReason`" with exactly this value-legality check.
 
-`ACP-ENUM-201` covers the sites the report's B.2 table says carry *dedicated* per-site MUST prose
-(a curated, not exhaustive, subset of the full 30-site B.1/B.2 inventory -- classifying every
-single site's prose strength individually is out of scope; this subset is directly traceable to
-the report's own citations and is the highest-value one to automate):
-`ToolKind` (`tool_call_update.kind`), `ToolCallStatus` (`tool_call_update.status`),
+`ACP-ENUM-201` covers the sites with dedicated per-site MUST prose: `ToolKind`
+(`tool_call_update.kind`), `ToolCallStatus` (`tool_call_update.status`),
 `PlanEntryPriority`/`PlanEntryStatus` (plan entries). Turn-observable, so `Tier.CAPABILITY`,
-`capability="capabilities.session"` per the session-baseline tiering rule (promoted from the
-report's own MANDATORY).
+`capability="capabilities.session"` per the session-baseline tiering rule.
 
-`ACP-ENUM-202` covers three of the report's own "no dedicated prose" examples --
+`ACP-ENUM-202` covers three sites with no dedicated per-site prose --
 `SessionUpdate.sessionUpdate`, `StateUpdate.state`, `ToolCallContent.type` -- at `Tier.ADVISORY`,
 `capability=None` (not promoted; only the *test* still `@pytest.mark.capability`-gated for the
 SKIP, mirroring `ACP-CANCEL-204`/`ACP-DELETE-203`).
@@ -252,10 +247,8 @@ async def test_agent_tolerates_underscore_prefixed_permission_outcome(agent_laun
                     }
                 )
 
-        # `deadline` bounds the *whole* loop below, not each individual read: an agent that keeps
-        # streaming updates, each safely within `agent_launch.default_timeout` of the last, but
-        # never actually reaches a terminating idle, would otherwise let this loop run
-        # arbitrarily long since a fresh per-read deadline never itself expires.
+        # `deadline` bounds the whole loop, not each read -- otherwise an agent that keeps
+        # streaming updates without ever reaching idle could run this loop forever.
         loop = asyncio.get_running_loop()
         deadline = loop.time() + agent_launch.default_timeout
         try:
@@ -270,11 +263,10 @@ async def test_agent_tolerates_underscore_prefixed_permission_outcome(agent_laun
                     )
                 entry = await agent.read_line(timeout=remaining)
                 raw = entry.parsed
-                # A line may itself be a JSON-RPC batch array (`ACP-BATCH-207` permits an agent
-                # to spontaneously emit a batch of `session/update` notifications) -- unwrap it
-                # the same way `_helpers.run_prompt`'s `_handle_one` does, so a batching but
-                # otherwise conformant agent (`emits_batch_updates.py`) doesn't spuriously FAIL
-                # this test just because its terminating idle arrived inside a batch.
+                # A line may be a JSON-RPC batch array (`ACP-BATCH-207` permits a spontaneous
+                # batch of `session/update` notifications) -- unwrap it like
+                # `_helpers.run_prompt`'s `_handle_one` does so a batching agent isn't
+                # penalized just because its terminating idle arrived inside a batch.
                 if isinstance(raw, list):
                     items = [item for item in raw if isinstance(item, dict)]
                 elif isinstance(raw, dict):

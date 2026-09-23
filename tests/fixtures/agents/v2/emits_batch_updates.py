@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
-"""Positive control: `conforming_full.py`'s capabilities/permission behavior, but every pair of
-`session/update` notifications a single turn naturally sends back-to-back -- `user_message`+
-`running` in `_handle_prompt`'s prologue, `agent_message_chunk`+the terminating idle in
-`_finish_turn` -- is delivered as one JSON-RPC batch array line instead of two separate lines.
-`ACP-BATCH-207` (ADVISORY, always-SKIPped as record-only in `test_batch.py` -- "cannot force an
-agent to spontaneously emit a batch") explicitly permits this; nothing in the spec requires an
-agent to keep every notification on its own line, and `ACP-TRANSPORT-201` itself says a batch
-array is just as valid a stdout line as a single object.
+"""Positive control: `conforming_full.py`'s capabilities/permission behavior, but each pair of
+`session/update` notifications a turn naturally sends back-to-back (`user_message`+`running` in
+`_handle_prompt`'s prologue, `agent_message_chunk`+the terminating idle in `_finish_turn`) is
+delivered as one JSON-RPC batch array line instead of two. `ACP-BATCH-207` and `ACP-TRANSPORT-201`
+permit this; nothing requires an agent to keep every notification on its own line.
 
 Must PASS every requirement `conforming_full.py` itself PASSes (under `--cancel-prompt
-__hang__`): this fixture exists to prove batching an agent's own spontaneous notifications is
-conformant and does not, by itself, break anything the TCK checks -- if it did, that would be a
-TCK bug (see `tck.v2.conformance._helpers.run_prompt`'s `_handle_one`, which unpacks a
-batch-shaped line's dict elements exactly the same way it would unpacked, separate lines).
+__hang__`): proves batching an agent's own spontaneous notifications doesn't break anything the
+TCK checks (see `tck.v2.conformance._helpers.run_prompt`'s `_handle_one`, which unpacks a
+batch-shaped line the same way as separate lines).
 """
 
 import sys

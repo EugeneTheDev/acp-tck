@@ -7,7 +7,7 @@ Self-test for `obtain_resumable_session`'s all-three-routes-exhausted SKIP behav
 `obtain_resumable_session`'s three routes (create-then-resume, list-then-resume,
 close-then-resume) all end in the same `session/resume` call, so all three fail identically here
 -- with a plain `-32603`, never `-32601` (Method not found, which would instead be a hard
-`pytest.fail` per B3). `obtain_resumable_session` must exhaust all three routes and then
+`pytest.fail`). `obtain_resumable_session` must exhaust all three routes and then
 `pytest.skip(...)`, and every test that routes through it (`ACP-RESUME-201..205`,
 `ACP-ADDDIRS-202`) must SKIP together rather than four of them hard-FAILing a false
 `NOT CONFORMANT`.

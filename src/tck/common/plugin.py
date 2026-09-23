@@ -54,11 +54,9 @@ _DEFAULT_CANCEL_PROMPT = (
     "Write a very long, detailed step-by-step explanation of how a compiler works, at least "
     "2000 words."
 )
-"""Default `--tck-cancel-prompt` text: long enough that a real, working agent is likely still
-generating it when `session/cancel` arrives, so the cancel tests actually get to exercise
-cancellation instead of racing a near-instant response. Deliberately not special-cased by any
-fixture agent -- fixtures must not know the TCK's default prompt text, only the harness/tests
-do."""
+"""Default `--tck-cancel-prompt` text: long enough that a real agent is likely still generating
+it when `session/cancel` arrives, so cancellation is actually exercised rather than raced.
+Deliberately not special-cased by any fixture agent -- only the harness/tests may know it."""
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -214,10 +212,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             for req_id in marker.args:
                 if req_id not in registry:
                     errors.append(f"{item.nodeid}: unknown requirement id {req_id!r}")
-        # `_phase_status` (below) folds a non-strict xpass into PASS and an xfail into SKIPPED --
-        # easy to misread as the test having genuinely run, and a conformance suite has no
-        # legitimate use for "expected failure": forbid the marker outright rather than let its
-        # silent-status-remap behaviour bite someone later.
+        # `_phase_status` folds xpass into PASS and xfail into SKIPPED, which misreads as the
+        # test having genuinely run; a conformance suite has no legitimate use for "expected
+        # failure", so forbid the marker outright.
         if item.get_closest_marker("xfail") is not None:
             errors.append(
                 f"{item.nodeid}: @pytest.mark.xfail is not allowed in the conformance suite -- "
@@ -352,11 +349,10 @@ AGENT_INIT_KEY = pytest.StashKey[InitializeOutcome]()
 def agent_initialize_result(request: pytest.FixtureRequest) -> InitializeOutcome:
     """One real `initialize` handshake against a fresh agent process, performed once per
     session -- cached for `capability`-marked tests to gate on, and for the JSON report's
-    `agent_info`/`agent_capabilities` fields (`pytest_sessionfinish`). Autouse so it always
-    runs once per session even when no test in the run happens to carry a `capability`
-    marker. The request `params` come from the active version's
-    `VersionSpec.initialize_params()` -- this is the one place a version's own handshake shape
-    (e.g. v1's `{"protocolVersion": 1, "clientCapabilities": {}}`) enters this module."""
+    `agent_info`/`agent_capabilities` fields (`pytest_sessionfinish`). Autouse so it runs even
+    when no test in the run carries a `capability` marker. The request `params` come from the
+    active version's `VersionSpec.initialize_params()` -- the one place a version's own
+    handshake shape enters this module."""
     launch = _build_launch(request.config)
     if launch is None:
         outcome = InitializeOutcome(None, "no --tck-agent-cmd given")
@@ -421,21 +417,19 @@ def _tck_capability_gate(request: pytest.FixtureRequest) -> None:
     boolean = marker.kwargs.get("boolean", False)
     outcome: InitializeOutcome = request.getfixturevalue("agent_initialize_result")
     if outcome.result is None:
-        # `initialize` is mandatory: if it failed, every capability-gated test is a real
-        # failure of the requirement chain, not "not applicable" -- SKIPPED would let a broken
-        # agent score falsely well on everything gated behind a capability.
+        # `initialize` is mandatory: if it failed, a capability-gated test is a real failure,
+        # not "not applicable" -- SKIPPED would let a broken agent score falsely well.
         pytest.fail(f"cannot evaluate capability {path!r}: initialize failed: {outcome.error_message}", pytrace=False)
     spec = request.config.stash[VERSION_SPEC_KEY]
     negotiated = outcome.result.get("protocolVersion")
     if negotiated != spec.protocol_version:
-        # The agent under test never actually negotiated this run's protocol version (e.g. a v1
-        # agent run with `--protocol-version 2`), so a capability path defined by that version's
-        # own `initialize`-result shape (e.g. v2's `capabilities.session`) cannot be meaningfully
-        # evaluated against whatever shape the agent actually returned -- skipping with the
-        # generic "not advertised" message would be misleading (it reads as "this agent doesn't
-        # support the feature", not "this agent doesn't speak this protocol version at all").
-        # `_VERSION_MISMATCH_MARKER` flags the run as `blocked_by_version_mismatch` instead of
-        # letting it score conformant on requirements that were never actually exercised.
+        # The agent never negotiated this run's protocol version (e.g. a v1 agent run with
+        # --protocol-version 2), so a capability path defined by that version's own
+        # initialize-result shape can't be meaningfully evaluated -- the generic "not
+        # advertised" message would misleadingly read as a missing feature rather than a
+        # version mismatch. `_VERSION_MISMATCH_MARKER` flags the run as
+        # `blocked_by_version_mismatch` instead of scoring it conformant on requirements that
+        # were never actually exercised.
         pytest.skip(
             f"{_VERSION_MISMATCH_MARKER} negotiated protocolVersion={negotiated!r}, expected "
             f"{spec.protocol_version!r} -- capability {path!r} cannot be evaluated"
@@ -494,15 +488,13 @@ def _truncate_stderr(text: str) -> str:
 
 
 _TRANSCRIPT_ENTRY_RAW_BYTES = 4 * 1024
-"""Per-entry cap on the JSON report's `raw` field, mirroring `_truncate_stderr`'s cap -- a
-single oversize line (an embedded image content block, a huge diff) must not blow up the
-report the way an unbounded stderr tail would."""
+"""Per-entry cap on the JSON report's `raw` field -- a single oversize line (an embedded image
+block, a huge diff) must not blow up the report."""
 
 _TRANSCRIPT_MAX_ENTRIES = 400
-"""Cap on the number of entries kept per failing test's JSON transcript: the first/last half
-each, with a gap marker in between -- the start (handshake/setup) and the end (the failure
-itself) are almost always what's interesting; a chatty middle (many `session/update`s) is the
-part safest to elide."""
+"""Cap on entries kept per failing test's JSON transcript: first/last half each, with a gap
+marker between -- the start (handshake) and end (failure) matter most; a chatty middle (many
+`session/update`s) is safest to elide."""
 
 
 def _truncate_raw(text: str) -> str:
@@ -581,10 +573,8 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) ->
     state = states.setdefault(item.nodeid, _TestState(req_ids=_requirement_ids(item)))
     state.duration_s += report.duration
     for key, value in report.user_properties:
-        # `record_property` accepts any scalar, but `state.properties`/`TestOutcome.properties`
-        # are typed (and, via the JSON report, actually required to be) `dict[str, str]` --
-        # coerce here, at the single collection point, rather than trust every call site to
-        # already pass a string.
+        # `record_property` accepts any scalar, but properties must be `dict[str, str]` (the
+        # JSON report requires it) -- coerce here rather than trust every call site.
         state.properties[key] = str(value)
 
     settled = _phase_status(report)
@@ -639,12 +629,11 @@ def _status_markup(status: Status, *, count: int | None = None) -> dict[str, boo
 def _verdict_reason(verdict: Verdict) -> str:
     """The `VERDICT: NOT CONFORMANT (...)` reason: every actual cause, comma-joined, omitting
     zero-valued terms -- so a capability-only failure reads as "1 capability failure" rather
-    than the misleading "0 mandatory failures" the line used to always lead with.
+    than a misleading "0 mandatory failures".
 
-    Given `compute_verdict`'s rules (`report.py`), `not conformant` is the negation of an AND of
-    exactly the five conditions checked below, so at least one is always true here -- the
-    `"no cause recorded"` fallback is unreachable through `compute_verdict`, kept only so this
-    never renders empty parentheses if that invariant ever changes.
+    Per `compute_verdict`'s rules (`report.py`), at least one of the five conditions below is
+    always true when not conformant; the `"no cause recorded"` fallback is unreachable, kept
+    only so this never renders empty parentheses if that invariant changes.
     """
     mandatory = verdict.tier_counts[Tier.MANDATORY.value]
     capability = verdict.tier_counts[Tier.CAPABILITY.value]
@@ -744,13 +733,10 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     if path:
         Path(path).write_text(json.dumps(report.to_dict(), indent=2) + "\n")
 
-    # Only override pytest's own exit code for a normal completed run (whether it passed or had
-    # test failures) -- leave --collect-only, usage errors, and interrupted runs alone, since
-    # every requirement would otherwise read NOT_TESTED and falsely force a non-conformant exit.
-    # `exitstatus in (OK, TESTS_FAILED)` alone is not enough: a successful `--collect-only` run
-    # (or any run where nothing actually executed, e.g. an empty `-k` match with no failures)
-    # also reports `ExitCode.OK` -- guard with "did any test actually produce a verdict" rather
-    # than trusting `exitstatus` alone.
+    # Only override pytest's exit code for a normal completed run -- leave --collect-only,
+    # usage errors, and interrupted runs alone. `exitstatus in (OK, TESTS_FAILED)` alone isn't
+    # enough since --collect-only (or an empty -k match) also reports OK, so also require that
+    # some test actually produced a verdict.
     states = config.stash.get(TEST_STATES_KEY, {})
     ran_any_test = any(state.status is not None for state in states.values())
     if exitstatus in (pytest.ExitCode.OK, pytest.ExitCode.TESTS_FAILED) and ran_any_test:
@@ -845,10 +831,8 @@ def pytest_terminal_summary(
         markexpr = config.getoption("markexpr", "") or ""
         selected = bool(keyword or markexpr)
         if selected and n_not_tested > 0:
-            # Print whenever a selector was used and it left something NOT TESTED, independent
-            # of whether any MANDATORY requirement happened to pass: a `-k`-scoped run that *did*
-            # exercise a few requirements is the case most likely to be mistaken for a real
-            # verdict.
+            # A `-k`/`-m`-scoped run that did exercise some requirements is the case most
+            # likely to be mistaken for a real verdict, so flag it regardless of pass count.
             selector = f"-k {keyword!r}" if keyword else f"-m {markexpr!r}"
             terminalreporter.write_line(
                 f"hint: this run was scoped ({selector}), so some requirements were deselected "
@@ -857,9 +841,8 @@ def pytest_terminal_summary(
                 "conformance verdict.",
             )
         elif mandatory[Status.PASS.value] == 0 and (n_fail + n_not_tested) > 0:
-            # Unscoped, and nothing MANDATORY passed at all -- distinct from the deselection case
-            # above: here every requirement genuinely ran (or tried to) and still produced
-            # nothing, which points at the agent under test, not at test selection.
+            # Unscoped and nothing MANDATORY passed -- points at the agent under test, not at
+            # test selection.
             terminalreporter.write_line(
                 "hint: no MANDATORY requirement passed -- the agent may have failed to start or "
                 "never responded; check --agent-cwd/--timeout/--startup-timeout and the stderr "

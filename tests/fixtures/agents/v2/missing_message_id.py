@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Non-conforming fixture: the `session/prompt` response is `{}` -- no `messageId` at all --
-even though the agent still uses a real internal message id for its own `user_message` update.
+"""Non-conforming fixture: the `session/prompt` response is `{}` -- no `messageId` at all.
 
 FAILs `ACP-PROMPT-201` (the response must be an object with a non-empty string `messageId`) and
-`ACP-SCHEMA-001`'s prompt-turn extension (the response fails `NewPromptResponse`'s required
-`messageId`). `ACP-PROMPT-203` SKIPs rather than FAILing or cascading: its own test guards on
-`turn.message_id` actually being a valid non-empty string before asserting the echo, since a
-response with no `messageId` gives the driver nothing to check the echo *against* -- asserting
-against `None` here would be a different, less precise diagnostic than `ACP-PROMPT-201`'s own.
-`ACP-STATE-201/202/203` and the sessionId portion of `ACP-PROMPT-205` are unaffected.
+`ACP-SCHEMA-001`'s prompt-turn extension (`NewPromptResponse` requires `messageId`).
+`ACP-PROMPT-203` SKIPs rather than cascading: its test guards on `turn.message_id` being a valid
+non-empty string before asserting the echo, so it doesn't produce a less precise diagnostic than
+`ACP-PROMPT-201`'s own. `ACP-STATE-201/202/203` and the sessionId portion of `ACP-PROMPT-205` are
+unaffected.
 """
 
 import sys

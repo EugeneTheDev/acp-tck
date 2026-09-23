@@ -10,9 +10,7 @@ delegating to `tck.common.plugin.pytest_configure` -- every other common hook th
 stash (`pytest_collection_modifyitems`, `agent_initialize_result`, `pytest_sessionfinish`,
 `pytest_terminal_summary`, ...) only ever runs after this has set it.
 
-Always load this module, never `tck.common.plugin` directly (`-p tck.v2.plugin`, as done by the
-`acp-tck` CLI with `--protocol-version 2` and by hand when running `pytest src/tck/v2/conformance
--p tck.v2.plugin ...`).
+Always load this module, never `tck.common.plugin` directly (`-p tck.v2.plugin`).
 
 Footgun: the copied functions keep `__globals__` pointing at `tck.common.plugin`'s own module
 namespace, so only a function pytest resolves *by name as a hook* (like `pytest_configure`

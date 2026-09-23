@@ -1,9 +1,7 @@
 """Advisory/informational diagnostics, re-cited from v1 unchanged: `ACP-ERROR-001`,
-`ACP-SHUTDOWN-001`, `ACP-STDERR-001`
-(`.agents/research/acp-v2-patches-enums-extensibility.md` "Extensibility / hygiene" table --
-`Error` `$def` is byte-identical to v1; v2 still has no shutdown method; the spec has nothing to
-say about stderr in either version). All connection-level, `capability=None` -- none needs a
-turn."""
+`ACP-SHUTDOWN-001`, `ACP-STDERR-001`. `Error` `$def` is byte-identical to v1; v2 still has no
+shutdown method; the spec has nothing to say about stderr in either version. All
+connection-level, `capability=None` -- none needs a turn."""
 
 from __future__ import annotations
 

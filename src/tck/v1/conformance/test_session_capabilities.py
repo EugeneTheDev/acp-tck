@@ -3,15 +3,11 @@
 (ACP-LOAD-001..003, ACP-RESUME-001/002, ACP-LIST-001/002, ACP-DELETE-001/002,
 ACP-CLOSE-001/002, ACP-ADDDIRS-001).
 
-See `.agents/research/acp-v1-session-capabilities.md` for the wire shapes and the "must NOT be
-asserted" list this module deliberately stays within.
-
-Every test here is gated by `@pytest.mark.capability(...)` -- both CAPABILITY-tier and
-ADVISORY-tier tests carry this marker; per `tck.common.plugin._tck_capability_gate`, the marker's
-effect (SKIP if unadvertised) is independent of the bound `Requirement`'s own tier, which is
-why an ADVISORY requirement (`ACP-LOAD-003`, `ACP-DELETE-002`) can still be gated on a
-capability without violating the `Requirement.capability` invariant (must be `None` for
-non-CAPABILITY tiers, checked in `tck.v1.requirements`).
+Every test here is gated by `@pytest.mark.capability(...)`, including the ADVISORY-tier ones
+(`ACP-LOAD-003`, `ACP-DELETE-002`): per `tck.common.plugin._tck_capability_gate`, the marker's
+SKIP-if-unadvertised effect is independent of the bound `Requirement`'s tier, so gating an
+ADVISORY requirement this way doesn't violate `Requirement.capability`'s "must be `None` for
+non-CAPABILITY tiers" invariant (checked in `tck.v1.requirements`).
 """
 
 from __future__ import annotations
@@ -56,11 +52,10 @@ async def test_load_succeeds_and_validates(agent_launch, tmp_path):
 @pytest.mark.requirement("ACP-LOAD-002")
 @pytest.mark.capability("agentCapabilities.loadSession", boolean=True)
 async def test_load_replays_before_responding_and_nothing_after(agent_launch, tmp_path):
-    """ACP-LOAD-002. The "before" half is structural: `wait_for_response` reads stdout
-    strictly line-by-line and stops at the matching response, so anything it saw along the
-    way (recorded in `pending()`) necessarily arrived first. This test adds the "after" half:
-    once the response is in hand, no further `session/update` for this session may arrive
-    within a quiet period."""
+    """ACP-LOAD-002. The "before" half is structural: `wait_for_response` reads line-by-line
+    and stops at the matching response, so anything already seen arrived first. This test
+    adds the "after" half: no further `session/update` for this session may arrive within a
+    quiet period once the response is in hand."""
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         await run_prompt(
@@ -286,17 +281,13 @@ async def test_close_idle_session_succeeds(agent_launch, tmp_path):
 async def test_close_in_flight_prompt_resolves_cancelled(
     agent_launch, tmp_path, cancel_prompt_text, record_property
 ):
-    """ACP-CLOSE-002. Modeled on `test_cancel.py`'s SKIP-vs-FAIL race handling (module
-    docstring there), but driving a `session/close` *request* instead of a `session/cancel`
-    *notification* at the same timing heuristic: sent as soon as either the first
-    `session/update` arrives or `cancel_wait` seconds elapse. No claim is made about the
-    ordering between the `session/close` response and the prompt's own response (research's
-    "must NOT assert" list) -- both are simply awaited independently, in whichever order they
-    arrive.
+    """ACP-CLOSE-002. Mirrors `test_cancel.py`'s SKIP-vs-FAIL race handling, but sends a
+    `session/close` *request* instead of a `session/cancel` *notification* at the same timing
+    heuristic. No claim is made about response ordering -- both are awaited independently.
 
     Driven through `run_prompt`'s `on_action` hook rather than a hand-rolled read loop, so any
-    agent -> client *request* (e.g. `session/request_permission`) the agent sends while the
-    close is in flight gets answered instead of deadlocking the test.
+    agent -> client request the agent sends while the close is in flight gets answered instead
+    of deadlocking the test.
     """
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)

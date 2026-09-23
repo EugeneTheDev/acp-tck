@@ -1,18 +1,17 @@
 """Session modes and config options (ACP-MODES-001/002, ACP-CONFIG-001/002/003).
 
 `modes` and `configOptions` have no `agentCapabilities` marker of their own -- support is
-*inferred* from whether `session/new`'s response carries a non-null value for either field
-(`.agents/research/acp-v1-session-capabilities.md` §7). `ACP-MODES-*`/`ACP-CONFIG-001/002`'s
-`Requirement.capability` is therefore a documentation-only `"inferred:modes"` /
-`"inferred:configOptions"` string (see `tck.v1.requirements` module docstring for why this is the
-smallest change that satisfies `Requirement.__post_init__`'s invariant) -- it is *not* looked up
-by `tck.common.plugin`'s `@pytest.mark.capability(...)` marker/`_tck_capability_gate` fixture, since
-that machinery only understands real `initialize`-result paths. Instead, each test below
-performs its own `session/new` and manually `pytest.skip`s with the reason "session/new returned
-no modes/configOptions" when the relevant field is absent.
+*inferred* from whether `session/new`'s response carries a non-null value for either field.
+`ACP-MODES-*`/`ACP-CONFIG-001/002`'s `Requirement.capability` is therefore a documentation-only
+`"inferred:modes"` / `"inferred:configOptions"` string (see `tck.v1.requirements` module
+docstring for why this is the smallest change that satisfies `Requirement.__post_init__`'s
+invariant) -- it is *not* looked up by `tck.common.plugin`'s `@pytest.mark.capability(...)`
+marker/`_tck_capability_gate` fixture, since that machinery only understands real
+`initialize`-result paths. Instead, each test below performs its own `session/new` and manually
+`pytest.skip`s with the reason "session/new returned no modes/configOptions" when the relevant
+field is absent.
 
-See the research's "must NOT" list (§7) for what this module deliberately stays within --
-e.g. `current_mode_update` emission itself is optional; only the field name *if* it is emitted
+Note: `current_mode_update` emission itself is optional; only the field name, if it is emitted,
 is a MUST.
 """
 
@@ -135,8 +134,8 @@ async def test_set_mode_succeeds_and_update_uses_currentModeId(agent_launch, tmp
                     _is_mode_update, timeout=quiet_period(agent_launch.default_timeout)
                 )
             except (AgentTimeout, AgentExited):
-                # An agent that exits promptly rather than staying connected through the quiet
-                # period also means "no update observed" -- not a defect.
+                # Exiting promptly instead of waiting out the quiet period also counts as
+                # "no update observed" -- not a defect.
                 update_entry = None
 
         if update_entry is not None:
@@ -145,11 +144,9 @@ async def test_set_mode_succeeds_and_update_uses_currentModeId(agent_launch, tmp
                 "current_mode_update must carry the schema field name 'currentModeId' (the "
                 f"docs' 'modeId' is a confirmed docs bug); got {update!r}"
             )
-            # Only the field *name* is pinned by the spec; must-NOT #16 explicitly disclaims any
-            # requirement that a client-driven mode change be echoed back with a particular
-            # value (an agent may autonomously switch again inside the quiet period and that is
-            # still conforming) -- record the observed value for a human reader instead of
-            # asserting it.
+            # Only the field name is pinned by the spec, not the echoed value -- an agent may
+            # autonomously switch again inside the quiet period. Record it for a human reader
+            # instead of asserting it.
             record_property("acp_tck_mode_update_current_mode_id", update["currentModeId"])
 
 
@@ -231,11 +228,9 @@ async def test_set_config_option_returns_the_complete_list(agent_launch, tmp_pat
             f"session/set_config_option result.configOptions must be an array, got {returned!r}"
         )
         returned_ids = {option.get("id") for option in returned if isinstance(option, dict)}
-        # Subset, not set-equality: `acp-v1-session-capabilities.md`'s Testability note says the
-        # id set "equals" the previously advertised set, but O2's own rationale for the complete-
-        # list requirement is "so Agents can reflect dependent changes" -- which may *add*
-        # options a stricter reading would wrongly reject. This is intentional; do not "fix"
-        # this into `==` without re-checking that rationale.
+        # Subset, not set-equality: the complete-list requirement exists so agents can reflect
+        # dependent changes, which may *add* options a stricter `==` check would wrongly reject.
+        # Do not "fix" this into `==`.
         assert original_ids <= returned_ids, (
             "session/set_config_option must return the *complete* configOptions list -- missing "
             f"ids {original_ids - returned_ids!r}"
@@ -255,9 +250,8 @@ async def test_no_boolean_config_option_without_client_capability(agent_launch, 
     """ACP-CONFIG-003 (MANDATORY, Req 33). Connects with `clientCapabilities: {}` explicitly
     (no `session.configOptions.boolean`) and asserts no `type: "boolean"` option is present.
     Passes vacuously if the agent has no config options at all, or none of type boolean."""
-    # `client_capabilities={}` is already `connected_agent`'s default -- passed explicitly here
-    # (not load-bearing) so this test reads as "deliberately connects without the capability",
-    # not as an accident of whatever the default happens to be today.
+    # `client_capabilities={}` is already the default; passed explicitly so this reads as a
+    # deliberate no-capability connection, not an accident of today's default.
     async with connected_agent(agent_launch, client_capabilities={}) as agent:
         result = await _new_session_full_result(agent, tmp_path, timeout=agent_launch.default_timeout)
         config_options = result.get("configOptions") or []

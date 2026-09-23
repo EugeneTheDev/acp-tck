@@ -6,16 +6,14 @@ the v2 counterpart of `tck.v1.conformance._helpers`'s same-named machinery -- de
 separate, non-shared implementation, because the v2 turn-end contract is fundamentally
 different: v1's `session/prompt` response *is* the turn result (carries `stopReason`); v2's
 response is only an acceptance receipt (`{messageId}`) sent at insertion time, and the turn's
-end is learned solely from a `session/update` `state_update {state: "idle"}` notification
-(`.agents/research/acp-v2-prompt-lifecycle.md` "Answer", §4).
+end is learned solely from a `session/update` `state_update {state: "idle"}` notification.
 
 `skip_if_auth_gated()` is the v2 twin of v1's same-named helper, wired into `new_session()`.
 
 The session-management wire helpers (`resume_session`, `list_sessions`, `close_session`,
-`delete_session`, `set_config_option`) and `obtain_resumable_session` implement
-`.agents/research/acp-v2-session-management.md`'s "Recommended harness strategy" for the "hard
-problem" it flags: there is no spec-guaranteed way for a black-box client to obtain a session id
-it is entitled to `session/resume`. It tries, in order: (1) resuming the session just created on
+`delete_session`, `set_config_option`) and `obtain_resumable_session` address a hard problem:
+there is no spec-guaranteed way for a black-box client to obtain a session id it is entitled to
+`session/resume`. It tries, in order: (1) resuming the session just created on
 this connection; (3) `session/list` then resuming its first entry; (2) `session/close` then
 resume -- recording every route's error -- and raises `pytest.skip.Exception` with all three
 recorded errors if none succeeds, *unless* `session/resume` itself answered `-32601` (Method not
@@ -77,9 +75,8 @@ def validate_login_method_id(auth_methods: list[Any], method_id: str) -> dict[st
     """Return the `authMethods` entry matching `method_id`, or `pytest.skip(...)` with an
     `AUTH-GATED:` reason if the id is not among `auth_methods` at all, or names a
     `type: "terminal"` entry -- two client MUST NOTs the TCK holds itself to just as strictly as
-    it holds the agent under test to its own (`acp-v2-authentication.md` must-NOT #12: "Sending
-    `auth/login` with a `terminal` `methodId`,
-    or with a `methodId` the agent did not advertise. Both are client MUST-NOTs (V13)."). Callers
+    it holds the agent under test to its own: sending `auth/login` with a `terminal` `methodId`,
+    or with a `methodId` the agent did not advertise, are both client MUST-NOTs (V13). Callers
     that already know `auth_methods` is non-empty (see `login_if_needed`'s own empty-list no-op,
     must-NOT #7) call this right before actually sending `auth/login`.
     """
@@ -133,10 +130,10 @@ async def login_if_needed(agent: AgentProcess, *, timeout: float | None = None) 
         return
     auth_methods = current_initialize_auth_methods()
     if not auth_methods:
-        # V9 (`acp-v2-authentication.md` must-NOT #7): the client MUST NOT call `auth/login` (or
-        # `auth/logout`) at all when `authMethods` is empty -- the agent's response to a call the
-        # spec forbids is undefined. Proceed unauthenticated rather than violate that MUST NOT
-        # just because a (now-irrelevant) `--auth-method` id was supplied on the command line.
+        # V9/must-NOT #7: the client MUST NOT call `auth/login` (or `auth/logout`) at all when
+        # `authMethods` is empty -- the agent's response to a call the spec forbids is undefined.
+        # Proceed unauthenticated rather than violate that MUST NOT just because a
+        # (now-irrelevant) `--auth-method` id was supplied on the command line.
         return
     validate_login_method_id(auth_methods, method_id)
     auth_id = await agent.send_request("auth/login", {"methodId": method_id})
@@ -162,8 +159,8 @@ def skip_if_auth_gated_msg(msg: Any) -> None:
     `tck.v1.conformance._helpers.skip_if_auth_gated`.
 
     v2 never requires an agent to gate `session/new` behind authentication (`-32000` there is
-    still only a MAY, same as v1 -- `.agents/research/acp-v2-authentication.md`), so this is not
-    itself a conformance failure; but it does mean the TCK cannot exercise session-dependent
+    still only a MAY, same as v1), so this is not itself a conformance failure; but it does mean
+    the TCK cannot exercise session-dependent
     requirements against this agent unless the harness operator supplies a valid
     `--auth-method <id>`. The message is prefixed with the literal marker string `AUTH-GATED:`
     so `tck.common.plugin` can detect this specific reason (as opposed to an ordinary
@@ -203,10 +200,8 @@ async def new_session(agent: AgentProcess, cwd: Any, *, timeout: float | None = 
     """Send `session/new` for `cwd` and return the resulting `sessionId`.
 
     Unlike v1's `new_session`, `mcpServers` is omitted entirely rather than sent as an empty
-    list -- v2's `session/new` params require only `cwd`
-    (`.agents/research/acp-v2-session-management.md`: "omit `mcpServers` entirely -- this is the
-    cleanest v2-vs-v1 difference and avoids the MCP-capability check"; `schema/v2/schema.json`
-    `required: ["cwd"]`, `mcpServers` optional).
+    list -- v2's `session/new` params require only `cwd` (`schema/v2/schema.json`
+    `required: ["cwd"]`, `mcpServers` optional), and omitting it avoids the MCP-capability check.
 
     SKIPs (via `skip_if_auth_gated`) rather than failing when the agent requires authentication
     and no `--auth-method` was configured.
@@ -440,10 +435,9 @@ async def obtain_resumable_session(
     the successful probe call that proved it (`ACP-RESUME-201` uses this directly rather than
     issuing a second, redundant `session/resume` for the same id).
 
-    Implements `.agents/research/acp-v2-session-management.md`'s "hard problem": no route for
-    obtaining a legally resumable session id is spec-guaranteed. Tries, in order, each on its own
-    fresh connection: (1) resuming the session `session/new` just created on this same
-    connection; (3) `session/list`'s first entry; (2) creating a session, `session/close`-ing it,
+    No route for obtaining a legally resumable session id is spec-guaranteed. Tries, in order,
+    each on its own fresh connection: (1) resuming the session `session/new` just created on this
+    same connection; (3) `session/list`'s first entry; (2) creating a session, `session/close`-ing it,
     then resuming it. `pytest.skip(...)`s with all three routes' recorded errors if none
     succeeds -- *unless* `session/resume` itself ever answered `-32601`, which is instead a hard
     `pytest.fail(...)` (see `_attempt_resumable_route`).
@@ -622,8 +616,7 @@ class PromptTurn:
 
     Unlike v1's `PromptTurn` (whose `response_entry` *is* the turn result), v2's response is only
     an acceptance receipt -- the turn's actual outcome (`running_seen`/`idle_update`/
-    `stop_reason`) is learned entirely from `session/update` notifications
-    (`.agents/research/acp-v2-prompt-lifecycle.md` §4).
+    `stop_reason`) is learned entirely from `session/update` notifications.
     """
 
     response_entry: TranscriptEntry
@@ -691,26 +684,21 @@ async def run_prompt(
     whatever the agent sends meanwhile.
 
     The v1 `run_prompt` contract inverts in v2: the `session/prompt` response is no longer the
-    turn's terminator (it is only an acceptance receipt, `{messageId}`, sent at insertion time --
-    `.agents/research/acp-v2-prompt-lifecycle.md` P5-P7). The turn ends only when a
-    `session/update` `state_update {state: "idle"}` for `session_id` is observed
-    (`prompt-lifecycle.mdx:348`), or when the prompt is rejected outright with a JSON-RPC error
-    (no insertion happened, so no further obligations apply -- P6). Every wait below is bounded
-    by `timeout`, so a non-conforming agent that never reaches either terminator produces an
-    `AgentTimeout` (a FAIL for whatever the caller was asserting), never a hang.
+    turn's terminator (it is only an acceptance receipt, `{messageId}`, sent at insertion time).
+    The turn ends only when a `session/update` `state_update {state: "idle"}` for `session_id` is
+    observed (`prompt-lifecycle.mdx:348`), or when the prompt is rejected outright with a
+    JSON-RPC error (no insertion happened, so no further obligations apply -- P6). Every wait
+    below is bounded by `timeout`, so a non-conforming agent that never reaches either terminator
+    produces an `AgentTimeout` (a FAIL for whatever the caller was asserting), never a hang.
 
-    **Turn-end predicate** (`.agents/research/acp-v2-prompt-lifecycle.md` "Mock-client prompt
-    driver design note", point 3): a `state_update {state: "idle"}` observed for `session_id`
-    ends the turn iff it carries a `stopReason`, *or* a `state_update {state: "running"}` for
-    `session_id` was observed earlier in the same call. This deliberately excludes the legal
-    "session-ready idle" a spec-conforming agent may send with no preceding prompt at all (e.g.
-    right after `session/new` -- research §4 point 2, observed live in the Python SDK's own v2
-    test agent) from ever being mistaken for a turn's end. A bare idle matching neither condition
-    is simply not treated as a terminator; it is recorded like any other update, and reading
-    continues (bounded by `timeout` as always) -- this is a deliberate simplification of the
-    design note's "hold as a candidate terminator, wait one `quiet_period`" refinement: no
-    requirement or fixture needs that extra nuance, and every wait already has a hard, honest
-    bound.
+    **Turn-end predicate**: a `state_update {state: "idle"}` observed for `session_id` ends the
+    turn iff it carries a `stopReason`, *or* a `state_update {state: "running"}` for `session_id`
+    was observed earlier in the same call. This deliberately excludes the legal "session-ready
+    idle" a spec-conforming agent may send with no preceding prompt at all (e.g. right after
+    `session/new`, observed live in the Python SDK's own v2 test agent) from ever being mistaken
+    for a turn's end. A bare idle matching neither condition is simply not treated as a
+    terminator; it is recorded like any other update, and reading continues (bounded by `timeout`
+    as always) -- no requirement or fixture needs finer-grained handling than that.
 
     **Tolerating an initial ready-idle sent *before* `session/prompt`.** Unlike v1's
     `run_prompt`, this does **not** drain `agent.pending()` before sending the request: doing so
@@ -740,20 +728,17 @@ async def run_prompt(
     (the default) sends the bare `{"sessionId": session_id}` params every other caller relies on.
 
     `on_cancel`/`on_action`/`cancel_wait`/`extra_params` mirror v1's `run_prompt` in shape and
-    fallback timing, but **not** in trigger condition
-    (`.agents/research/acp-v2-cancellation-and-batching.md` "Testability notes" > "The v2 cancel
-    driver"): v1 fires its trigger on the *first* `session/update` of any kind; v2 fires it
-    specifically on the transition to `state_update {state: "running"}` for `session_id` -- the
-    MUST-guaranteed turn-start marker (`prompt-lifecycle.mdx:159`) -- because v2's `user_message`
-    echo update (which may arrive before `running`) is not itself evidence that foreground work
-    has started. If `session_id` never reaches `running` (e.g. a non-conforming agent, or the
-    prompt is rejected outright), the trigger still fires once `cancel_wait` elapses, exactly as
-    in v1.
+    fallback timing, but **not** in trigger condition: v1 fires its trigger on the *first*
+    `session/update` of any kind; v2 fires it specifically on the transition to `state_update
+    {state: "running"}` for `session_id` -- the MUST-guaranteed turn-start marker
+    (`prompt-lifecycle.mdx:159`) -- because v2's `user_message` echo update (which may arrive
+    before `running`) is not itself evidence that foreground work has started. If `session_id`
+    never reaches `running` (e.g. a non-conforming agent, or the prompt is rejected outright), the
+    trigger still fires once `cancel_wait` elapses, exactly as in v1.
 
     Callers must serialize prompts per session themselves (never call this a second time for the
     same session before a previous call has returned) -- v2 leaves concurrent `session/prompt`
-    on one session unspecified, and both reference agents reject it
-    (`.agents/research/acp-v2-prompt-lifecycle.md` X1).
+    on one session unspecified, and both reference agents reject it.
     """
     params = {"sessionId": session_id, "prompt": blocks}
     if extra_params:

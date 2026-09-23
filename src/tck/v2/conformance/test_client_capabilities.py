@@ -1,17 +1,11 @@
-"""Client-capability negative tests: ACP-CLIENTCAP-201 (elicitation unadvertised MUST NOT be
-called) and ACP-CLIENTCAP-202 (every agent -> client method observed during a turn is a defined
-v2 client/protocol method, or `_`-prefixed) -- the v2 collapse of v1's three separate
-`ACP-CLIENTCAP-001/002/003` rows: v2 has no `fs/*`/`terminal/*` methods at all (they were
-removed, not merely capability-gated), so calling either FAILs here as simply an undefined
-method, indistinguishable from any other made-up non-`_` method name.
+"""Client-capability negative tests: ACP-CLIENTCAP-201 (elicitation MUST NOT be requested in an
+unadvertised mode) and ACP-CLIENTCAP-202 (every agent -> client method seen during a turn is a
+defined v2 method or `_`-prefixed) -- v2's collapse of v1's `ACP-CLIENTCAP-001/002/003`, since v2
+removed `fs/*`/`terminal/*` entirely, so calling them just FAILs as undefined methods.
 
-Both rows are `Tier.CAPABILITY`, `capability="capabilities.session"` (the session-baseline
-tiering rule -- see `tck.v2.requirements`'s module docstring) even though the underlying rules
-themselves are unconditional MUSTs. The mock client (`_helpers.run_prompt`) advertises
-`capabilities: {}` -- no
-elicitation mode -- for every prompt turn driven by `connected_agent`'s default (no explicit
-`capabilities=` override needed here, since v2's own `SPEC.initialize_params()` already sends
-`capabilities: {}`).
+Both rows are `Tier.CAPABILITY`/`capabilities.session` per the session-baseline tiering rule
+(see `tck.v2.requirements`), even though the underlying rules are unconditional MUSTs. The mock
+client advertises `capabilities: {}` (no elicitation mode) for every turn here.
 """
 
 from __future__ import annotations

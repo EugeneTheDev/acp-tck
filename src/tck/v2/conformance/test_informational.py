@@ -1,29 +1,20 @@
-"""INFORMATIONAL-tier probes: ACP-INFO-CONCURRENT-201 (new), ACP-INFO-UNKNOWNSESSION-001 (reused
-from v1), and ACP-INFO-PARSE-001/ACP-INFO-INVALIDREQ-001 (re-cited from v1, unchanged --
-`.agents/research/acp-v2-patches-enums-extensibility.md` does not mention them, but they are
-version-agnostic transport-level probes with nothing v2-specific to revisit).
+"""INFORMATIONAL-tier probes: ACP-INFO-CONCURRENT-201 (new), plus ACP-INFO-UNKNOWNSESSION-001/
+ACP-INFO-PARSE-001/ACP-INFO-INVALIDREQ-001 (reused from v1 -- version-agnostic transport-level
+probes with nothing v2-specific to revisit).
 
-All four are explicitly out of scope of the v2 design or of the spec entirely (concurrency:
-`docs/rfds/v2/prompt.mdx:86`; the unknown-`sessionId` error code and malformed/non-envelope input:
-`docs/protocol/v2/error.mdx`, still "Documentation coming soon"), so none of them ever asserts on
-the probed behaviour itself -- each records what the agent actually does via `record_property`,
-for a human reading the report. (They can still FAIL if the prerequisite handshake --
-`initialize`/`session/new` -- itself fails; that is a real conformance problem the probe correctly
-surfaces, not a probe bug.) ACP-INFO-CONCURRENT-201/ACP-INFO-UNKNOWNSESSION-001 are gated on
-`capabilities.session` like every other prompt-turn requirement, even though the
-`Requirement` itself is INFORMATIONAL (`capability=None` on the registry entry -- see
-`tck.v2.requirements`'s module docstring for why the test marker and the registry's own
-tier/capability fields are independent). ACP-INFO-PARSE-001/ACP-INFO-INVALIDREQ-001 carry no such
-marker, mirroring v1: their own `_probe_connection_usable_after` helper already swallows a
-`session/new` failure (including "capability not advertised at all") into an "unusable" behaviour
-string rather than letting it propagate as a real failure.
+All four are explicitly out of scope of the spec, so none asserts on the probed behaviour itself
+-- each just records what the agent does via `record_property`. They can still FAIL if the
+prerequisite handshake (`initialize`/`session/new`) itself fails; that's a real conformance
+problem, not a probe bug. CONCURRENT-201/UNKNOWNSESSION-001 are gated on `capabilities.session`
+even though their `Requirement` is INFORMATIONAL (`capability=None` on the registry entry -- see
+`tck.v2.requirements`'s module docstring for why the marker and registry fields are independent).
+PARSE-001/INVALIDREQ-001 carry no such marker; their `_probe_connection_usable_after` helper
+swallows a `session/new` failure into an "unusable" string instead.
 
-Concluding "the agent stayed silent" for the concurrency/parse/invalid-request probes uses
-`quiet_period()`, not the full `--tck-timeout` -- a v2 TCK must not burn the full per-response
-deadline to conclude "no response at all". The unknown-`sessionId` probe uses the full timeout
-instead, mirroring v1's own choice there: an agent may legitimately take a normal amount of time
-to notice and reject a bogus `sessionId`, and that is not itself evidence of silence the way a
-truly unanswered concurrent-prompt probe would be.
+Concluding "the agent stayed silent" uses `quiet_period()`, not the full timeout, for the
+concurrency/parse/invalid-request probes -- except UNKNOWNSESSION-001, which uses the full
+timeout since an agent may legitimately take a normal amount of time to reject a bogus
+`sessionId`.
 """
 
 from __future__ import annotations

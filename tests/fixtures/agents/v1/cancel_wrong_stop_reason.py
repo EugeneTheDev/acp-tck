@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """Non-conforming fixture: every prompt hangs until `session/cancel`, but on cancel it responds
-to the prompt with `stopReason: "end_turn"` instead of `"cancelled"`. Violates ACP-CANCEL-001
-(Req 25).
+to the prompt with `stopReason: "end_turn"` instead of `"cancelled"`. Violates ACP-CANCEL-001.
 
-Answering *immediately* on cancel would land inside the TCK's "was this actually exercised"
-race window (`tck.v1.conformance._helpers.quiet_period`, derived from `--tck-timeout`): since
-`"end_turn"` is itself a valid `StopReason`, an instant reply would make ACP-CANCEL-001 SKIP
-instead of FAIL. Sleeping 1.2s clears that window for any `--tck-timeout` this fixture is run
-with (the self-test uses `--timeout 5`, a 0.5s window), keeping the defect detectable.
+Replying immediately would land inside the TCK's cancel-race window
+(`tck.v1.conformance._helpers.quiet_period`, derived from `--tck-timeout`); since `"end_turn"` is
+itself a valid `StopReason`, that would SKIP instead of FAIL. Sleeping 1.2s clears the window for
+any `--tck-timeout` this fixture runs under (self-test uses `--timeout 5`, a 0.5s window).
 """
 
 import sys

@@ -1,26 +1,16 @@
-"""Extensibility conformance: `ACP-EXT-001` (re-cited, unchanged), `ACP-META-001` (re-cited,
-unchanged), `ACP-SCHEMA-002` (re-cited, v2 carve-out already implemented in
-`tck.v2.validation.find_unknown_root_keys`), and the new hygiene rows `ACP-META-201`,
-`ACP-EXT-201`, `ACP-EXT-202`, `ACP-EXT-203`
-(`.agents/research/acp-v2-patches-enums-extensibility.md` "Extensibility / hygiene" +
-"New hygiene rows").
+"""Extensibility conformance: `ACP-EXT-001`, `ACP-META-001`, `ACP-SCHEMA-002` (re-cited from v1,
+unchanged) plus new hygiene rows `ACP-META-201`, `ACP-EXT-201`, `ACP-EXT-202`, `ACP-EXT-203`.
 
-`ACP-EXT-001`/`ACP-META-001` are connection-level rows whose registry entries keep
-`capability=None` exactly as their v1 originals (`.agents/research/...` table: "re-cite only",
-"unchanged") -- `ACP-META-001`'s own test still carries `@pytest.mark.capability(
-"capabilities.session")` for its SKIP gate, since it drives an actual `session/prompt` turn.
-`ACP-EXT-201`/`ACP-EXT-203` need only one ordinary notification exchange to probe, and
-`ACP-EXT-202` only needs `initialize`'s own result -- none of the three drive a turn, so none
-carries a capability marker.
+`ACP-EXT-001`/`ACP-META-001` are connection-level rows with `capability=None`, matching their v1
+registry entries; `ACP-META-001`'s test still carries the `capabilities.session` marker since it
+drives an actual `session/prompt` turn. `ACP-EXT-201`/`ACP-EXT-203` need only one notification
+exchange to probe, and `ACP-EXT-202` only `initialize`'s own result -- none of the three drive a
+turn, so none carries a capability marker.
 
-`ACP-META-201` and `ACP-SCHEMA-002` both sweep an entire `session/new` + `session/prompt`
-exchange (the former for every `_meta` value in the transcript, the latter for unknown root
-keys), so both need the same `@pytest.mark.capability("capabilities.session")` marker as any
-other turn-driving test -- registry `capability` stays `None` for both (re-cited
-unchanged for `ACP-SCHEMA-002`; not promoted for `ACP-META-201`, per the "v2 tiering rule for
-session-baseline rows"), but the *test* still needs the marker so the autouse version-mismatch/
-capability gate skips it cleanly instead of driving `run_prompt` against an agent that never
-advertised (or never negotiated) session support at all.
+`ACP-META-201` and `ACP-SCHEMA-002` each sweep a full `session/new` + `session/prompt` exchange,
+so both tests carry `@pytest.mark.capability("capabilities.session")` even though registry
+`capability` stays `None` for both -- the marker only exists so the autouse skip gate doesn't run
+them against an agent that never negotiated session support.
 """
 
 from __future__ import annotations
@@ -61,14 +51,11 @@ async def test_unknown_custom_method_receives_a_response(agent_launch):
 @pytest.mark.requirement("ACP-META-001")
 @pytest.mark.capability("capabilities.session")
 async def test_meta_field_on_prompt_is_accepted(agent_launch, tmp_path):
-    """ACP-META-001 (ADVISORY, re-cited from v1 unchanged -- `_meta` on `session/prompt` params
-    still exists, `PromptRequest._meta`). A `session/prompt` carrying `_meta` with a
-    `traceparent` key is still accepted (a normal acceptance receipt arrives) and the turn still
-    reaches a terminating idle `state_update` (v2's response is only an acceptance receipt, so
-    this checks the *turn*, not the response, unlike v1's version of this test). Does not also
-    check the stopReason's *validity*: that is `ACP-STATE-203`'s own concern, checked
-    unconditionally for every turn regardless of `_meta`; duplicating it here would only obscure
-    which id actually caught a bad stopReason."""
+    """ACP-META-001 (ADVISORY, re-cited from v1 unchanged). A `session/prompt` carrying `_meta`
+    is still accepted (a normal acceptance receipt arrives) and the turn still reaches a
+    terminating idle `state_update` -- v2's response is only an acceptance receipt, so this
+    checks the *turn*, not the response, unlike v1's version. Does not check the stopReason's
+    validity; that's `ACP-STATE-203`'s unconditional concern."""
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         turn = await run_prompt(

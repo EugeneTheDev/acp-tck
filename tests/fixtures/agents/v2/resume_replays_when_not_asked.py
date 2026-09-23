@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Non-conforming fixture: `session/resume` replays the session's full retained history
-unconditionally, even when `replayFrom` is omitted/`null` -- v2's R2/R3 rule ("replayFrom
-omitted/null MUST NOT replay conversation history before responding").
+unconditionally, even when `replayFrom` is omitted/`null` (which MUST NOT replay history before
+responding).
 
 FAILs exactly `ACP-RESUME-203`. `ACP-RESUME-201` (the resume itself still succeeds) and
 `ACP-RESUME-202`/`204`/`205` (the replay-`{"type": "start"}` scenarios, which this fixture

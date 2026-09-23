@@ -12,10 +12,8 @@ from ._helpers import connected_agent, new_session, run_prompt, skip_if_version_
 
 @pytest.mark.requirement("ACP-PROMPT-001")
 async def test_text_only_prompt_resolves_with_a_valid_stop_reason(agent_launch, agent_initialize_result, tmp_path):
-    """ACP-PROMPT-001. `skip_if_version_mismatch` on the session-scoped `agent_initialize_result`
-    (see `test_initialize.py::test_full_exchange_validates_against_schema`'s docstring) SKIPs
-    first, since a v1-shaped stopReason cannot be judged against an agent that never negotiated
-    v1."""
+    """ACP-PROMPT-001. Checks version mismatch first: a v1-shaped stopReason can't be judged
+    against an agent that never negotiated v1."""
     if agent_initialize_result.result is not None:
         skip_if_version_mismatch(agent_initialize_result.result)
     async with connected_agent(agent_launch) as agent:
@@ -34,14 +32,10 @@ async def test_text_only_prompt_resolves_with_a_valid_stop_reason(agent_launch, 
 
 @pytest.mark.requirement("ACP-PROMPT-002")
 async def test_updates_validate_and_carry_the_right_session_id(agent_launch, tmp_path):
-    """ACP-PROMPT-002.
-
-    An agent that emits zero `session/update` notifications during the turn is still
-    conforming (Req 1 only requires the agent to be *able* to send them; whether it does is a
-    SHOULD-level tool-call/message-reporting matter -- see
-    `.agents/research/acp-v1-protocol-surface.md` Testability notes "Weakly assertable" first
-    bullet). This test therefore passes vacuously when `turn.updates` is empty; it only fails
-    when an update *is* sent and is malformed or misattributed.
+    """ACP-PROMPT-002. An agent that emits zero `session/update` notifications is still
+    conforming -- Req 1 only requires it be *able* to send them, not that it does. This test
+    passes vacuously when `turn.updates` is empty; it only fails on a malformed or
+    misattributed update.
     """
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)

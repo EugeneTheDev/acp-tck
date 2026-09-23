@@ -17,7 +17,7 @@ from typing import Any
 
 PROTOCOL_VERSION = 2
 """The ACP protocol version `tck.v2` speaks. Wire encoding is a bare JSON integer, not a version
-string, same as v1 (`.agents/research/acp-v2-version-negotiation.md`)."""
+string, same as v1."""
 
 SCHEMA_DIR = Path(__file__).parent / "schema"
 
@@ -26,8 +26,7 @@ SCHEMA_REVISION = "8f76d6c8cf379a0f8a7fe2bbee6007fb2a53a84e"
 `tck.v2.requirements` -- are pinned to (see `schema/VENDORED.md`). v2 is Draft (schema version
 `2.0.0-alpha.5` at this commit); expect this to change more often than v1's pin."""
 
-# JSON-RPC / ACP error codes (schema/v2/schema.json `ErrorCode`). Unchanged from v1
-# (`.agents/research/acp-v2-status-and-delta-inventory.md`).
+# JSON-RPC / ACP error codes (schema/v2/schema.json `ErrorCode`). Unchanged from v1.
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
 METHOD_NOT_FOUND = -32601
@@ -41,7 +40,7 @@ RESOURCE_NOT_FOUND = -32002
 # but v2 additionally has an open `"other"` fallback branch (`type: "string"`, no defined
 # `const`) with no schema-level exclusion of unknown values -- see `is_valid_open_enum_value`
 # below, which is the hand-written check that enforces the `_`-prefix extensibility rule the
-# schema itself cannot express (`.agents/research/acp-v2-patches-enums-extensibility.md` B1).
+# schema itself cannot express.
 STOP_REASON_END_TURN = "end_turn"
 STOP_REASON_MAX_TOKENS = "max_tokens"
 STOP_REASON_MAX_TURN_REQUESTS = "max_turn_requests"
@@ -95,7 +94,7 @@ TOOL_CALL_CONTENT_TYPE = frozenset({"content", "diff", "terminal"})
 
 
 def is_valid_open_enum_value(value: Any, defined: frozenset[str]) -> bool:
-    """Req B1: a value for an open enum / tagged-union discriminator (e.g. `StopReason`) is
+    """A value for an open enum / tagged-union discriminator (e.g. `StopReason`) is
     legal iff it is one of `defined`'s fixed constants, OR it is a string beginning with `_`
     (reserved for implementation-specific extensions). Any other value -- including a
     non-`_`-prefixed string the schema's own open `"other"` fallback branch would otherwise
@@ -177,7 +176,4 @@ CLIENT_NOTIFICATIONS: frozenset[str] = _notification_methods("AgentNotification"
 `elicitation/complete`)."""
 
 KNOWN_METHODS: frozenset[str] = AGENT_METHODS | CLIENT_METHODS | PROTOCOL_METHODS
-"""The full "known method" union across all three inventories. v1's schema has the same three
-top-level branches (`Agent`/`Client`/`ProtocolLevel`) and `tck.v1.protocol` already defines its
-own `PROTOCOL_METHODS`; `KNOWN_METHODS` itself is simply a new convenience union v1 never
-needed, not a consequence of v2 having a branch v1 lacks."""
+"""The full "known method" union across all three inventories."""

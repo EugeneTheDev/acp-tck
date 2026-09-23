@@ -11,9 +11,8 @@ Wire shapes are taken from the vendored `src/tck/v2/schema/schema.json` (`Initia
 not memory, before changing a field name. Two v2-specific renames vs. v1: the agent's own identity
 is `info` (not `agentInfo`) and its capabilities are `capabilities` (not `agentCapabilities`).
 
-Implements the full `capabilities.session` baseline (`.agents/research/
-acp-v2-session-management.md` B1: advertising `session` even as `{}` commits the agent to
-`session/new`, `session/list`, `session/resume`, `session/close`, `session/prompt`,
+Implements the full `capabilities.session` baseline (advertising `session` even as `{}` commits
+the agent to `session/new`, `session/list`, `session/resume`, `session/close`, `session/prompt`,
 `session/cancel`, `session/update`), plus:
 
 - A `__hang__` cancel sentinel, mirroring v1's `conforming.py`: a prompt whose content is a
@@ -22,22 +21,22 @@ acp-v2-session-management.md` B1: advertising `session` even as `{}` commits the
   `session/close` cancels it first (`_handle_close_session`, `ACP-CANCEL-208`). The hang check
   runs right after the running update and *before* `_mid_turn_action`, preempting a subclass's
   own mid-turn behavior for that one sentinel prompt only.
-- JSON-RPC batch dispatch (`.agents/research/acp-v2-cancellation-and-batching.md` §6): `run()`
-  also accepts a top-level JSON array line. `_write` buffers a *response* object into
-  `self._batch_collector` while one is active (never a request/notification the agent itself
-  originates -- those stream out immediately, batch or not); `_write_line` emits an actual line.
+- JSON-RPC batch dispatch: `run()` also accepts a top-level JSON array line. `_write` buffers a
+  *response* object into `self._batch_collector` while one is active (never a
+  request/notification the agent itself originates -- those stream out immediately, batch or
+  not); `_write_line` emits an actual line.
   This lets `_handle_batch`/`_handle_batch_entry` reuse every `_handle_request`/`_handle_cancel`
   method unchanged, just redirecting where their replies land.
-- `session/resume` replay (`.agents/research/acp-v2-session-management.md`): every
-  `session/update` is recorded into a per-session history (`_record_history`, from
-  `_send_update`), and `_handle_resume_session` replays it verbatim (via `_notify` directly,
-  bypassing `_record_history` so a replay is never re-recorded) when `replayFrom` is
-  `{"type": "start"}`; omitted/`null` replays nothing (R2/R3). A `*_chunk` update is preceded,
-  the first time its `messageId` is seen, by a synthesized whole-message primer (`content: []`)
-  for the same id (R9's "chunks build on a preceding whole message" shape) -- this fixture only
-  ever sends whole updates itself, but the primer keeps a chunk-emitting subclass's history
-  schema-correct too. `_handle_resume_session` accepts *any* `sessionId`, even an unknown one,
-  registering it as live -- so every route `_helpers.obtain_resumable_session` tries succeeds.
+- `session/resume` replay: every `session/update` is recorded into a per-session history
+  (`_record_history`, from `_send_update`), and `_handle_resume_session` replays it verbatim (via
+  `_notify` directly, bypassing `_record_history` so a replay is never re-recorded) when
+  `replayFrom` is `{"type": "start"}`; omitted/`null` replays nothing. A `*_chunk` update is
+  preceded, the first time its `messageId` is seen, by a synthesized whole-message primer
+  (`content: []`) for the same id ("chunks build on a preceding whole message" shape) -- this
+  fixture only ever sends whole updates itself, but the primer keeps a chunk-emitting subclass's
+  history schema-correct too. `_handle_resume_session` accepts *any* `sessionId`, even an
+  unknown one, registering it as live -- so every route `_helpers.obtain_resumable_session`
+  tries succeeds.
 - `session/delete` (`_handle_delete_session`) removes a session like `session/close` does, but
   with no cancellation side effect (deleting an unknown/already-deleted id succeeds silently,
   `ACP-DELETE-203`).
@@ -51,11 +50,11 @@ acp-v2-session-management.md` B1: advertising `session` even as `{}` commits the
   `False`) fired once per turn right after the running update: a two-chunk `agent_message_chunk`
   pair sharing one `messageId` (`ACP-PATCH-201`), a `tool_call_update` create (`ACP-PATCH-208`)
   followed by a patch carrying `content` for the same `toolCallId` (`ACP-PATCH-204`), and a
-  `plan_update` with one entry (`ACP-PATCH-205`) -- gives every PATCH/ENUM row in
-  `.agents/research/acp-v2-patches-enums-extensibility.md` something real to observe instead of
-  vacuously SKIPping. Only `conforming_full.py` sets the flag. `AsksPermissionAgent` additionally
-  brackets its `session/request_permission` with `state_update {state: "requires_action"}` before
-  and `state_update {state: "running"}` after, so `ACP-PATCH-209` has something to observe too.
+  `plan_update` with one entry (`ACP-PATCH-205`) -- gives every PATCH/ENUM requirement something
+  real to observe instead of vacuously SKIPping. Only `conforming_full.py` sets the flag.
+  `AsksPermissionAgent` additionally brackets its `session/request_permission` with
+  `state_update {state: "requires_action"}` before and `state_update {state: "running"}` after,
+  so `ACP-PATCH-209` has something to observe too.
 - `terminal_auth_method`, a constructor-supplied `AuthMethod` dict (`type: "terminal"`), is
   appended to whatever `auth_methods` `initialize` would otherwise answer, but only when the
   request's own `params.capabilities.auth.terminal` object marker is present (`{}`/non-`null`) --
@@ -294,9 +293,8 @@ class ConformingAgent:
         self._reply(msg_id, result)
 
     def _handle_list_sessions(self, msg_id: Any, params: dict[str, Any]) -> None:
-        # `.agents/research/acp-v2-session-management.md` L1/L5: all params optional;
-        # `SessionInfo` requires only `sessionId`/`cwd`. Filter by `cwd` when given (L1's
-        # "returns the first page" is trivially satisfied here -- no pagination, ever).
+        # All params optional; `SessionInfo` requires only `sessionId`/`cwd`. Filter by `cwd`
+        # when given ("returns the first page" is trivially satisfied here -- no pagination, ever).
         cwd_filter = params.get("cwd")
         sessions = [
             {"sessionId": session_id, "cwd": cwd}
@@ -363,10 +361,9 @@ class ConformingAgent:
         self._reply(msg_id, {"configOptions": self._current_config_options()})
 
     def _handle_prompt(self, msg_id: Any, params: dict[str, Any]) -> None:
-        # `.agents/research/acp-v2-prompt-lifecycle.md` §5 minimal conforming sequence:
-        # result{messageId} -> user_message -> state_update{running} -> agent_message_chunk ->
-        # state_update{idle, stopReason:"end_turn"}. The response is an acceptance receipt only
-        # (no `stopReason`) -- P7/§2.
+        # Minimal conforming sequence: result{messageId} -> user_message ->
+        # state_update{running} -> agent_message_chunk -> state_update{idle,
+        # stopReason:"end_turn"}. The response is an acceptance receipt only (no `stopReason`).
         #
         # Split into small overridable steps (`_reply_to_prompt`, `_send_user_message_update`,
         # `_send_running_update`, `_stop_reason`, `_send_idle_update`) so single-defect fixtures
@@ -609,11 +606,10 @@ class ConformingAgent:
 class AsksPermissionAgent(ConformingAgent):
     """Conforming, but sends `session/request_permission` mid-turn (after the running update)
     and only finishes the turn once the client answers -- the normal shape a real tool-using
-    agent produces (`.agents/research/acp-v2-prompt-lifecycle.md` C1-C3: `title`/`options`
-    required, each option carrying `optionId`/`name`/`kind`). Honors the outcome: `"cancelled"`
-    becomes the turn's `stopReason`, anything else (including `"selected"`) becomes
-    `"end_turn"`. `ACP-PERM-201`'s self-test -- exercises `run_prompt`'s permission-answering
-    path, which nothing else under `tests/fixtures/agents/v2/` exercises.
+    agent produces (`title`/`options` required, each option carrying `optionId`/`name`/`kind`).
+    Honors the outcome: `"cancelled"` becomes the turn's `stopReason`, anything else (including
+    `"selected"`) becomes `"end_turn"`. `ACP-PERM-201`'s self-test -- exercises `run_prompt`'s
+    permission-answering path, which nothing else under `tests/fixtures/agents/v2/` exercises.
     """
 
     def __init__(self, **kwargs: Any) -> None:

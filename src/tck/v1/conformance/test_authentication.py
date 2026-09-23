@@ -2,10 +2,9 @@
 gate, the `authenticate`/`session/new` flow, and `logout`
 (ACP-AUTH-001/002/003/004).
 
-See `.agents/research/acp-v1-authentication.md` for the full tiered assertion list this module
-draws from. Deliberately not asserted here (the report's "must NOT" list): that a non-empty
-`authMethods` implies `session/new` fails with `-32000` before authentication (v1: MAY, not
-MUST -- `testy` itself does not enforce it), and nothing about session state after `logout`.
+Deliberately not asserted here: that a non-empty `authMethods` implies `session/new` fails with
+`-32000` before authentication (v1: MAY, not MUST -- `testy` itself does not enforce it), and
+nothing about session state after `logout`.
 """
 
 from __future__ import annotations
@@ -19,15 +18,12 @@ from ._helpers import connected_agent, new_session
 
 @pytest.mark.requirement("ACP-AUTH-001")
 async def test_auth_methods_have_unique_ids(agent_initialize_result):
-    """ACP-AUTH-001 (ADVISORY -- AUTH-A5: the schema only *describes* `id` as unique, it is not
-    a MUST). Schema-shape validation of the whole `initialize` result (including
-    `authMethods`) is already covered by ACP-SCHEMA-001; this test adds the id-uniqueness check
-    that schema validation alone cannot express.
+    """ACP-AUTH-001 (ADVISORY -- the schema only describes `id` as unique, it is not a MUST).
+    Schema-shape validation is already covered by ACP-SCHEMA-001; this adds the id-uniqueness
+    check schema validation can't express.
 
-    Reads the cached `agent_initialize_result` (one real handshake per session) instead of
-    connecting and sending a second `initialize` on a fresh/already-initialized connection --
-    the latter is unspecified in v1 and a strict agent may legitimately reject a repeat
-    `initialize` with `-32600`."""
+    Reads the cached `agent_initialize_result` instead of sending a second `initialize` --
+    a repeat `initialize` is unspecified in v1 and a strict agent may reject it with -32600."""
     outcome = agent_initialize_result
     assert outcome.result is not None, f"initialize did not succeed: {outcome.error_message}"
     auth_methods = outcome.result.get("authMethods")
@@ -61,16 +57,14 @@ async def test_no_terminal_auth_method_without_client_capability(agent_launch):
 
 @pytest.mark.requirement("ACP-AUTH-003")
 async def test_authenticate_then_session_new_succeeds(agent_launch, tmp_path):
-    """ACP-AUTH-003 (CAPABILITY, `capability="inferred:authMethods"` -- same
-    documentation-only encoding as ACP-MODES-001/ACP-CONFIG-001). Only exercised when
+    """ACP-AUTH-003 (CAPABILITY, `capability="inferred:authMethods"`). Only exercised when
     `authMethods` is non-empty AND `--tck-auth-method` was given -- SKIPs otherwise, since the
     TCK cannot guess a valid `methodId` and v1 never requires a testable auth flow to exist.
 
-    `authenticate` succeeding is never asserted (must-NOT list #10: a real agent may
-    legitimately reject bad/expired/cancelled credentials) -- an `authenticate` error SKIPs
-    with a distinct, diagnosable reason. When it does return a result: AUTH-C3 (shape-only) the
-    result is a JSON object; AUTH-C4 (the one hard assertion here) a subsequent `session/new`
-    on the same connection does not fail with `-32000`."""
+    `authenticate` succeeding is never asserted -- a real agent may legitimately reject
+    bad/expired/cancelled credentials, so an `authenticate` error SKIPs with a distinct reason.
+    When it does return a result, the one hard assertion is that a subsequent `session/new` on
+    the same connection does not fail with `-32000`."""
     method_id = current_auth_method_id()
     if method_id is None:
         pytest.skip("no --tck-auth-method given; cannot exercise the authenticate flow")
@@ -92,16 +86,13 @@ async def test_authenticate_then_session_new_succeeds(agent_launch, tmp_path):
         if not (isinstance(auth_msg, dict) and isinstance(auth_msg.get("result"), dict)):
             detail = (auth_msg.get("error") if isinstance(auth_msg, dict) else None) or auth_entry.text
             pytest.skip(f"authenticate with methodId={method_id!r} failed: {detail!r}")
-        # AUTH-C3: already established by the branch above -- reaching here means the result
-        # was a dict.
-
         session_id = await agent.send_request(
             "session/new", {"cwd": str(tmp_path), "mcpServers": []}
         )
         session_entry = await agent.wait_for_response(session_id, timeout=agent_launch.default_timeout)
         session_msg = session_entry.parsed
-        # AUTH-C4: only "not -32000" is assertable -- not full success shape, which is already
-        # covered elsewhere (ACP-SESSION-001 etc.) for the non-auth-gated path.
+        # Only "not -32000" is assertable here -- full success shape is already covered
+        # elsewhere (ACP-SESSION-001 etc.) for the non-auth-gated path.
         error = session_msg.get("error") if isinstance(session_msg, dict) else None
         assert not (isinstance(error, dict) and error.get("code") == -32000), (
             f"session/new failed with -32000 (authentication required) after a successful "
@@ -133,14 +124,11 @@ async def test_session_new_not_gated_when_no_auth_methods_advertised(agent_launc
 @pytest.mark.capability("agentCapabilities.auth.logout")
 async def test_logout_succeeds(agent_launch):
     """ACP-AUTH-004. If `--tck-auth-method` was given, `connected_agent`'s handshake has
-    already authenticated -- `logout` is then called on that authenticated connection.
-    Otherwise it's called standalone; only its own success is checked (nothing about session
-    state after logout, per the must-NOT list).
+    already authenticated, so `logout` runs on that authenticated connection; otherwise it's
+    called standalone. Only its own success is checked, nothing about session state after.
 
     SKIPs unless `--allow-logout`/`--tck-allow-logout` was given, since calling `logout` for
-    real may revoke the operator's own credentials for whatever account the agent is
-    authenticated as -- mirrors v2's `ACP-AUTH-203`. Checked after the `capability` marker gate
-    above has already had its chance to SKIP with the more specific "not advertised" reason."""
+    real may revoke the operator's own credentials -- mirrors v2's `ACP-AUTH-203`."""
     if not current_allow_logout():
         pytest.skip(
             "logout not exercised: pass --allow-logout (it may revoke the operator's credentials)"

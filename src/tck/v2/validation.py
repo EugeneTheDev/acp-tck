@@ -3,8 +3,7 @@ vendored ACP v2 (Draft) schema (`tck/v2/schema/schema.json`, see `VENDORED.md`).
 
 Mirrors `tck.v1.validation`'s API (`validate_agent_message`, `validate_agent_response`,
 `find_unknown_root_keys`) but is its own module, not shared code -- v2 differs from v1 in three
-ways this module encodes (`.agents/research/acp-v2-patches-enums-extensibility.md`, "v2
-validator checklist"):
+ways this module encodes:
 
 1. **Batching.** v2's top-level schema adds four batch-call/-response branches alongside the
    three v1-style single-message branches (`Agent`/`Client`/`ProtocolLevel`) -- a bare JSON
@@ -19,16 +18,13 @@ validator checklist"):
    against any `type: "object"` response schema, as it structurally should.
 3. **Open-enum discriminator carve-out for `find_unknown_root_keys`.** Several v2 discriminated
    unions (`ContentBlock`, `AuthMethod`, `SessionUpdate`, ...) have an `"other"`-titled fallback
-   branch for custom/future variants (`StopReason`'s sibling concept, but for whole objects, not
-   just enum strings -- see `tck.v2.protocol.is_valid_open_enum_value`). When `find_unknown_root_keys`
-   is asked about a `def_name` that is itself such a union, and the given object's discriminator
-   is present and a `_`-prefixed string not matching any of the union's *named* branches' consts
-   (i.e. it is legitimately using the open fallback, per the same "custom values MUST begin with
-   `_`" rule `is_valid_open_enum_value` enforces), the check is skipped entirely (`[]`) rather
-   than flagging the object's extra fields as unknown. A missing/`null`/non-string/non-`_`-
-   prefixed discriminator does NOT count as the open fallback -- it falls through to the normal
-   allowed-root-properties comparison instead, so a malformed or illegal discriminator cannot
-   dodge the unknown-root-key check.
+   branch for custom/future variants -- the same "custom values MUST begin with `_`" rule
+   `tck.v2.protocol.is_valid_open_enum_value` enforces for plain open enums, but for whole
+   objects. When `find_unknown_root_keys` sees such a union and the object's discriminator is a
+   `_`-prefixed string not matching any named branch's const, it legitimately uses the open
+   fallback and the check is skipped (`[]`) instead of flagging extra fields. A missing/`null`/
+   non-`_`-prefixed discriminator does not count, so a malformed discriminator can't dodge the
+   check.
 """
 
 from __future__ import annotations
@@ -406,12 +402,9 @@ def _discriminator_property(named_branches: list[dict[str, Any]]) -> str | None:
 
 def _matches_open_fallback_branch(def_name: str, obj: dict[str, Any]) -> bool:
     """True iff `#/$defs/{def_name}` is a discriminated union with an `"other"`-titled fallback
-    branch, and `obj` is *legitimately* using it: the discriminator is present and is a
-    `_`-prefixed string, per the same extensibility rule `is_valid_open_enum_value` enforces for
-    plain open enums (custom discriminator values MUST begin with `_`). A missing/`null`
-    discriminator, a non-string/unhashable discriminator value, or a non-`_`-prefixed unknown
-    value is NOT the open fallback -- it falls through to the normal allowed-root-properties
-    comparison instead of being silently waved through.
+    branch, and `obj` legitimately uses it: the discriminator is present, a `_`-prefixed string,
+    and doesn't match any named branch's const (module docstring point 3). Anything else --
+    missing/`null`/non-string/unknown-without-`_`-prefix -- is not the fallback.
     """
     branches = load_schema()["$defs"].get(def_name, {}).get("anyOf")
     if not isinstance(branches, list):

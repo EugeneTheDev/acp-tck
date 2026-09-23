@@ -4,8 +4,6 @@ Not part of the installed `tck` package: fixture scripts are launched as standal
 subprocesses (`python .../conforming.py`), so they import this module by inserting their own
 directory onto `sys.path` rather than a package-relative import.
 
-Wire shapes here are taken from `.agents/research/acp-v1-protocol-surface.md` (§Details 1, 2,
-3) -- verify against that report, not memory, before changing a field name.
 """
 
 from __future__ import annotations
@@ -58,9 +56,9 @@ class ConformingAgent:
     `capabilities`, if given, is merged verbatim into the `initialize` result's
     `agentCapabilities` (used by `conforming_full.py` to advertise `loadSession` and every
     `sessionCapabilities` marker; `conforming.py` passes `None`, i.e. `{}`, so every
-    capability-conditional test SKIPs against it -- `.agents/research/acp-v1-session-
-    capabilities.md`). The `session/load`, `session/resume`, `session/list`, `session/delete`,
-    and `session/close` handlers below are implemented unconditionally (not gated on whether
+    capability-conditional test SKIPs against it). The `session/load`, `session/resume`,
+    `session/list`, `session/delete`, and `session/close` handlers below are implemented
+    unconditionally (not gated on whether
     `capabilities` mentions them) since the conformance suite itself only ever calls them
     behind a `@pytest.mark.capability(...)` marker that already SKIPs when unadvertised --
     keeping the logic ungated here just means it's available to any fixture that wants it via
@@ -243,12 +241,11 @@ class ConformingAgent:
         self._reply(msg_id, {"configOptions": self._visible_config_options() or []})
 
     def _handle_authenticate(self, msg_id: Any, params: dict[str, Any]) -> None:
-        # `methodId` is schema-required (`acp-v1-authentication.md` Req 5, AUTH-C5) and must name
-        # one of the ids this agent actually advertised in `initialize`'s `authMethods` --
-        # fixture strictness: a lenient fixture that authenticates on any (or no) methodId hides
-        # whether the TCK's own `authenticate` request has the right shape, and lets a wrong
-        # `--tck-auth-method` silently "succeed" instead of leaving the agent gated (see
-        # `gated_by_auth.py`).
+        # `methodId` is schema-required and must name one of the ids this agent actually
+        # advertised in `initialize`'s `authMethods` -- fixture strictness: a lenient fixture
+        # that authenticates on any (or no) methodId hides whether the TCK's own `authenticate`
+        # request has the right shape, and lets a wrong `--tck-auth-method` silently "succeed"
+        # instead of leaving the agent gated (see `gated_by_auth.py`).
         method_id = params.get("methodId")
         valid_ids = {m.get("id") for m in (self._auth_methods or [])}
         if not isinstance(method_id, str) or method_id not in valid_ids:
@@ -328,7 +325,7 @@ class ConformingAgent:
         if session_id not in self._sessions:
             self._sessions[session_id] = {"cwd": params.get("cwd"), "history": []}
         # Deliberately no replay -- ACP-RESUME-002 requires history-kind updates not be sent
-        # before this response (`.agents/research/acp-v1-session-capabilities.md` R2).
+        # before this response.
         self._reply(msg_id, {})
 
     def _handle_list(self, msg_id: Any, params: dict[str, Any]) -> None:
@@ -341,8 +338,8 @@ class ConformingAgent:
         self._reply(msg_id, {"sessions": sessions})
 
     def _handle_delete(self, msg_id: Any, params: dict[str, Any]) -> None:
-        # SHOULD succeed silently even for an unknown sessionId (research D2) -- `dict.pop`
-        # with a default already gives us that for free.
+        # SHOULD succeed silently even for an unknown sessionId -- `dict.pop` with a default
+        # already gives us that for free.
         self._sessions.pop(params.get("sessionId"), None)
         self._reply(msg_id, {})
 

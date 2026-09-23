@@ -2,18 +2,13 @@
 """Non-conforming-but-legal-to-encounter fixture: answers `initialize` normally, then exits
 immediately (without replying) the moment it reads a line that is not valid JSON at all.
 
-Used to exercise `AgentProcess.send_raw`'s translation of a dead-process write into
-`AgentExited`: it must translate `OSError`/`BrokenPipeError`/`ConnectionResetError` raised while
-writing to a *dead* agent's stdin, not let it escape as a bare traceback. `ACP-INFO-PARSE-001`
-sends a malformed line, then -- regardless of what it read back -- immediately tries an
-ordinary `session/new` on the same connection to see if it is still usable
-(`_probe_connection_usable_after` in `test_informational.py`). Against this fixture, that second
-write lands on a stdin pipe whose reader has already exited, so it is exactly the
-"write to a dead process" case this targets.
+Exercises `AgentProcess.send_raw`'s translation of a dead-process write into `AgentExited`
+rather than a bare traceback. `ACP-INFO-PARSE-001` (`_probe_connection_usable_after` in
+`test_informational.py`) sends a malformed line then probes the connection with `session/new`;
+against this fixture that probe write lands on a stdin pipe whose reader has already exited.
 
-Not built on `_base.ConformingAgent`: its `run()` loop deliberately swallows
-`json.JSONDecodeError` (malformed input is "a harness test concern, not ours to crash on"),
-which is the opposite of what this fixture needs to do.
+Not built on `_base.ConformingAgent`, whose `run()` loop swallows `json.JSONDecodeError` --
+the opposite of what this fixture needs to do.
 """
 
 import json
@@ -33,8 +28,7 @@ def main() -> None:
         try:
             message = json.loads(line)
         except json.JSONDecodeError:
-            # The one behaviour this fixture exists to exhibit: die on the first malformed line,
-            # without replying and without reading anything further.
+            # Die on the first malformed line, without replying or reading further.
             sys.exit(1)
         if isinstance(message, dict) and message.get("method") == "initialize" and "id" in message:
             _reply(
@@ -45,8 +39,7 @@ def main() -> None:
                     "agentInfo": {"name": "tck-fixture-dies-on-bad-json", "version": "0.0.0"},
                 },
             )
-        # Anything else well-formed is ignored -- this fixture only ever needs to survive long
-        # enough to answer `initialize` before the malformed line arrives.
+        # Anything else well-formed is ignored.
 
 
 if __name__ == "__main__":

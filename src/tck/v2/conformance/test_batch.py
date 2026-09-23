@@ -16,10 +16,9 @@ FAIL every MANDATORY row in this file, breaking `tests/v2/test_cli.py`'s
 v2_only_agent` implements this "manual initialize + skip on mismatch" pattern.
 
 Batch probes each use their own fresh connection (one `v2_only_agent` per test): a batch line is
-exactly the kind of traffic that could crash a less battle-tested agent implementation
-(`.agents/research/acp-v2-cancellation-and-batching.md`'s own testability note), and isolating
-each probe into its own process means one crash cannot cascade into or pollute a sibling
-assertion.
+exactly the kind of traffic that could crash a less battle-tested agent implementation, and
+isolating each probe into its own process means one crash cannot cascade into or pollute a
+sibling assertion.
 """
 
 from __future__ import annotations

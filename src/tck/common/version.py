@@ -1,11 +1,10 @@
 """`VersionSpec`: the one object a version package (`tck.v1`, `tck.v2`) hands to
 `tck.common.plugin` to make the plugin version-agnostic.
 
-Collapses every version-specific input `tck.common.plugin` needs -- protocol version, schema
-revision, schema directory, active registry, `initialize` handshake params, and (for self-tests
-/ diagnostics) which conformance package is running (`common-v1-v2-split-analysis.md`
-P1/P2/P4/P8/P9/P10) -- into a single `config.stash[VERSION_SPEC_KEY]` lookup: each version
-package builds exactly one instance (e.g. `tck.v1.SPEC`) and its `plugin.py` shim stashes it in
+Collapses every version-specific input the plugin needs -- protocol version, schema revision,
+schema directory, active registry, `initialize` handshake params, and which conformance package
+is running -- into a single `config.stash[VERSION_SPEC_KEY]` lookup: each version package builds
+exactly one instance (e.g. `tck.v1.SPEC`) and its `plugin.py` shim stashes it in
 `pytest_configure`.
 """
 

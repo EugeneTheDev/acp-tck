@@ -1,15 +1,15 @@
 """Prompt content capabilities: `image`, `audio`, `embeddedContext`
-(ACP-PROMPTCAP-001/002/003) -- reused v1 ids (same requirement text/tier, re-cited to v2
-sources with a new **object-marker** gate, `capabilities.session.prompt.{image,audio,
-embeddedContext}`, since v2 has no boolean-encoded capabilities anywhere -- see `ACP-INIT-204`).
+(ACP-PROMPTCAP-001/002/003) -- gated on the **object-marker** capability
+`capabilities.session.prompt.{image,audio,embeddedContext}`, since v2 has no boolean-encoded
+capabilities anywhere (see `ACP-INIT-204`).
 
-Assertion target differs from v1's: a non-error `session/prompt` result is sufficient here,
-since `run_prompt`'s own turn-end predicate (`_helpers.py`) only returns for a non-error response
-once the turn has also reached an idle -- there is no separate `stopReason` to check on the
-response itself the way v1 has (v2's response is only an acceptance receipt, `ACP-PROMPT-201`).
+A non-error `session/prompt` result is sufficient here: `run_prompt`'s turn-end predicate
+(`_helpers.py`) only returns once the turn has reached idle, so there is no separate
+`stopReason` to check on the response itself as in v1 (v2's response is only an acceptance
+receipt, `ACP-PROMPT-201`).
 
-Per the research's "must NOT" list, this module does not test rejection of an *unadvertised*
-content type -- agent-side behavior for that case is undefined by the spec.
+This module does not test rejection of an *unadvertised* content type -- agent-side behavior
+for that case is undefined by the spec.
 """
 
 from __future__ import annotations

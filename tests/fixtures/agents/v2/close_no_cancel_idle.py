@@ -1,21 +1,15 @@
 #!/usr/bin/env python3
 """Non-conforming fixture: `session/close` on a session with a still-hanging `__hang__` prompt
 replies to the close normally, but resolves the hanging turn with `stopReason: "end_turn"`
-instead of `"cancelled"` -- and only after sleeping past the TCK's cancel-race window, so the
-deviation is unambiguously observed rather than mistaken for an honest race and SKIPped.
+instead of `"cancelled"` -- after sleeping past the TCK's cancel-race window so the deviation
+isn't mistaken for an honest race and SKIPped.
 
-Deliberately keeps `ConformingAgent`'s default `_is_hang_prompt` (hangs only on the literal
-`__hang__` sentinel, exactly like `conforming.py`) so the defect stays bounded: driving this
-fixture requires `--cancel-prompt __hang__` (as `test_close_cancels_foreground_work` itself uses
-`cancel_prompt_text`, which is that sentinel only when explicitly overridden -- see
-`tests/v2/test_cli.py`'s self-test). Every other prompt in the suite finishes normally on its
-own, so no other test's `run_prompt` call ever hangs.
+Only requires `--cancel-prompt __hang__` to trigger, since `_is_hang_prompt` still hangs only on
+that literal sentinel (see `conforming.py`). Every other prompt finishes normally.
 
-FAILs exactly `ACP-CANCEL-208`/`ACP-CLOSE-202` (dual-bound to the same test,
-`test_close_cancels_foreground_work`) when run with `--cancel-prompt __hang__`. Every other id,
-including plain `ACP-CANCEL-201..207` (which use `session/cancel`, not `session/close`, to end
-the turn) and `ACP-CLOSE-201` (closing an already-idle session, no hang involved), is
-unaffected.
+FAILs exactly `ACP-CANCEL-208`/`ACP-CLOSE-202` (both bound to
+`test_close_cancels_foreground_work`, see `tests/v2/test_cli.py`) when run with that flag; other
+ids (`ACP-CANCEL-201..207`, `ACP-CLOSE-201`) are unaffected.
 """
 
 import sys

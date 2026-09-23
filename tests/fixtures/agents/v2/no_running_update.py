@@ -2,13 +2,11 @@
 """Non-conforming fixture: skips `state_update {state: "running"}` entirely and jumps straight
 to a turn-ending idle carrying `stopReason: "end_turn"`.
 
-FAILs exactly `ACP-STATE-201` (the idle carries a `stopReason`, so the row's own gate is
-satisfied -- it is not vacuous -- and the assertion that a `running` update preceded it fails).
-`ACP-STATE-202`/`ACP-STATE-203` SKIP as "no foreground work observed": their own gate is
-`running_seen`, which this fixture never sets, so they are never asserted at all -- this is the
-whole reason `ACP-STATE-201` needed its own, different gate (see
-`tck.v2.requirements`'s `ACP-STATE-201` docstring). `ACP-PROMPT-201`/`ACP-PROMPT-203`/
-`ACP-PROMPT-205` are unaffected: the response and the `user_message` update are unchanged.
+FAILs exactly `ACP-STATE-201` (the idle carries a `stopReason`, so its gate is satisfied and the
+assertion that a `running` update preceded it fails). `ACP-STATE-202`/`ACP-STATE-203` SKIP as "no
+foreground work observed": their gate is `running_seen`, which this fixture never sets -- see
+`tck.v2.requirements`'s `ACP-STATE-201` docstring for why it needed its own gate.
+`ACP-PROMPT-201`/`ACP-PROMPT-203`/`ACP-PROMPT-205` are unaffected.
 """
 
 import sys

@@ -1,18 +1,16 @@
 """Session `configOptions` (ACP-CONFIG-201..204, ACP-CONFIG-206).
 
 `configOptions` has no `capabilities` marker of its own -- support is *inferred* from whether
-`session/new`'s response carries a non-empty `configOptions` list at all (C12,
-`.agents/research/acp-v2-session-management.md`). `Requirement.capability` is therefore the
-documentation-only `"inferred:configOptions"` string (mirrors v1's `ACP-MODES-001`/
-`ACP-CONFIG-001/002` pattern exactly -- see `tck.v1.requirements`/`tck.v2.requirements` module
-docstrings); it is *not* looked up by `@pytest.mark.capability(...)`. Each test instead performs
-its own `session/new` and manually `pytest.skip`s with the reason "session/new returned no
-configOptions" when the field is absent/empty.
+`session/new`'s response carries a non-empty `configOptions` list at all. `Requirement.capability`
+is therefore the documentation-only `"inferred:configOptions"` string (mirrors v1's
+`ACP-MODES-001`/`ACP-CONFIG-001/002` pattern exactly -- see `tck.v1.requirements`/
+`tck.v2.requirements` module docstrings); it is *not* looked up by `@pytest.mark.capability(...)`.
+Each test instead performs its own `session/new` and manually `pytest.skip`s with the reason
+"session/new returned no configOptions" when the field is absent/empty.
 
-Must NOT assert (per the source report): that a `configId`'s value scheme means anything beyond
-schema validity, or that `session/set_config_option`'s *new* value is reflected anywhere besides
-its own response/an observed `config_option_update` (`ACP-CONFIG-205`, ADVISORY, is not
-registered).
+Must NOT assert that a `configId`'s value scheme means anything beyond schema validity, or that
+`session/set_config_option`'s *new* value is reflected anywhere besides its own response/an
+observed `config_option_update` (`ACP-CONFIG-205`, ADVISORY, is not registered).
 
 None of these tests carries a `@pytest.mark.capability(...)` marker (there is nothing for the
 autouse `_tck_capability_gate` to look up -- `capability="inferred:configOptions"` is
@@ -45,12 +43,8 @@ from ._helpers import (
 
 async def _new_session_full_result(agent, cwd, *, timeout):
     """Like `_helpers.new_session`, but returns the whole result dict (not just `sessionId`) so
-    callers can inspect `configOptions`.
-
-    SKIPs (via `skip_if_auth_gated`, same as `_helpers.new_session()`) rather than failing when
-    the agent requires authentication and no `--auth-method` was configured -- `v2_only_agent`
-    already performs `login_if_needed` itself, so this remaining `skip_if_auth_gated` call only
-    matters when no `--auth-method` was given at all (the ordinary auth-gate SKIP)."""
+    callers can inspect `configOptions`. `skip_if_auth_gated` still applies when no
+    `--auth-method` was given at all."""
     req_id = await agent.send_request("session/new", {"cwd": str(cwd)})
     entry = await agent.wait_for_response(req_id, timeout=timeout)
     skip_if_auth_gated(entry)
@@ -141,16 +135,15 @@ def _pick_settable_option(config_options: list[Any]) -> tuple[dict[str, Any], st
 
 @pytest.mark.requirement("ACP-CONFIG-202")
 async def test_set_config_option_returns_the_complete_list(agent_launch, tmp_path, record_property):
-    """ACP-CONFIG-202. Gate is genuinely unstated upstream (C12): SKIPs rather than ever
-    speculatively calling `session/set_config_option` when `session/new` advertised no
-    `configOptions` at all -- there would be nothing legitimate to set.
+    """ACP-CONFIG-202. SKIPs rather than ever speculatively calling `session/set_config_option`
+    when `session/new` advertised no `configOptions` at all -- there would be nothing legitimate
+    to set.
 
-    Does not require `changed["currentValue"] == new_value` to hold
-    (`acp-v2-session-management.md:508`, C9): an agent may legitimately reflect a dependent
-    adjustment instead, so that sub-assertion stays ADVISORY rather than part of this row's
-    contract. Only the superset-of-ids check below is this row's actual contract; whether the
-    changed entry's own value echoes what was sent is recorded via `record_property`, never
-    asserted."""
+    Does not require `changed["currentValue"] == new_value` to hold: an agent may legitimately
+    reflect a dependent adjustment instead, so that sub-assertion stays ADVISORY rather than part
+    of this row's contract. Only the superset-of-ids check below is this row's actual contract;
+    whether the changed entry's own value echoes what was sent is recorded via
+    `record_property`, never asserted."""
     async with v2_only_agent(agent_launch) as agent:
         result = await _new_session_full_result(agent, tmp_path, timeout=agent_launch.default_timeout)
         config_options = result.get("configOptions")

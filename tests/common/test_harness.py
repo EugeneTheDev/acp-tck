@@ -122,10 +122,8 @@ def test_banner_on_stdout_is_recorded_as_parse_error() -> None:
 
 def test_never_responds_raises_agent_timeout_with_transcript() -> None:
     async def scenario() -> None:
-        # `never_responds.py` never exits on its own (SIGTERM/SIGKILL required), so teardown
-        # would otherwise pay the full default 2s stdin-close grace period every run just to
-        # prove the timeout fired; this test only cares that it fired, so it lowers close_grace
-        # (same fix as test_cli.py's watchdog self-test).
+        # `never_responds.py` needs SIGTERM/SIGKILL to exit, so lower close_grace to avoid
+        # paying the full default teardown grace period just to prove the timeout fired.
         async with AgentProcess(agent_launch("never_responds.py", close_grace=0.2)) as agent:
             req_id = await agent.send_request("initialize", {"protocolVersion": 1})
             with pytest.raises(AgentTimeout) as excinfo:
@@ -148,12 +146,9 @@ def test_exits_immediately_raises_agent_exited_with_exit_code() -> None:
 
 
 def test_send_raw_translates_broken_pipe_into_agent_exited() -> None:
-    """`dies_on_bad_json.py` answers `initialize` normally, then exits the instant it reads a
-    line that is not valid JSON at all -- without replying, without draining anything further.
-    A second write after that (here, a bare `send_raw` of another line) lands on a stdin pipe
-    whose reader is already gone, so the OS raises `BrokenPipeError`/`OSError` on the write or
-    the following `drain()`; `send_raw` must catch it and raise `AgentExited` (carrying the
-    exit code and captured stderr) instead of letting the raw OSError propagate."""
+    """`dies_on_bad_json.py` exits the instant it reads invalid JSON, without replying. A write
+    after that lands on a stdin pipe whose reader is gone, so `send_raw` must translate the
+    resulting `BrokenPipeError`/`OSError` into `AgentExited` rather than letting it propagate."""
 
     async def scenario() -> None:
         async with AgentProcess(agent_launch("dies_on_bad_json.py")) as agent:

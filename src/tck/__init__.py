@@ -144,8 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         str(args.startup_timeout),
         "--tck-test-timeout",
         str(args.test_timeout),
-        # Show skip reasons in the terminal (e.g. "cancellation not exercised") -- a SKIPPED
-        # cancel test is a meaningful, distinct outcome from PASS/FAIL, not noise to hide.
+        # Show skip reasons -- e.g. a SKIPPED cancel test is a meaningful outcome, not noise.
         "-rs",
     ]
     if args.agent_cwd is not None:

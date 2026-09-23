@@ -2,16 +2,13 @@
 
 Drives a full exchange (`initialize` -> `session/new` -> `session/prompt`) through the mock
 client (`run_prompt`) so an agent that asks for permission mid-turn does not deadlock the
-transport tests, then asserts over every line the agent wrote to stdout, in either direction of
-that exchange -- including whatever the agent writes to stdout *after* the last response ever
-awaited, which `close()` drains into the transcript before the process exits -- the
-highest-value structural check a client-side TCK can make
-(`.agents/research/acp-v1-transport-and-jsonrpc.md` Testability note 1).
+transport tests, then asserts over every line the agent wrote to stdout -- including whatever it
+writes *after* the last response ever awaited, which `close()` drains into the transcript before
+the process exits.
 
 Split into two tests so a plain-ASCII framing violation (e.g. a banner on stdout) cannot be
 misreported as a UTF-8 violation: ACP-TRANSPORT-001 checks JSON-RPC framing/shape,
-ACP-TRANSPORT-002 checks UTF-8 decoding, each over the *same* recorded transcript but with its
-own independent evidence.
+ACP-TRANSPORT-002 checks UTF-8 decoding, over the same recorded transcript.
 """
 
 from __future__ import annotations
@@ -24,10 +21,9 @@ from ._helpers import connected_agent, new_session, run_prompt
 
 
 async def _drive_full_exchange(agent_launch, tmp_path):
-    """Perform `initialize` -> `session/new` -> `session/prompt` (with a non-ASCII prompt --
-    both SDKs emit `\\uXXXX`-escaped JSON, which is still valid UTF-8/JSON, exercising the
-    non-ASCII path too -- Testability note 2) and return the full transcript, collected only
-    after the agent process has fully closed so post-response stdout garbage is included."""
+    """Run `initialize` -> `session/new` -> `session/prompt` with a non-ASCII prompt (still
+    valid UTF-8/JSON, since SDKs emit it `\\uXXXX`-escaped) and return the transcript, collected
+    only after the agent process has fully closed so post-response stdout garbage is included."""
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         await run_prompt(
@@ -36,8 +32,7 @@ async def _drive_full_exchange(agent_launch, tmp_path):
             [{"type": "text", "text": "hello é中文 \U0001f600"}],
             timeout=agent_launch.default_timeout,
         )
-    # Collected after the `async with` block exits: `close()` has already drained whatever the
-    # agent wrote after the last response we awaited.
+    # `close()`, run by the `async with` exit above, has already drained any late stdout writes.
     return [entry for entry in agent.transcript if entry.direction is Direction.RECEIVED]
 
 

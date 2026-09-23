@@ -2,8 +2,8 @@
 (ACP-PROMPTCAP-001/002/003).
 
 Each is a boolean gate under `agentCapabilities.promptCapabilities` (`_tck_capability_gate`,
-`boolean=True`). Per the research's "must NOT" list, this module does not test rejection of an
-*unadvertised* content type -- agent-side behavior for that case is undefined by the spec.
+`boolean=True`). This module does not test rejection of an unadvertised content type --
+agent-side behavior for that case is undefined by the spec.
 """
 
 from __future__ import annotations
@@ -20,8 +20,7 @@ from ._helpers import connected_agent, new_session, run_prompt
 
 
 def _tiny_png_base64() -> str:
-    """A minimal valid 1x1 white PNG, built at runtime (not a hardcoded blob) so the bytes are
-    self-evidently a real, decodable PNG rather than an opaque fixture nobody can verify."""
+    """A minimal valid 1x1 white PNG, built at runtime rather than a hardcoded blob."""
 
     def _chunk(tag: bytes, data: bytes) -> bytes:
         return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data))

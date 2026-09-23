@@ -219,15 +219,13 @@ class AgentProcess:
         """Read one line off stdout as raw bytes (without the trailing `\\n`), tolerating a line
         that overruns the stream's buffer limit.
 
-        `StreamReader.readline()` itself converts a `LimitOverrunError` into a bare `ValueError`
-        and *discards* the bytes already buffered -- this harness must never lose bytes just
-        because a line is unexpectedly large. Instead,
-        when the limit is exceeded, the already-buffered bytes are recovered with `readexactly`
-        and reading continues (marking the result `oversize=True`) until the real separator (or
-        EOF) is found, so the full line is still captured intact.
+        `StreamReader.readline()` turns a `LimitOverrunError` into a bare `ValueError` and
+        discards the buffered bytes -- this harness must never lose bytes just because a line is
+        large. Instead it recovers the buffered bytes with `readexactly` and keeps reading
+        (marking the result `oversize=True`) until the real separator or EOF, so the full line is
+        still captured.
 
-        Returns `(raw, oversize)`. `raw == b"" and not oversize` means true EOF -- nothing at all
-        was read.
+        Returns `(raw, oversize)`. `raw == b"" and not oversize` means true EOF.
         """
         assert self._process is not None and self._process.stdout is not None
         stream = self._process.stdout
@@ -323,18 +321,15 @@ class AgentProcess:
     # --- teardown ---
 
     async def close(self, grace: float = 2.0) -> None:
-        """Close stdin, wait up to `grace`; if still alive, SIGTERM the process group and wait
-        up to `grace` again; if still alive, SIGKILL and wait up to `grace` once more. Each rung
-        checks whether the process already exited before moving to the next one -- it never
-        burns more than one `grace` budget per rung (an agent that keeps stdout open after
-        stdin EOF -- the documented npx/uvx wrapper case -- must not pay roughly 2x`grace`
-        before SIGTERM is even sent). Records `exit_code` and `exited_on_stdin_close`.
+        """Shutdown ladder: close stdin, then (if still alive) SIGTERM the process group, then
+        SIGKILL. Each rung is capped at `grace` and skipped once the process has already
+        exited, so a stdout-holding agent (the npx/uvx wrapper case) doesn't burn roughly
+        2x`grace` before SIGTERM is even sent. Records `exit_code` and `exited_on_stdin_close`.
 
-        Each rung's wait is preceded by a short, fixed-deadline stdout drain (not a second
-        `grace` budget) so remaining/buffered stdout still lands in `transcript` -- including a
-        trailing partial line with no newline, and anything the agent writes to stdout *after*
-        the last response a test ever awaited. This never fails on lateness -- it only records;
-        judging whether that late output is conforming is the caller's job."""
+        Each rung first drains any already-buffered stdout (a short fixed deadline, not a
+        second `grace` budget), so late output -- including a trailing partial line -- still
+        lands in `transcript`. This never fails on lateness, only records it; judging whether
+        it's conforming is the caller's job."""
         if self._process is None or self._closed:
             return
         self._closed = True

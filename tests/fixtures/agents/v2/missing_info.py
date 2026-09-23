@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 """Non-conforming fixture: omits the (v2-REQUIRED) `info` field from the `initialize` result.
 
-Documented cascade (`tck.v2.requirements`'s ACP-INIT-204 docstring style note applies here too):
-FAILs `ACP-INIT-203` (the dedicated "info required" check) directly, and cascades into
-`ACP-SCHEMA-001` -- both validate the same `initialize` result against the vendored schema,
-whose `InitializeResponse` lists `info` in `required`. Does NOT cascade into `ACP-INIT-001`:
-that row only asserts `initialize` returned a non-error result (this fixture still does), never
-the result's shape -- schema/shape validation lives in `ACP-SCHEMA-001` alone.
-`ACP-INIT-201/202/003/204` are unaffected: none of them inspect `info`.
+FAILs `ACP-INIT-203` directly and cascades into `ACP-SCHEMA-001` (both validate the same
+`initialize` result against the vendored schema, which lists `info` as required). Does not
+cascade into `ACP-INIT-001`, which only checks for a non-error result, not its shape.
 
 Advertises `capabilities: {"session": {}}`, same as `conforming.py`, so `ACP-SESSION-001/002`
-PASS (session/new is otherwise unmodified and correct) instead of SKIPping "not advertised".
+PASS instead of SKIPping "not advertised".
 """
 
 import sys

@@ -16,10 +16,8 @@ from _base import ConformingAgent  # noqa: E402
 class DuplicateSessionIdAgent(ConformingAgent):
     def _handle_request(self, method: str, msg_id: Any, params: dict[str, Any]) -> None:
         if method == "session/new":
-            # Still register the session (just under the same, reused id) so everything *other*
-            # than the uniqueness violation this fixture exists to demonstrate keeps working --
-            # e.g. `_base.py`'s `_handle_prompt` rejects an unrecognized `sessionId`, which
-            # would otherwise turn this into an unintended ACP-PROMPT-001/META-001 FAIL too.
+            # Register under the reused id so other requests still work; otherwise
+            # `_base.py`'s unrecognized-sessionId rejection would add a spurious FAIL.
             self._sessions["sess-0001"] = {"cwd": params.get("cwd"), "history": []}
             self._reply(msg_id, {"sessionId": "sess-0001"})
             return

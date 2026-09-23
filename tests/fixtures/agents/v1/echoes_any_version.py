@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Non-conforming fixture: echoes back whatever `protocolVersion` the client requested in
 `initialize`, instead of returning its own latest supported version for an unsupported
-request. Violates the strengthened ACP-INIT-003
-(`.agents/research/testy-cross-check.md` finding 1) -- this is exactly what both `testy` and
-`examples/echo_agent.py` do, which is why the requirement's test was strengthened to catch it.
+request. Violates the strengthened ACP-INIT-003.
 """
 
 import sys

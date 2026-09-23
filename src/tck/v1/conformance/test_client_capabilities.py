@@ -8,14 +8,9 @@ controls the advertisement, so they are directly observable negative tests, not 
 real client could get wrong.
 
 Implemented as three separate tests sharing one helper -- a single test bound to all three ids
-at once would mis-attribute a one-capability violation to all three (e.g.
-`calls_fs_unadvertised.py` only ever calls `fs/read_text_file`, but a combined test's single
-FAIL outcome would be recorded against `ACP-CLIENTCAP-002`/`-003` too, even though the agent
-never touched `terminal/*` or `elicitation/create`). Each test sends its own prompt turn
-(the mock client's own `run_prompt` call) and filters `PromptTurn.client_requests_seen` -- which
-records every agent -> client request `run_prompt` had to answer, replying `-32601` to anything
-beyond `session/request_permission` since the mock client advertised no capabilities -- by method
-prefix, then asserts only against its own id.
+would mis-attribute a violation of one capability to all three. Each test sends its own prompt
+turn and filters `PromptTurn.client_requests_seen` (every agent -> client request `run_prompt`
+had to answer, replying `-32601` to anything but `session/request_permission`) by method prefix.
 
 PASS is vacuous for an agent that never needs any client tool at all -- Reqs 29/30/32 only
 forbid *calling* the unadvertised capability, they do not require an agent to try and be
@@ -28,10 +23,8 @@ import pytest
 
 from ._helpers import connected_agent, new_session, run_prompt
 
-# Each test uses its own capability-shaped prompt text rather than sharing one fs-flavoured
-# prompt across all three: a shared prompt would give the terminal/elicitation tests close to
-# zero chance of ever provoking the behaviour they guard, making their PASS vacuous by
-# construction rather than by the agent's own choice not to try.
+# Each test uses its own capability-shaped prompt: a shared fs-flavoured prompt would give the
+# terminal/elicitation tests little chance of ever provoking the behaviour they guard.
 _FS_PROMPT_TEXT = "Read the file README.md in the current directory and summarize it."
 _TERMINAL_PROMPT_TEXT = "Run `ls -la` in a shell and show me the output."
 _ELICITATION_PROMPT_TEXT = "Before you continue, ask me which of two options I'd prefer."

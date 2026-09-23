@@ -3,11 +3,9 @@
 TCK's mock client never advertised any elicitation mode in `clientCapabilities` (Req 32 -- MUST
 NOT).
 
-`elicitation/create`'s params schema requires only `message` (`sessionId` is not even a
-declared property of this def, per direct schema introspection) -- `SendsClientRequestAgent`
-still adds a `sessionId` on top since the vendored schema has no `additionalProperties: false`
-anywhere, so the extra key is harmless and the mock client only ever answers `-32601` in this
-scenario regardless.
+`elicitation/create`'s schema doesn't declare `sessionId`, but `SendsClientRequestAgent` adds
+one anyway -- harmless since the vendored schema has no `additionalProperties: false`, and the
+mock client answers `-32601` here regardless.
 """
 
 from __future__ import annotations

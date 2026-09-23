@@ -9,10 +9,10 @@ ACP-INFO-UNKNOWNSESSION-001 -- itself fails; that is a real conformance problem 
 correctly surfaces, not a probe bug.) Each uses its own throwaway `connected_agent` so a bad
 reaction (if any) cannot contaminate a later test's connection.
 
-Concluding "the agent stayed silent" uses `quiet_period()`, not the full `--tck-timeout` --
-per `.agents/research/acp-v1-transport-and-jsonrpc.md` (":235"), a v1 TCK must not fail an agent
-for skipping malformed/non-envelope input (the reference SDK does exactly that), and must be
-prepared for "no response at all" without burning the full per-response deadline to conclude it.
+Concluding "the agent stayed silent" uses `quiet_period()`, not the full `--tck-timeout` -- a
+v1 TCK must not fail an agent for skipping malformed/non-envelope input (the reference SDK does
+exactly that), and must be prepared for "no response at all" without burning the full
+per-response deadline to conclude it.
 """
 
 from __future__ import annotations
@@ -138,10 +138,9 @@ async def test_unknown_session_id_behaviour(agent_launch, tmp_path, record_prope
         try:
             entry = await agent.wait_for_response(prompt_id, timeout=agent_launch.default_timeout)
         except AgentTimeout:
-            # A bare `wait_for_response` has no mock client, so an agent that issues e.g.
-            # `session/request_permission` while handling the bogus session will never be
-            # answered and this looks like plain silence unless we say otherwise -- note any
-            # outstanding agent -> client request left unanswered.
+            # A bare `wait_for_response` has no mock client, so an agent -> client request (e.g.
+            # `session/request_permission`) issued mid-handling would go unanswered and look like
+            # plain silence -- note any outstanding request instead.
             outstanding = [
                 entry.parsed.get("method")
                 for entry in agent.pending()

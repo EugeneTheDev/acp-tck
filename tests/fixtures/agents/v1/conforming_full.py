@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
 """A conforming ACP v1 fixture agent that additionally advertises and correctly implements
-`loadSession` and every `sessionCapabilities` marker (`list`, `delete`, `resume`, `close`,
-`additionalDirectories`), plus modes, config options, prompt capabilities, and the
-authentication surface.
-
-Used to exercise the CAPABILITY-tier session-capability tests (`ACP-LOAD-*`, `ACP-RESUME-*`,
-`ACP-LIST-*`, `ACP-DELETE-*`, `ACP-CLOSE-*`, `ACP-ADDDIRS-001`), the inferred-support
-modes/config-option tests (`ACP-MODES-*`, `ACP-CONFIG-*`), the prompt-capability tests
-(`ACP-PROMPTCAP-*`), and the authentication surface tests (`ACP-AUTH-*`) end to end -- `_base.py`
-already implements all the required behavior; this fixture only needs to turn the capabilities
-on and hand it the modes/config-options/auth-methods data. `conforming.py` deliberately stays at
-`agentCapabilities: {}` so these tests SKIP against it instead.
+`loadSession` and every `sessionCapabilities` marker, plus modes, config options, prompt
+capabilities, and the authentication surface -- exercising the corresponding CAPABILITY-tier
+tests end to end. `_base.py` already implements all the required behavior; this fixture only
+needs to turn the capabilities on and hand it the modes/config-options/auth-methods data.
+`conforming.py` deliberately stays at `agentCapabilities: {}` so these tests SKIP against it
+instead.
 
 The single config option with `type: "boolean"` is only visible to a client that advertised
 `clientCapabilities.session.configOptions.boolean` (Req 33; `_base.py`'s

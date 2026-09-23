@@ -18,15 +18,10 @@ from ._helpers import connected_agent, login_if_needed, new_session, run_prompt,
 
 @pytest.mark.requirement("ACP-INIT-001")
 async def test_initialize_succeeds(agent_launch):
-    """ACP-INIT-001. Deliberately scoped to the basic handshake sanity check only -- a non-error
-    JSON-RPC result. This is judged the same regardless of which `protocolVersion` the agent
-    actually negotiates: an agent that honestly negotiates down to a version other than 2 (e.g.
-    a v1-only agent answering `1` to a v2 client, per `ACP-INIT-201`'s two-branch rule) still
-    MUST answer `initialize` successfully, so this row does not SKIP on a version mismatch the
-    way the v2-only shape checks below do. Schema/shape validation of the result -- including
-    v2-only requirements like `info` being REQUIRED, capability markers being objects, and the
-    negotiated version's own type -- lives in `ACP-SCHEMA-001`/`ACP-INIT-201`/`ACP-INIT-203`/
-    `ACP-INIT-204`, all of which are version-mismatch-aware.
+    """ACP-INIT-001. Only checks the basic handshake succeeds (non-error result); this holds
+    even for an agent that negotiates down to a version other than 2, so unlike the v2-only
+    shape checks below, this test never SKIPs on a version mismatch. Shape validation of the
+    result lives in `ACP-SCHEMA-001`/`ACP-INIT-201`/`ACP-INIT-203`/`ACP-INIT-204` instead.
     """
     async with connected_agent(agent_launch, handshake=False) as agent:
         req_id = await agent.send_request("initialize", SPEC.initialize_params())
@@ -99,14 +94,11 @@ async def test_version_negotiation_follows_the_two_branch_rule(agent_launch):
 
 @pytest.mark.requirement("ACP-INIT-003")
 async def test_unsupported_version_still_succeeds(agent_launch):
-    """ACP-INIT-003 (reused from v1, re-cited to v2 -- see `tck.v2.requirements`'s module
-    docstring). Distinct from `ACP-INIT-201`'s own internal 65535 probe: that test only checks
-    the two-branch *shape* of the negotiation rule; this one is the dedicated "must not echo an
-    absurd version, and must be at least as high as a known-supported reference answer" probe,
-    mirroring v1's `ACP-INIT-003` structure exactly (`tck.v1.conformance.test_initialize`).
-
-    Two fresh processes, one per `initialize` call, matching every other test's "one fresh agent
-    process per handshake" pattern.
+    """ACP-INIT-003 (reused from v1 -- see `tck.v2.requirements`'s module docstring). Distinct
+    from `ACP-INIT-201`'s own internal 65535 probe, which only checks the two-branch *shape*:
+    this test checks the version doesn't echo the unsupported request and is at least as high
+    as a known reference version, mirroring `tck.v1.conformance.test_initialize`'s
+    `ACP-INIT-003`.
     """
     async with connected_agent(agent_launch, handshake=False) as reference_agent:
         ref_req_id = await reference_agent.send_request("initialize", SPEC.initialize_params())
@@ -149,11 +141,9 @@ async def test_unsupported_version_still_succeeds(agent_launch):
 @pytest.mark.requirement("ACP-INIT-202")
 async def test_downgrade_request_still_succeeds(agent_launch):
     """ACP-INIT-202. `protocolVersion: 1` requested against a v2 agent must still succeed --
-    never a JSON-RPC error -- per the negotiation rule's `N < min(S)` case
-    (`.agents/research/acp-v2-version-negotiation.md` requirement 10). The result's
-    `protocolVersion` is either the requested `1` (a dual-version agent that still speaks v1) or
-    the agent's own latest supported version (`2` for a strict v2-only agent) -- never an error,
-    and never any other value.
+    never a JSON-RPC error -- per the negotiation rule's `N < min(S)` case. The result's
+    `protocolVersion` is either the requested `1` (a dual-version agent) or the agent's own
+    latest supported version (`2` for a v2-only agent) -- never anything else.
     """
     async with connected_agent(agent_launch, handshake=False) as agent:
         req_id = await agent.send_request(

@@ -6,8 +6,7 @@ FAILs `ACP-ENUM-202` (every open-enum value at a site the prose doesn't individu
 including `sessionUpdate` itself -- must be a defined constant or `_`-prefixed). Schema-valid on
 its own (the vendored schema's `SessionUpdate` `other` branch only requires `sessionUpdate` to be
 a string and allows arbitrary extra properties, `schema/v2/schema.json`'s `not`-guarded fallback
-branch), so `ACP-SCHEMA-001` does not cascade here -- this is a purely prose-level violation, the
-whole point of `ACP-ENUM-202` existing as a separate, hand-written check.
+branch), so `ACP-SCHEMA-001` does not cascade here -- purely a prose-level violation.
 """
 
 import sys

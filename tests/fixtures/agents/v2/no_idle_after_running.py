@@ -4,10 +4,9 @@ and a content chunk, then goes silent forever -- no turn-ending idle ever arrive
 
 Cascades into every test that calls `run_prompt` (`ACP-PROMPT-201`, `ACP-PROMPT-203`,
 `ACP-STATE-201`, `ACP-STATE-202`, `ACP-STATE-203`, `ACP-PROMPT-205`, and the prompt-turn
-extension of `ACP-SCHEMA-001`): each independently hits `AgentTimeout` waiting for the idle that
-never comes, and is recorded as its own `FAIL` -- `run_prompt`'s turn-end predicate has no other
-way to end a turn short of a JSON-RPC error, which this fixture also never sends. Each affected
-test's own `--timeout` bounds how long it waits, so the fixture never hangs the suite.
+extension of `ACP-SCHEMA-001`): each hits `AgentTimeout` waiting for the idle that never comes,
+since `run_prompt`'s turn-end predicate has no other way to end a turn short of a JSON-RPC error,
+which this fixture also never sends. Each test's own `--timeout` bounds the wait.
 """
 
 import sys

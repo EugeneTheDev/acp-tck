@@ -1627,7 +1627,7 @@ def test_resume_replay_missing_message_id_fails_resume_204_only():
 def test_resume_always_errors_all_resume_rows_skip_together():
     """`resume_always_errors.py` advertises `capabilities.session: {}` but always errors on
     `session/resume` with a plain `-32603`, never `-32601` (Method not found, which
-    `obtain_resumable_session` treats as a hard FAIL per B3). All three of
+    `obtain_resumable_session` treats as a hard FAIL). All three of
     `obtain_resumable_session`'s routes (create-then-resume, list-then-resume, close-then-resume)
     end in the same `session/resume` call, so all three are exhausted identically here, and
     every test that routes through it -- `ACP-RESUME-201..205` and `ACP-ADDDIRS-202` -- must

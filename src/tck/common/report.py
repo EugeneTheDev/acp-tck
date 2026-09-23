@@ -14,17 +14,13 @@ Model (four-status verdict):
   a registered requirement id that no test bound to during the run.
 - Aggregating a requirement's bound `TestOutcome`s into one `Status`: any `FAIL` wins; else any
   `PASS` wins; else any `SKIPPED` wins; zero records -> `NOT_TESTED`.
-- A test that errors -- a setup/teardown exception, or a harness `AgentExited`/`AgentTimeout`
-  propagating out of the test body -- counts as `FAIL` for every requirement it is bound to, with
-  the exception text as the outcome's `message`. There is no separate "ERROR" status; it folds
-  into `FAIL` (pytest itself already reports these as `failed` results at the `setup`/`call`/
-  `teardown` phase, which is where `tck.common.plugin` reads them from).
-- `Verdict.conformant` is computed from `MANDATORY`- and `CAPABILITY`-tier requirements, plus
-  `blocked_by_auth`/`blocked_by_version_mismatch`: `True` iff there is no `MANDATORY` `FAIL`, no
-  `MANDATORY` `NOT_TESTED`, no `CAPABILITY` `FAIL`, and neither flag is set. `CAPABILITY`
-  `SKIPPED`/`NOT_TESTED` (capability not advertised, or simply never exercised) do not affect it
-  -- only a *failed* capability check does, since the agent advertised the capability and it
-  must then work. `ADVISORY`/`INFORMATIONAL` never affect it.
+- A test that errors (setup/teardown exception, or a harness `AgentExited`/`AgentTimeout`
+  propagating out) counts as `FAIL` for every requirement it is bound to, with the exception text
+  as the outcome's `message`. There is no separate "ERROR" status; it folds into `FAIL`.
+- `Verdict.conformant` is `True` iff there is no `MANDATORY` `FAIL`, no `MANDATORY` `NOT_TESTED`,
+  no `CAPABILITY` `FAIL`, and neither `blocked_by_auth` nor `blocked_by_version_mismatch` is set.
+  `CAPABILITY` `SKIPPED`/`NOT_TESTED` don't affect it -- only a *failed* capability check does.
+  `ADVISORY`/`INFORMATIONAL` never affect it.
 """
 
 from __future__ import annotations
@@ -51,8 +47,8 @@ STATUS_PRIORITY: dict[Status, int] = {
     Status.NOT_TESTED: 3,
 }
 """Lower wins when aggregating several statuses into one (`FAIL` > `PASS` > `SKIPPED` >
-`NOT_TESTED`). Shared with `tck.common.plugin`, which uses it to fold multiple pytest phases (setup /
-call / teardown) for the same test into a single `TestOutcome`."""
+`NOT_TESTED`). Shared with `tck.common.plugin`, which folds a test's setup/call/teardown phases
+into a single `TestOutcome`."""
 
 
 def worse_status(a: Status, b: Status) -> Status:
@@ -157,25 +153,17 @@ class Verdict:
     blocked_by_auth: bool = False
     """`True` if at least one test was SKIPPED because the agent requires authentication before
     `session/new` and no `--auth-method` was configured (see
-    `tck.v1.conformance._helpers.skip_if_auth_gated`). Such a run cannot claim conformance --
-    mandatory/capability requirements that depend on a session were never actually exercised,
-    even though they show up as an ordinary SKIPPED rather than FAIL/NOT_TESTED -- so
-    `conformant` is forced `False` whenever this is set, regardless of the tier counts."""
+    `tck.v1.conformance._helpers.skip_if_auth_gated`). Session-dependent requirements were never
+    actually exercised, so `conformant` is forced `False` whenever this is set, regardless of the
+    tier counts."""
     blocked_by_version_mismatch: bool = False
-    """`True` if at least one test was SKIPPED because the connection did not negotiate the
-    protocol version this run targets (e.g. `--protocol-version 2` against an agent that only
-    speaks v1, so `initialize` negotiated down to `1`) -- mirrors `blocked_by_auth` above, but
-    driven by a `"VERSION-MISMATCH:"`-prefixed skip message instead of `"AUTH-GATED:"`.
-    Version-dependent requirements were never actually exercised in that case, even though they
-    show up as an ordinary SKIPPED rather than FAIL/NOT_TESTED, so `conformant` is forced
-    `False` whenever this is set, regardless of the tier counts.
-
-    NOT v2-only: the capability gate that emits this marker
-    (`tck.common.plugin`'s `_tck_capability_gate`) is version-agnostic -- it fires whenever the
-    negotiated `protocolVersion` does not equal `spec.protocol_version` for *this run*, in either
-    direction. A strict `ACP-INIT-202`-conforming v2 agent that answers `2` to a v1-shaped
-    `initialize`, run under `--protocol-version 1`, sets this marker on the v1 suite exactly as
-    a v1-only agent run under `--protocol-version 2` sets it on the v2 suite."""
+    """`True` if at least one test was SKIPPED because the connection negotiated a different
+    protocol version than this run targets (e.g. `--protocol-version 2` against a v1-only agent).
+    Mirrors `blocked_by_auth`, driven by a `"VERSION-MISMATCH:"`-prefixed skip message instead of
+    `"AUTH-GATED:"`; forces `conformant` to `False` regardless of tier counts. The gate
+    (`tck.common.plugin`'s `_tck_capability_gate`) is version-agnostic: it fires in either
+    direction, e.g. a v2 agent answering `2` to a v1-shaped `initialize` under
+    `--protocol-version 1` sets this on the v1 suite too."""
 
     def to_dict(self) -> dict[str, Any]:
         return {

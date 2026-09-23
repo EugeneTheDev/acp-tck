@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """Conforming fixture: sends an unsolicited "session-ready" `state_update {state: "idle"}` (no
 `stopReason`) for a session right after answering `session/new`, *before* any `session/prompt`
-is ever issued for it -- the legal initial-ready-idle pattern
-(`.agents/research/acp-v2-prompt-lifecycle.md` §4 point 2, observed live in the Python SDK's own
-v2 reference agent). Every subsequent `session/prompt` turn on that session behaves exactly like
-`ConformingAgent`'s baseline.
+is ever issued for it -- a legal initial-ready-idle pattern also observed live in the Python
+SDK's own v2 reference agent. Every subsequent `session/prompt` turn on that session behaves
+exactly like `ConformingAgent`'s baseline.
 
 `run_prompt` never drains `agent.pending()` before sending `session/prompt`, so this pre-prompt
-idle is either consumed by the test's own `new_session()` read (and left unread in
-`agent.pending()`, never seen by `run_prompt` at all) or -- if it arrives after that read --
-picked up as the first line `run_prompt` itself reads, where it fails the turn-end predicate
-(`running_seen` is `False` and it carries no `stopReason`) and is simply recorded as an ordinary
-update, never mistaken for *this* turn's terminator.
+idle is either consumed by the test's own `new_session()` read, or -- if it arrives after that
+read -- picked up as the first line `run_prompt` itself reads, where it fails the turn-end
+predicate (`running_seen` is `False`, no `stopReason`) and is recorded as an ordinary update
+rather than mistaken for this turn's terminator.
 """
 
 import sys

@@ -2,9 +2,8 @@
 """Defect fixture for ACP-CLIENTCAP-001: calls `fs/read_text_file` mid-turn even though the TCK's
 mock client never advertised `fs` in `clientCapabilities` (Req 29 -- MUST NOT).
 
-`fs/read_text_file`'s params schema requires `sessionId` and `path`
-(`.agents/research/acp-v1-protocol-surface.md`); `path` is a harmless placeholder since the
-mock client only ever answers `-32601` in this scenario.
+`path` is a harmless placeholder since the mock client only ever answers `-32601` in this
+scenario.
 """
 
 from __future__ import annotations

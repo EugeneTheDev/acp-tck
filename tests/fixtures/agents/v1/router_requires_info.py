@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Conforming fixture modelling the reference SDKs' dual-version *protocol router*
-(`.agents/research/acp-v2-version-negotiation.md`, "Router trap for the TCK"): supports
+"""Conforming fixture modelling the reference SDKs' dual-version *protocol router*: supports
 protocol versions 1 and 2. A request for exactly `1` gets an ordinary v1 handshake. A request
 for anything `>= 2` (including the TCK's unsupported-version probe, 65535) is routed to v2 --
 which means its params are validated as a v2 `InitializeRequest`, whose `info` field is
@@ -9,10 +8,8 @@ gets `-32602` naming the missing field, exactly as `AgentProtocolRouter`/`role/a
 does; a caller that includes a valid `info` gets back `protocolVersion: 2` in an otherwise
 v1-shaped result.
 
-Exists as the self-test canary for ACP-INIT-003's 65535 probe carrying `info`: without it, this
-fixture's `65535` request would fail with a spurious `-32602` (a params-shape error, not a
-negotiation one), flipping the whole run NOT CONFORMANT. With `info` present, ACP-INIT-003
-PASSes against it.
+Self-test canary for ACP-INIT-003's 65535 probe carrying `info`: without it, this fixture's
+`65535` request would fail with a spurious `-32602`, flipping the run NOT CONFORMANT.
 """
 
 import sys

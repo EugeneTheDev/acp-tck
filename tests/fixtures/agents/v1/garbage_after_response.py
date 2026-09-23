@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Non-conforming fixture: behaves like a conforming agent for the whole exchange, then --
-after stdin closes (i.e. strictly after the last response any test ever awaits) -- writes one
-line of plain-text garbage to stdout before exiting. Violates ACP-TRANSPORT-001 ("every line the
-agent writes to stdout is a single valid JSON-RPC 2.0 message").
+"""Non-conforming fixture: behaves like a conforming agent, then -- after stdin closes, strictly
+after the last response any test awaits -- writes one line of plain-text garbage to stdout before
+exiting. Violates ACP-TRANSPORT-001 ("every line the agent writes to stdout is a single valid
+JSON-RPC 2.0 message").
 
-Exists to prove `AgentProcess.close()` actually drains and records stdout written after the
-harness stops reading it -- without that drain, this fixture's whole defect would be invisible
-to the transport test, a false negative on the TCK's own highest-value check.
+Exists to prove `AgentProcess.close()` drains and records stdout written after the harness stops
+reading it; without that drain this defect would be invisible to the transport test.
 """
 
 import sys

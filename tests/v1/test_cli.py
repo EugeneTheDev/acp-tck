@@ -238,11 +238,10 @@ def test_exits_immediately_fails_gracefully():
     statuses = _table_statuses(result.stdout)
     for req_id in _MANDATORY_IDS:
         assert statuses.get(req_id) == "FAIL", f"{req_id} should FAIL when the agent never responds"
-    # ACP-AUTH-003 is CAPABILITY-tier, not MANDATORY, so it is not covered by the loop above --
-    # assert its SKIP explicitly instead: it is
-    # conditional on --tck-auth-method regardless of the agent's own behavior, and SKIPs even
-    # against a dead agent, since the TCK never even attempts to connect for it without a
-    # configured auth method (see test_authentication.py).
+    # ACP-AUTH-003 is CAPABILITY-tier, not MANDATORY, so the loop above doesn't cover it --
+    # assert its SKIP explicitly: it's conditional on --tck-auth-method regardless of the
+    # agent's own behavior, and SKIPs even against a dead agent since the TCK never attempts
+    # to connect for it without a configured auth method.
     assert statuses.get("ACP-AUTH-003") == "SKIPPED", "ACP-AUTH-003 should SKIP without --auth-method"
 
 
@@ -424,13 +423,11 @@ def test_v2_only_agent_under_protocol_version_1_is_blocked_by_version_mismatch()
 
 def test_router_requires_info_passes_everything():
     """`router_requires_info.py` models a dual-version protocol *router*: it selects v2 for any
-    requested version >= 2, including the ACP-INIT-003 probe's 65535, and
-    validates the params as a v2 `InitializeRequest`, whose `info` is REQUIRED. Before the
-    probe in `test_initialize.py` carried `info`, this fixture reproduced the spurious
-    `-32602` a real dual-version router agent would give (see the fixture's own docstring) --
-    ACP-INIT-003 FAILed and the run was NOT CONFORMANT. With the fix, it PASSes: the fixture is
-    otherwise identical to `conforming.py` (advertises `agentCapabilities: {}`, no
-    modes/configOptions/authMethods), so the same SKIP/PASS split applies."""
+    requested version >= 2, including the ACP-INIT-003 probe's 65535, and validates the params
+    as a v2 `InitializeRequest`, whose `info` is REQUIRED. Since the probe carries `info`,
+    ACP-INIT-003 PASSes; the fixture is otherwise identical to `conforming.py` (advertises
+    `agentCapabilities: {}`, no modes/configOptions/authMethods), so the same SKIP/PASS split
+    applies."""
     result = _run_cli("router_requires_info.py")
     assert result.returncode == 0, result.stdout + result.stderr
 

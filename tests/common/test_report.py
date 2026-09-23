@@ -62,10 +62,9 @@ def test_worse_status_orders_fail_over_everything():
 
 
 def test_a_setup_or_teardown_error_is_reported_as_fail_with_the_exception_text():
-    """The report model has no separate ERROR status -- a setup/teardown exception (or a
-    harness AgentExited/AgentTimeout propagating out of a test) is folded into FAIL by
-    `tck.common.plugin` before it ever reaches `TestOutcome`; this test locks in that FAIL carries the
-    exception text as `message`, which is what a JSON report consumer actually needs to see."""
+    """No separate ERROR status: `tck.common.plugin` folds setup/teardown exceptions (and
+    AgentExited/AgentTimeout) into FAIL before they reach `TestOutcome`, with the exception text
+    as `message`."""
     outcome = TestOutcome(
         nodeid="mod.py::test_x",
         status=Status.FAIL,
@@ -95,9 +94,9 @@ def test_build_requirement_results_covers_every_registry_id_including_untested_o
 
 
 def _fake_results(overrides: dict[str, Status]) -> list[RequirementResult]:
-    """One `RequirementResult` per registry entry, with `overrides` supplying a status for the
-    given ids and everything else defaulting to PASS (or NOT_TESTED for CAPABILITY, so tests
-    stay independent of which real ids happen to be CAPABILITY-tier)."""
+    """One `RequirementResult` per registry entry; `overrides` sets a status for given ids,
+    everything else defaults to PASS (NOT_TESTED for CAPABILITY, keeping tests independent of
+    which real ids are CAPABILITY-tier)."""
     results = []
     for req_id, requirement in REGISTRY.items():
         status = overrides.get(req_id)
@@ -118,8 +117,7 @@ def _fake_results(overrides: dict[str, Status]) -> list[RequirementResult]:
 
 
 def _first_id_of_tier(tier: Tier) -> str | None:
-    """`None` if no registry entry has this tier -- callers `pytest.skip(...)` in that case
-    rather than asserting on a tier with nothing to sample."""
+    """`None` if no registry entry has this tier; callers `pytest.skip(...)` in that case."""
     return next((req_id for req_id, req in REGISTRY.items() if req.tier is tier), None)
 
 
@@ -247,9 +245,9 @@ def test_verdict_conformant_by_default_when_blocked_by_auth_not_set():
 
 
 def test_verdict_not_conformant_when_blocked_by_auth_even_with_no_mandatory_failures():
-    """An agent that gates `session/new` behind authentication, run without `--auth-method`,
-    can have every requirement PASS/SKIP cleanly and still must not be scored CONFORMANT: the
-    session-dependent requirements were never actually exercised."""
+    """An agent gating `session/new` behind auth, run without `--auth-method`, can have every
+    requirement PASS/SKIP cleanly yet must not score CONFORMANT: those requirements were never
+    actually exercised."""
     results = _fake_results({})
     verdict = compute_verdict(results, blocked_by_auth=True)
     assert verdict.conformant is False
@@ -264,9 +262,8 @@ def test_verdict_to_dict_includes_blocked_by_auth():
 
 
 def test_report_verdict_is_not_conformant_when_a_registry_id_is_missing_a_record():
-    """A registered but never-run requirement (NOT_TESTED, since `build_requirement_results`
-    covers the whole registry) counts as a verdict failure -- a dead agent that never gets past
-    `initialize` cannot score 100% by starving every other test of a record."""
+    """A registered but never-run requirement counts as a verdict failure -- a dead agent that
+    never gets past `initialize` cannot score 100% by starving every other test of a record."""
     results = build_requirement_results({}, REGISTRY)  # nothing ran at all
     verdict = compute_verdict(results)
     assert verdict.conformant is False
@@ -283,10 +280,9 @@ def test_verdict_conformant_by_default_when_blocked_by_version_mismatch_not_set(
 
 
 def test_verdict_not_conformant_when_blocked_by_version_mismatch_even_with_no_mandatory_failures():
-    """An agent that never actually negotiated the run's target protocol version (e.g. a v1-only
-    agent run under `--protocol-version 2`) can have every requirement PASS/SKIP cleanly and
-    still must not be scored CONFORMANT: the version-dependent requirements were never actually
-    exercised against that version."""
+    """An agent that never negotiated the run's target protocol version (e.g. a v1-only agent
+    run under `--protocol-version 2`) can have every requirement PASS/SKIP cleanly yet must not
+    score CONFORMANT."""
     results = _fake_results({})
     verdict = compute_verdict(results, blocked_by_version_mismatch=True)
     assert verdict.conformant is False

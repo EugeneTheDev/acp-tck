@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Non-conforming fixture: `session/list` returns a JSON-RPC error instead of `{"sessions": []}`
-whenever the (possibly `cwd`-filtered) result set would be empty -- v2's L1 rule that an empty
-result MUST be a normal, empty array, never an error.
+whenever the (possibly `cwd`-filtered) result set would be empty -- an empty result MUST be a
+normal, empty array, never an error.
 
 FAILs exactly `ACP-LIST-202` (the only test that filters to a guaranteed-empty result).
 `ACP-LIST-201`/`203`/`204` all list with at least one session present in the result, so they

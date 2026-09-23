@@ -77,15 +77,10 @@ async def test_resume_a_resumable_session_succeeds(agent_launch, tmp_path):
 async def _add_history(agent, session_id, *, timeout):
     """Run one ordinary prompt turn on an *already-obtained* session (see
     `obtain_resumable_session`), so there is something to (optionally) replay on the resume call
-    that follows. `ACP-RESUME-202..205` must not obtain their session via a hand-rolled
-    `connected_agent` + `session/new` that bypasses `obtain_resumable_session`'s three-route
-    strategy: doing so
-    hard-asserts that a direct `session/resume` of a just-created session succeeds, which is
-    exactly the route the session-management report says is not guaranteed. Instead, obtain the
-    session the same way `ACP-RESUME-201` does (SKIPping where it SKIPs, hard-FAILing only on
-    `-32601`), then add history to *that* session and issue a second, fresh `session/resume` call
-    against it for the replay assertions -- `obtain_resumable_session`'s own docstring notes the
-    yielded connection/session is free to be reused for exactly this."""
+    that follows. `ACP-RESUME-202..205` must obtain their session via `obtain_resumable_session`
+    rather than a hand-rolled `connected_agent` + `session/new`, since a direct `session/resume`
+    of a just-created session is not guaranteed to succeed -- add history to the already-obtained
+    session instead and issue a second, fresh `session/resume` for the replay assertions."""
     return await run_prompt(
         agent, session_id, [{"type": "text", "text": "remember this"}], timeout=timeout
     )
@@ -161,10 +156,10 @@ async def test_resume_without_replay_from_replays_no_history(agent_launch, tmp_p
 @pytest.mark.capability("capabilities.session")
 async def test_resume_replays_retained_user_message_with_same_message_id(agent_launch, tmp_path):
     """ACP-RESUME-204. Absence of the message from replay is itself conforming (R5) -- SKIPs
-    this check rather than FAILing it. Per `acp-v2-session-management.md:490` (R7), a replayed
-    message only violates the requirement if its *content* matches the original prompt but its
-    `messageId` differs -- matching whichever entry replays (whole or chunked) is not itself
-    evidence of a violation, so this only FAILs on that specific mismatch."""
+    this check rather than FAILing it. A replayed message only violates the requirement if its
+    *content* matches the original prompt but its `messageId` differs -- matching whichever
+    entry replays (whole or chunked) is not itself evidence of a violation, so this only FAILs
+    on that specific mismatch."""
     prompt_text = "remember this"
     async with obtain_resumable_session(
         agent_launch, tmp_path, timeout=agent_launch.default_timeout
@@ -294,9 +289,8 @@ async def test_list_sessions_filtered_to_no_match_returns_empty_array(agent_laun
 @pytest.mark.capability("capabilities.session")
 async def test_list_sessions_filtered_by_cwd_matches_requested_cwd(agent_launch, tmp_path, record_property):
     """ACP-LIST-203. A per-entry check only -- the reverse direction (a session at that `cwd`
-    is guaranteed to be returned) is not asserted. Records the entry count so a PASS on an
-    empty `sessions` array is visibly vacuous in the report, not silently indistinguishable
-    from one that actually checked entries."""
+    is guaranteed to be returned) is not asserted. Records the entry count so an empty-array
+    PASS is visibly vacuous in the report."""
     async with connected_agent(agent_launch) as agent:
         await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         entry = await list_sessions(agent, cwd=tmp_path, timeout=agent_launch.default_timeout)
@@ -316,9 +310,8 @@ async def test_list_sessions_filtered_by_cwd_matches_requested_cwd(agent_launch,
 @pytest.mark.requirement("ACP-LIST-204")
 @pytest.mark.capability("capabilities.session")
 async def test_list_sessions_cwds_are_absolute(agent_launch, tmp_path, record_property):
-    """ACP-LIST-204. Records the entry count so a PASS on an empty `sessions` array is
-    visibly vacuous in the report, not silently indistinguishable from one that actually
-    checked entries."""
+    """ACP-LIST-204. Records the entry count so an empty-array PASS is visibly vacuous in the
+    report."""
     async with connected_agent(agent_launch) as agent:
         await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         entry = await list_sessions(agent, timeout=agent_launch.default_timeout)
@@ -379,10 +372,8 @@ async def test_deleted_session_no_longer_listed(agent_launch, tmp_path):
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         before_entry = await list_sessions(agent, timeout=agent_launch.default_timeout)
         before_msg = before_entry.parsed
-        # Guard `isinstance(before_msg, dict)` *before* calling `.get("result")` on it -- a
-        # malformed (non-dict) response would otherwise raise `AttributeError` (an opaque FAIL)
-        # instead of being handled by the SKIP below, since a comprehension's own `if` clause
-        # filters items, it does not guard the iterable expression evaluated to produce them.
+        # Guard isinstance(before_msg, dict) before .get("result") -- a malformed (non-dict)
+        # response would otherwise raise AttributeError instead of hitting the SKIP below.
         before_sessions = (
             (before_msg.get("result") or {}).get("sessions") or []
             if isinstance(before_msg, dict)

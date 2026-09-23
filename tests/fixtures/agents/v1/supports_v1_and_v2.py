@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Conforming fixture: legitimately supports two protocol versions. Returns `1` when the
 client requests exactly `1`, and `2` for anything else (including the TCK's unsupported-version
-probe, 65535) -- i.e. "its own latest supported version" is genuinely higher than its v1
-answer.
+probe, 65535).
 
-Exists as a self-test canary for ACP-INIT-003's `!= 65535 and >= latest_supported` rule: a
-naive equality rule (`version == latest_supported`) would falsely FAIL this agent even though it
-never echoes 65535 verbatim and never answers lower than its v1 answer. Must PASS INIT-003.
+Self-test canary for ACP-INIT-003's `!= 65535 and >= latest_supported` rule: a naive equality
+rule (`version == latest_supported`) would falsely FAIL this agent even though it never echoes
+65535 verbatim. Must PASS INIT-003.
 """
 
 import sys
