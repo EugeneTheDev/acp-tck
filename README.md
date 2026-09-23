@@ -3,16 +3,15 @@
 [![CI](https://github.com/EugeneTheDev/acp-tck/actions/workflows/ci.yml/badge.svg)](https://github.com/EugeneTheDev/acp-tck/actions/workflows/ci.yml)
 
 A Test Compatibility Kit for the [Agent Client Protocol](https://agentclientprotocol.com) (ACP).
-Targets **v1** by default, with an opt-in **v2** (Draft) suite via `--protocol-version 2` that so
-far covers the `initialize` handshake, `session/new`, the core `session/prompt`
-turn/`state_update` lifecycle, prompt content capabilities, the permission flow, the
-agent -> client method rules, cancellation/stdio-transport/JSON-RPC-envelope/batching, and
-session management (`session/resume`/`list`/`close`/`delete`, `additionalDirectories`, MCP
-server config, config options), and authentication (`authMethods`, `auth/login`/`auth/logout`)
--- still well short of v1 parity. It launches an agent
-implementation as a stdio subprocess, drives it through the protocol
--- initialize, session lifecycle, prompt turns, cancellation, error handling, transport hygiene --
+It launches an agent implementation as a stdio subprocess, drives it through the protocol --
+initialize, session lifecycle, prompt turns, cancellation, error handling, transport hygiene --
 and reports which requirements pass, fail, don't apply, or were never exercised.
+
+Targets **v1** by default, with an opt-in **v2** (Draft) suite via `--protocol-version 2`. v1 is
+the complete, longer-running suite; v2 is younger and has fewer requirements, mainly missing
+MCP/terminal/filesystem capability coverage (`fs/*`/`terminal/*` don't exist in v2's protocol, so
+that gap is really v1's own backlog item, not a v2 one) -- see
+["What is covered"](#what-is-covered) below for the exact per-version breakdown.
 
 ## Install & run
 ```
@@ -30,17 +29,12 @@ process per test, so one crash can't cascade into unrelated failures.
 
 ## Options
 
-- `--protocol-version {1,2}` -- which protocol version's conformance suite to run (default 1).
-  `2` runs the ACP v2 (Draft) suite, which so far covers the `initialize` handshake, the
-  `session/new` baseline, the core `session/prompt` turn/`state_update` lifecycle, prompt
-  content capabilities, the permission flow, the agent -> client method rules,
-  cancellation/stdio transport/the JSON-RPC envelope/batching, session management
-  (`session/resume`/`list`/`close`/`delete`, `additionalDirectories`, MCP server config, config
-  options), authentication (`authMethods`, `auth/login`/`auth/logout`), and keyed upsert/patch
-  semantics, open-enum emitter rules, and extensibility/`_meta`/schema-hygiene -- see
-  `AGENTS.md`'s `src/tck/v2/` layout entry. If the agent under
-  test never actually negotiates the requested version, version-dependent tests are `SKIPPED`
-  with a `VERSION-MISMATCH` hint and the run is forced `NOT CONFORMANT`.
+- `--protocol-version {1,2}` -- which protocol version's conformance suite to run (default 1);
+  see ["What is covered"](#what-is-covered) for what each suite checks. If the agent under test
+  never actually negotiates the requested version, version-dependent tests are `SKIPPED` with a
+  `VERSION-MISMATCH` hint and the run is forced `NOT CONFORMANT` -- symmetrically for both
+  directions (a v1-only agent run under `--protocol-version 2`, or a v2-only agent run under
+  `--protocol-version 1`).
 - `--agent-cwd DIR` -- working directory for the agent (default: inherit).
 - `--agent-env KEY=VAL` -- environment variable overlaid on the agent's process; repeatable.
 - `--timeout S` -- per-response deadline in seconds (default 30).
@@ -119,9 +113,9 @@ of a record.
 **Verdict:** `conformant` is `true` iff there is no `MANDATORY` `FAIL`, no `MANDATORY`
 `NOT_TESTED`, no `CAPABILITY` `FAIL`, the run was not `blocked_by_auth` (i.e. no
 session-dependent test was skipped because the agent requires authentication and no
-`--auth-method` was given -- see "Options" above), and (v2 only) not
-`blocked_by_version_mismatch` (i.e. no version-dependent test was skipped because the agent
-under test never actually negotiated the `--protocol-version` this run targets).
+`--auth-method` was given -- see "Options" above), and not `blocked_by_version_mismatch` (i.e. no
+version-dependent test was skipped because the agent under test never actually negotiated the
+`--protocol-version` this run targets -- checked for both v1 and v2 runs).
 
 **Exit code:** `0` iff `conformant`, `1` otherwise (including "the agent never responded to
 anything" -- every `MANDATORY` requirement ends up `FAIL`/`NOT_TESTED`, but the run still
@@ -129,36 +123,61 @@ completes and still writes a report). No agent command after `--` is a usage err
 
 ## Protocol scope
 
-ACP **v1** (`PROTOCOL_VERSION = 1`, pinned in `tck.v1.protocol`) is the default and by far the
-more complete suite -- the codebase is structured as a version-agnostic core plus one package
-per protocol version (`src/tck/common/` + `src/tck/v1/` + `src/tck/v2/`, see `AGENTS.md`) so
-each version's suite does not require forking the harness, report model, or pytest plugin.
-Capability-conditional coverage now includes `session/load`, `session/resume`, `session/list`,
-`session/delete`, `session/close`, `additionalDirectories`, session `modes`/`configOptions`,
-`promptCapabilities` (`image`/`audio`/`embeddedContext`), and the authentication surface
-(`authMethods`, `authenticate`, `logout`); MCP/terminal/fs capabilities are still to come -- see
-`AGENTS.md` for the current requirement registry and what's implemented so far.
+The codebase is structured as a version-agnostic core plus one package per protocol version
+(`src/tck/common/` + `src/tck/v1/` + `src/tck/v2/`, see `AGENTS.md`), so each version's suite does
+not require forking the harness, report model, or pytest plugin. ACP **v1**
+(`PROTOCOL_VERSION = 1`, pinned in `tck.v1.protocol`) is the default and the complete, mature
+suite. ACP **v2** (Draft, schema version `2.0.0-alpha.5` at the vendored pin) is available via
+`--protocol-version 2` and is not yet at v1 parity -- the gap is almost entirely MCP/terminal/
+filesystem capability coverage, which is v1's own backlog item (v2's protocol removed `fs/*`/
+`terminal/*` entirely, so that's not a v2-specific gap). For the precise, current requirement set,
+`src/tck/v{1,2}/requirements.py` is the source of truth; the summary below won't drift the way
+prose does, but treat it as a snapshot rather than a guarantee.
 
-ACP **v2** (Draft, schema version `2.0.0-alpha.5` at the vendored pin) is available via
-`--protocol-version 2`, and now covers the `initialize`/version-negotiation baseline, the
-`session/new` baseline, the core `session/prompt` turn/`state_update` lifecycle, prompt content
-capabilities (`image`/`audio`/`embeddedContext`), the `session/request_permission` flow, the
-agent -> client method rules, cancellation (confirmed via a terminating `cancelled` idle
-`state_update`, not the prompt response), stdio transport, the JSON-RPC envelope, batching, and
-session management (`session/resume` including replay ordering, `session/list`, `session/close`/
-`delete`, `additionalDirectories`, MCP server config, and `session/set_config_option`/
-`configOptions`) (76 requirements in all) -- still well short of v1 parity (no auth flow yet) --
-see `src/tck/v2/`'s entry in `AGENTS.md`'s "Layout" for exactly what's covered.
+## What is covered
 
-Also covered: `MANDATORY` negative tests asserting the agent never calls `fs/*`, `terminal/*`, or
-`elicitation/create` during a prompt turn when the client didn't advertise the matching capability
-(`ACP-CLIENTCAP-001`/`002`/`003`); a custom-methods-and-hygiene family -- `ACP-EXT-001`
-(`MANDATORY`: a `_`-prefixed custom method must get *some* response, result or error; distinct
-from `ACP-JSONRPC-004`'s `ADVISORY` concern about the specific `-32601` code for an unrecognised
-method in general) plus `ADVISORY` `_meta` passthrough, unknown top-level response keys, error
-message shape, and shutdown promptness; and the `INFORMATIONAL` family above covering malformed
-JSON, structurally-invalid requests, unknown session ids, and stderr volume -- areas where the
-spec is silent or reference agents disagree.
+### v1
+
+- `initialize` handshake and version negotiation, including the strengthened unsupported-version
+  probe (`ACP-INIT-003`)
+- Session lifecycle: `session/new`, `session/load`, `session/resume`, `session/list`,
+  `session/delete`, `session/close`, `additionalDirectories`
+- `session/prompt` turns and `session/cancel`, including the cancellation race handling described
+  above
+- Session `modes` and `configOptions`
+- Prompt content capabilities (`image`/`audio`/`embeddedContext`)
+- Authentication surface: `authMethods`, `authenticate`, `logout`
+- Client-capability negatives: the agent must never call `fs/*`, `terminal/*`, or
+  `elicitation/create` when the client didn't advertise the matching capability
+  (`ACP-CLIENTCAP-001`/`002`/`003`)
+- Extensibility and hygiene: `_`-prefixed custom methods must get a response (`ACP-EXT-001`),
+  `_meta` passthrough, unknown top-level response keys, error message shape, shutdown promptness
+- Transport/JSON-RPC hygiene: stdio framing, envelope validation, unrecognised-method handling
+- `INFORMATIONAL` probes (reported only, spec silent or reference agents disagree): malformed
+  JSON, structurally-invalid requests, unknown session ids, stderr volume
+- Not yet covered: MCP/terminal/filesystem capability surfaces
+
+### v2
+
+- `initialize`/version-negotiation baseline, including a v2-only agent's required behavior when
+  asked for `1`
+- `session/new` baseline
+- Core `session/prompt` turn/`state_update` lifecycle (turn completion via `state_update`, not the
+  prompt response) and `session/cancel` (confirmed via a terminating `cancelled` idle
+  `state_update`)
+- Prompt content capabilities (`image`/`audio`/`embeddedContext`)
+- `session/request_permission` flow
+- Agent -> client method rules (including the `_`/`$/`-prefix extensibility rule)
+- stdio transport, the JSON-RPC envelope, and batching
+- Session management: `session/resume` (including replay ordering), `session/list`,
+  `session/close`/`delete`, `additionalDirectories`, MCP server config,
+  `session/set_config_option`/`configOptions`
+- Authentication: `authMethods`, `auth/login`/`auth/logout`
+- Keyed upsert/patch semantics (messages, tool calls, terminals), open-enum emitter rules
+  (custom values must be `_`-prefixed)
+- Extensibility/`_meta`/schema-hygiene, error shape, shutdown promptness
+- `INFORMATIONAL` probes: malformed JSON, structurally-invalid requests, unknown session ids,
+  stderr volume, MCP connection details
 
 ## Cross-checking against upstream agents
 
@@ -169,20 +188,10 @@ and the Python SDK's `examples/echo_agent.py`; for v2, `testy` again (built with
 (`scripts/cross-check/python_v2_agent.py`) built on the Python SDK's `acp.experimental.v2`
 runtime, since no upstream v2 example agent exists yet. It needs a Rust toolchain and local
 checkouts of both SDKs, so it's a manual/CI step rather than part of `uv run pytest`; see
-`AGENTS.md` "Cross-checking against upstream agents" for prerequisites and usage (including the
+`AGENTS.md`'s "CI" section for prerequisites and usage (including the
 `ACP_CROSS_CHECK_V2` switch to skip the v2 legs), and `docs/cross-check.md` for the latest result
 tables with explanations of every non-`PASS`. Known baseline: `testy`/`echo_agent` (v1) each FAIL
 only the deliberately strengthened `ACP-INIT-003`; `testy`'s native v2 agent is fully conformant;
 the Python v2 reference agent FAILs five MANDATORY ids due to the upstream Python SDK's v2
 runtime having no JSON-RPC batch support and rejecting any non-`2` `protocolVersion` outright --
 both genuine upstream limitations, not TCK bugs.
-
-## Contributing
-
-See [`AGENTS.md`](AGENTS.md) for the package layout, the harness/validation/plugin internals,
-how to add a new requirement + test, and the conventions this repo follows (`uv`-only dependency
-management, exact pins, `.agents/` as the project's own planning workbench).
-
-## License
-
-Licensed under the [Apache License, Version 2.0](LICENSE).
