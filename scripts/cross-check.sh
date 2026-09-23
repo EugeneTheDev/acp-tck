@@ -5,11 +5,10 @@
 #   v2 -- `testy` again, this time built with the `unstable_protocol_v2` feature so it routes
 #         v2 connections to its native v2 agent, and a repo-authored minimal v2 agent
 #         (`scripts/cross-check/python_v2_agent.py`, pinned to 1.0.0rc2) since no upstream v2
-#         example agent exists yet (see `.agents/research/reference-sdks-v2-status.md`)
+#         example agent exists yet
 #
 # This is a manual/CI cross-check, NOT part of `uv run pytest` -- it needs a Rust toolchain
-# and both SDK checkouts. See `AGENTS.md` "Cross-checking against upstream agents" and
-# `.agents/research/testy-cross-check.md` / `.agents/research/reference-sdks-v2-status.md`.
+# and both SDK checkouts. See `AGENTS.md` "Cross-checking against upstream agents"
 #
 # Set ACP_CROSS_CHECK_V2=0 to skip both v2 legs and run only the v1 comparison (e.g. if the
 # local Rust toolchain lacks the v2 feature, or to keep a quick v1-only smoke run).
@@ -108,6 +107,22 @@ echo
 echo "== Comparison table =="
 set +e
 if [ "$CROSS_CHECK_V2" = "1" ]; then
+  # ACP-INIT-003 (MANDATORY): both v1 agents just echo the client's unsupported probe version
+  # (65535) verbatim instead of returning their own latest supported version -- a known,
+  # expected FAIL for both independent v1 implementations, not a TCK regression.
+  #
+  # testy_v2 (no expected MANDATORY FAILs): built with `unstable_protocol_v2`, testy correctly
+  # routes the probe to its native v2 `initialize` handler, which does not have the v1 echo bug.
+  #
+  # python_v2_agent (repo-authored fixture, see `scripts/cross-check/python_v2_agent.py` docstring):
+  #   - ACP-INIT-003/201/202: this fixture also echoes back whatever protocol_version it's given
+  #     (see its `initialize()`), so it fails the same "don't echo an unsupported version
+  #     verbatim" family as the v1 agents above.
+  #   - ACP-JSONRPC-001/003, ACP-BATCH-201/202: failures inherited from the upstream
+  #     `agent-client-protocol==1.0.0rc2` Python SDK's own `acp.experimental.v2` transport/dispatch
+  #     layer (id echoing, cancel-on-idle-session handling, batch-request support) -- this fixture
+  #     delegates all JSON-RPC framing to the SDK's `run_agent()`/`Client` and doesn't touch
+  #     batching at all, so these expose the SDK's own v2 runtime limitations, not fixture bugs.
   python3 "$SCRIPT_DIR/cross-check-summary.py" \
     "$OUT_DIR/testy.json" testy \
     "$OUT_DIR/echo_agent.json" echo_agent \
@@ -117,6 +132,8 @@ if [ "$CROSS_CHECK_V2" = "1" ]; then
     --expect "testy_v2=" \
     --expect "python_v2_agent=ACP-BATCH-201,ACP-BATCH-202,ACP-INIT-003,ACP-INIT-201,ACP-INIT-202,ACP-JSONRPC-001,ACP-JSONRPC-003"
 else
+  # ACP-INIT-003 (MANDATORY): known, expected FAIL for both v1 agents -- see the matching
+  # comment in the CROSS_CHECK_V2 branch above for why.
   python3 "$SCRIPT_DIR/cross-check-summary.py" \
     "$OUT_DIR/testy.json" testy \
     "$OUT_DIR/echo_agent.json" echo_agent \
