@@ -54,6 +54,7 @@ from tck.common.harness import AgentTimeout, Direction
 from ..protocol import STOP_REASONS
 from ._helpers import (
     connected_agent,
+    is_response_line,
     iter_messages,
     new_session,
     probe_behaviour,
@@ -434,11 +435,10 @@ async def test_cancel_with_no_foreground_work_behaviour(agent_launch, tmp_path, 
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
         await agent.send_notification("session/cancel", {"sessionId": session_id})
 
-        def _is_a_response(entry) -> bool:
-            return isinstance(entry.parsed, dict) and "method" not in entry.parsed
-
         behaviour = await probe_behaviour(
-            agent.wait_for_message(_is_a_response, timeout=quiet_period(agent_launch.default_timeout)),
+            agent.wait_for_message(
+                is_response_line, timeout=quiet_period(agent_launch.default_timeout)
+            ),
             lambda entry: f"sent a response-shaped message: {entry.text!r}",
         )
 

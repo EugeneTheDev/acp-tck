@@ -153,6 +153,29 @@ def quiet_period(timeout: float) -> float:
     return max(0.5, min(2.0, timeout / 10))
 
 
+def is_response_line(entry: TranscriptEntry) -> bool:
+    """True if `entry` is a reply: a JSON-RPC object without `method`, even a malformed one
+    missing `id`/`result`/`error`.
+
+    The rule "a notification gets no response" checks use. JSON-RPC 2.0 §4.1 forbids only
+    *replies* to a notification. The agent's own notifications and agent -> client requests
+    carry `method`, are not replies, and may arrive at any time after `initialize`. A non-JSON
+    line is not a reply either; the transport rows judge it."""
+    return isinstance(entry.parsed, dict) and "method" not in entry.parsed
+
+
+async def first_response_within(agent: AgentProcess, quiet: float) -> TranscriptEntry | None:
+    """Wait up to `quiet` seconds for a reply (`is_response_line`) and return it, or `None` if
+    none arrived. Agent-initiated messages read meanwhile are skipped and left in
+    `agent.pending()`. An agent -> client request among them is left unanswered, like in every
+    other wait outside `run_prompt`: the check is about what the agent sends, not about driving
+    it further. `AgentExited` propagates."""
+    try:
+        return await agent.wait_for_message(is_response_line, timeout=quiet)
+    except AgentTimeout:
+        return None
+
+
 def cancel_race_peek(timeout: float) -> float:
     """Like `quiet_period`, but for the much shorter peek `run_prompt` does right after an
     update and before committing to send `session/cancel` (see its docstring) -- this only

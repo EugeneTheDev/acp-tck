@@ -590,7 +590,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "Notifications never receive a response, success or error -- including a "
-            "notification inside a batch."
+            "notification inside a batch. Messages the agent itself initiates (they carry "
+            "`method`) are not responses."
         ),
         citation=_cite(
             "docs/protocol/v2/overview.mdx:185; docs/protocol/v2/transports.mdx:64-67"
@@ -640,7 +641,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         capability=None,
         text=(
             "The agent MUST NOT reply to a notification, including one inside a batch. A "
-            "notification-only batch produces no output at all -- never an empty array."
+            "notification-only batch gets no reply at all -- never an empty array. Messages "
+            "the agent itself initiates (they carry `method`) are not replies."
         ),
         citation=_cite("docs/protocol/v2/transports.mdx:66-67,70-72"),
     ),
@@ -1336,8 +1338,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         tier=Tier.ADVISORY,
         capability=None,
         text=(
-            "An unrecognized `_`-prefixed *notification* sent to the agent produces no "
-            "response line and no crash (SHOULD-ignore) -- the v2 analogue of v1's "
+            "An unrecognized `_`-prefixed *notification* sent to the agent gets no response "
+            "and causes no crash (SHOULD-ignore) -- the v2 analogue of v1's "
             "`answers_notifications.py` defect pattern, generalised from `session/cancel` "
             "specifically to any custom notification."
         ),

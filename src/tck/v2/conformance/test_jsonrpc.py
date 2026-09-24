@@ -6,7 +6,7 @@ also cover a batch-delivered response/notification/erroneous-request -- but this
 probes are single-message only. That batch half of the evidence lives entirely in
 `test_batch.py` (`@pytest.mark.requirement(...)` markers in both files jointly satisfy each id);
 see its `test_batch_of_requests_replies_with_matching_responses`,
-`test_notification_only_batch_produces_no_output`, and
+`test_notification_only_batch_gets_no_reply`, and
 `test_invalid_batch_entries_get_per_entry_invalid_request`.
 
 No row here needs `skip_if_version_mismatch`: a v1-only agent never receives a batch-shaped probe
@@ -27,7 +27,7 @@ from tck.v2 import SPEC
 from tck.v2.protocol import METHOD_NOT_FOUND
 from tck.v2.validation import validate_response_envelope
 
-from ._helpers import connected_agent, iter_messages, new_session, quiet_period
+from ._helpers import connected_agent, first_response_within, new_session, quiet_period
 
 
 @pytest.mark.requirement("ACP-JSONRPC-001")
@@ -76,18 +76,15 @@ async def test_notification_receives_no_response(agent_launch, tmp_path):
     """ACP-JSONRPC-003. `session/cancel` with no prompt in flight is a pure notification. Checks
     every message inside a batch-array line too, not just a bare object line: an agent that
     folds a spurious response into a batch alongside something else would otherwise pass this
-    MANDATORY check by accident."""
+    MANDATORY check by accident. Only a reply fails this (`_helpers.is_response_line`), not the
+    agent's own notifications or requests."""
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
 
         await agent.send_notification("session/cancel", {"sessionId": session_id})
 
-        def _is_a_response(entry) -> bool:
-            return any("method" not in msg for msg in iter_messages(entry))
-
-        wait = quiet_period(agent_launch.default_timeout)
-        with pytest.raises(AgentTimeout):
-            await agent.wait_for_message(_is_a_response, timeout=wait)
+        entry = await first_response_within(agent, quiet_period(agent_launch.default_timeout))
+        assert entry is None, f"agent replied to a notification: {entry.text!r}"
 
 
 @pytest.mark.requirement("ACP-JSONRPC-004")

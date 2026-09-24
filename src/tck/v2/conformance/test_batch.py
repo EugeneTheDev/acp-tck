@@ -31,7 +31,7 @@ import pytest
 from tck.common.harness import AgentTimeout
 from tck.v2.protocol import INVALID_REQUEST
 
-from ._helpers import probe_behaviour, quiet_period, v2_only_agent
+from ._helpers import first_response_within, probe_behaviour, quiet_period, v2_only_agent
 
 
 @pytest.mark.requirement("ACP-BATCH-201")
@@ -64,18 +64,19 @@ async def test_empty_batch_yields_a_single_invalid_request_object(agent_launch):
 
 
 @pytest.mark.requirement("ACP-BATCH-202", "ACP-JSONRPC-003")
-async def test_notification_only_batch_produces_no_output(agent_launch):
+async def test_notification_only_batch_gets_no_reply(agent_launch):
     """ACP-BATCH-202 (MANDATORY). A batch containing only notifications (no `id` on any entry)
-    must not be replied to at all -- not even an empty array.
+    must not be replied to at all -- not even an empty array. Only a reply fails this
+    (`_helpers.is_response_line`): the agent's own notifications or requests during the quiet
+    period are not replies and are skipped.
 
     Also the sole evidence for `ACP-JSONRPC-003`'s batch-delivered half: `test_jsonrpc.py`'s own
     probe for that id is a bare single notification, never a batch -- this is the one place a
     notification-inside-a-batch is actually sent and checked."""
     async with v2_only_agent(agent_launch) as agent:
         await agent.send_raw(json.dumps([{"jsonrpc": "2.0", "method": "_tck/notify_only"}]))
-        wait = quiet_period(agent_launch.default_timeout)
-        with pytest.raises(AgentTimeout):
-            await agent.read_line(timeout=wait)
+        entry = await first_response_within(agent, quiet_period(agent_launch.default_timeout))
+        assert entry is None, f"agent replied to a notification-only batch: {entry.text!r}"
 
 
 async def _collect_flattened_responses(agent, count: int, *, timeout: float) -> list[dict]:

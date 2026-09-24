@@ -63,7 +63,8 @@ _DECLARATIONS: tuple[Requirement, ...] = (
         tier=Tier.MANDATORY,
         capability=None,
         text=(
-            "Notifications never receive a response, success or error. Concluding \"no "
+            "Notifications never receive a response, success or error. Messages the agent "
+            "itself initiates (they carry `method`) are not responses. Concluding \"no "
             "response arrived\" is inherently a heuristic wait (a quiet period derived from "
             "--tck-timeout, not an infinite one) -- see tck.v1.conformance._helpers.quiet_period."
         ),

@@ -519,6 +519,29 @@ def iter_messages(entry: TranscriptEntry) -> list[dict[str, Any]]:
     return []
 
 
+def is_response_line(entry: TranscriptEntry) -> bool:
+    """True if `entry` carries a reply: any JSON-RPC object without `method`, bare or inside a
+    batch array, even a malformed one missing `id`/`result`/`error`.
+
+    The one rule every "a notification gets no response" check uses. ACP and JSON-RPC 2.0
+    §4.1/§6 forbid only *replies* to a notification. The agent's own notifications and agent ->
+    client requests carry `method`, are not replies, and may arrive at any time after
+    `initialize`. A non-JSON line is not a reply either; the transport rows judge it."""
+    return any("method" not in msg for msg in iter_messages(entry))
+
+
+async def first_response_within(agent: AgentProcess, quiet: float) -> TranscriptEntry | None:
+    """Wait up to `quiet` seconds for a reply (`is_response_line`) and return it, or `None` if
+    none arrived. Agent-initiated messages read meanwhile are skipped and left in
+    `agent.pending()`. An agent -> client request among them is left unanswered, like in every
+    other wait outside `run_prompt`: the check is about what the agent sends, not about driving
+    it further. `AgentExited` propagates."""
+    try:
+        return await agent.wait_for_message(is_response_line, timeout=quiet)
+    except AgentTimeout:
+        return None
+
+
 async def probe_behaviour(
     read: Awaitable[TranscriptEntry],
     on_reply: Callable[[TranscriptEntry], str],

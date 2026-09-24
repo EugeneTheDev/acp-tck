@@ -22,7 +22,16 @@ import pytest
 from tck.common.harness import AgentExited, AgentTimeout, Direction
 from tck.v2 import SPEC, validation
 
-from ._helpers import connected_agent, iter_messages, new_session, quiet_period, run_prompt, skip_if_version_mismatch
+from ._helpers import (
+    connected_agent,
+    first_response_within,
+    is_response_line,
+    iter_messages,
+    new_session,
+    quiet_period,
+    run_prompt,
+    skip_if_version_mismatch,
+)
 
 _PROMPT_TEXT = "hi"
 
@@ -117,18 +126,18 @@ async def test_emitted_meta_is_object_or_null(agent_launch, tmp_path):
 @pytest.mark.requirement("ACP-EXT-201")
 async def test_unrecognized_custom_notification_produces_no_response(agent_launch):
     """ACP-EXT-201 (ADVISORY). An unrecognized `_`-prefixed *notification* sent to the agent
-    produces no response line and no crash (SHOULD-ignore,
-    `docs/protocol/v2/extensibility.mdx:109`) -- the v2 analogue of v1's
-    `answers_notifications.py` defect pattern, generalised to any custom notification rather
-    than specifically `session/cancel`."""
+    produces no response and no crash (SHOULD-ignore, `docs/protocol/v2/extensibility.mdx:109`)
+    -- the v2 analogue of v1's `answers_notifications.py` defect pattern, generalised to any
+    custom notification rather than specifically `session/cancel`. Only a reply fails this
+    (`_helpers.is_response_line`), not the agent's own notifications or requests."""
     async with connected_agent(agent_launch) as agent:
         await agent.send_notification("_tck/ping", {"hello": "world"})
         try:
-            entry = await agent.read_line(timeout=quiet_period(agent_launch.default_timeout))
-        except AgentTimeout:
-            return  # silence -- exactly what SHOULD-ignore predicts
+            entry = await first_response_within(agent, quiet_period(agent_launch.default_timeout))
         except AgentExited:
             pytest.fail("agent exited after receiving an unrecognized custom notification")
+        if entry is None:
+            return  # no reply -- exactly what SHOULD-ignore predicts
         pytest.fail(
             f"agent responded to an unrecognized `_`-prefixed notification (should be ignored "
             f"silently): {entry.text!r}"
@@ -171,11 +180,14 @@ async def test_dollar_prefixed_protocol_notification_behaviour(agent_launch, rec
     """ACP-EXT-203 (INFORMATIONAL -- the spec explicitly says the agent "is free to ignore" a
     `$/`-prefixed protocol-level notification it does not implement,
     `schema/v2/schema.json:6967-6990`; there is no conforming/non-conforming distinction, so this
-    only records what happens, never asserts)."""
+    only records what happens, never asserts). Like `ACP-EXT-201`, only a reply counts, not the
+    agent's own notifications or requests."""
     async with connected_agent(agent_launch) as agent:
         await agent.send_notification("$/does_not_exist", {})
         try:
-            entry = await agent.read_line(timeout=quiet_period(agent_launch.default_timeout))
+            entry = await agent.wait_for_message(
+                is_response_line, timeout=quiet_period(agent_launch.default_timeout)
+            )
         except AgentTimeout:
             behaviour = "silent (ignored)"
         except AgentExited as exc:

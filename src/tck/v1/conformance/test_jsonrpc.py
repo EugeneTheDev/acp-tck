@@ -18,7 +18,7 @@ from tck.common.harness import AgentTimeout
 from tck.v1.protocol import METHOD_NOT_FOUND, PROTOCOL_VERSION
 from tck.v1.validation import validate_response_envelope
 
-from ._helpers import connected_agent, new_session, quiet_period
+from ._helpers import connected_agent, first_response_within, new_session, quiet_period
 
 
 @pytest.mark.requirement("ACP-JSONRPC-001")
@@ -97,20 +97,17 @@ async def test_notification_receives_no_response(agent_launch, tmp_path):
     was registered since this test already asserts it.
 
     Uses `new_session()` (not a hand-rolled `session/new`) so it SKIPs via `skip_if_auth_gated`
-    instead of crashing with a `KeyError` on an agent that gates `session/new` behind auth."""
+    instead of crashing with a `KeyError` on an agent that gates `session/new` behind auth.
+
+    Only a reply fails this (`_helpers.is_response_line`), not the agent's own notifications or
+    requests."""
     async with connected_agent(agent_launch) as agent:
         session_id = await new_session(agent, tmp_path, timeout=agent_launch.default_timeout)
 
         await agent.send_notification("session/cancel", {"sessionId": session_id})
 
-        def _is_a_response(entry) -> bool:
-            # A line without `method` is a reply of some kind, even a malformed one missing
-            # `id`/`result`/`error` -- don't require `id` to be present.
-            return isinstance(entry.parsed, dict) and "method" not in entry.parsed
-
-        wait = quiet_period(agent_launch.default_timeout)
-        with pytest.raises(AgentTimeout):
-            await agent.wait_for_message(_is_a_response, timeout=wait)
+        entry = await first_response_within(agent, quiet_period(agent_launch.default_timeout))
+        assert entry is None, f"agent replied to a notification: {entry.text!r}"
 
 
 @pytest.mark.requirement("ACP-JSONRPC-005")
