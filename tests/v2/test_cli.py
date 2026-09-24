@@ -284,6 +284,57 @@ def test_help_mentions_protocol_version_option():
     assert "--protocol-version" in result.stdout
 
 
+_CONFORMING_EXPECTED_SKIPS = {
+    "ACP-PROMPTCAP-001",
+    "ACP-PROMPTCAP-002",
+    "ACP-PROMPTCAP-003",
+    "ACP-PERM-201",
+    "ACP-DELETE-201",
+    "ACP-DELETE-202",
+    "ACP-DELETE-203",
+    "ACP-ADDDIRS-201",
+    "ACP-ADDDIRS-202",
+    "ACP-MCP-201",
+    "ACP-MCP-202",
+    "ACP-CONFIG-201",
+    "ACP-CONFIG-202",
+    "ACP-CONFIG-203",
+    "ACP-CONFIG-204",
+    "ACP-CONFIG-206",
+    "ACP-AUTH-201",
+    "ACP-AUTH-203",
+    "ACP-AUTH-204",
+    "ACP-AUTH-206",
+    "ACP-AUTH-207",
+    "ACP-ENUM-201",
+    "ACP-ENUM-203",
+    "ACP-PATCH-204",
+    "ACP-PATCH-205",
+    "ACP-PATCH-206",
+    "ACP-PATCH-207",
+    "ACP-PATCH-208",
+    "ACP-PATCH-209",
+} | _CANCEL_RACE_SKIP_IDS | _ALWAYS_SKIPPED_IDS
+
+
+def _assert_conforming_baseline(result: subprocess.CompletedProcess[str], fixture: str) -> None:
+    """Assert `result` matches `conforming.py`'s own full-run outcome (see its test below):
+    every id in `_CONFORMING_EXPECTED_SKIPS` SKIPs, every other id PASSes."""
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    assert set(statuses) == _ALL_IDS, f"requirement table missing/extra ids: {result.stdout}"
+    for req_id, status in statuses.items():
+        if req_id in _CONFORMING_EXPECTED_SKIPS:
+            assert status == "SKIPPED", (
+                f"{req_id} is {status}, expected SKIPPED (not advertised / no permission "
+                f"request observed):\n{result.stdout}"
+            )
+        else:
+            assert status == "PASS", f"{req_id} is {status}, expected PASS for {fixture}:\n{result.stdout}"
+    assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
+
+
 def test_v2_conforming_agent_passes_everything():
     """`conforming.py` advertises only the plain `session: {}` baseline -- no prompt-content
     capabilities, no `delete`/`additionalDirectories`/`mcp` marker, no `configOptions`, no
@@ -310,50 +361,7 @@ def test_v2_conforming_agent_passes_everything():
     `conforming_full.py`'s own self-test below (with `--cancel-prompt __hang__`) for the "every
     exercisable id PASSes" fixture."""
     result = _run_cli(FIXTURES_DIR_V2, "conforming.py", protocol_version=2)
-    assert result.returncode == 0, result.stdout + result.stderr
-
-    statuses = _table_statuses(result.stdout)
-    assert set(statuses) == _ALL_IDS, f"requirement table missing/extra ids: {result.stdout}"
-    expected_skips = {
-        "ACP-PROMPTCAP-001",
-        "ACP-PROMPTCAP-002",
-        "ACP-PROMPTCAP-003",
-        "ACP-PERM-201",
-        "ACP-DELETE-201",
-        "ACP-DELETE-202",
-        "ACP-DELETE-203",
-        "ACP-ADDDIRS-201",
-        "ACP-ADDDIRS-202",
-        "ACP-MCP-201",
-        "ACP-MCP-202",
-        "ACP-CONFIG-201",
-        "ACP-CONFIG-202",
-        "ACP-CONFIG-203",
-        "ACP-CONFIG-204",
-        "ACP-CONFIG-206",
-        "ACP-AUTH-201",
-        "ACP-AUTH-203",
-        "ACP-AUTH-204",
-        "ACP-AUTH-206",
-        "ACP-AUTH-207",
-        "ACP-ENUM-201",
-        "ACP-ENUM-203",
-        "ACP-PATCH-204",
-        "ACP-PATCH-205",
-        "ACP-PATCH-206",
-        "ACP-PATCH-207",
-        "ACP-PATCH-208",
-        "ACP-PATCH-209",
-    } | _CANCEL_RACE_SKIP_IDS | _ALWAYS_SKIPPED_IDS
-    for req_id, status in statuses.items():
-        if req_id in expected_skips:
-            assert status == "SKIPPED", (
-                f"{req_id} is {status}, expected SKIPPED (not advertised / no permission "
-                f"request observed):\n{result.stdout}"
-            )
-        else:
-            assert status == "PASS", f"{req_id} is {status}, expected PASS for the v2 conforming fixture:\n{result.stdout}"
-    assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
+    _assert_conforming_baseline(result, "conforming.py")
 
 
 def test_v2_conforming_full_agent_passes_everything():
@@ -1466,6 +1474,32 @@ def test_v2_answers_notifications_fails_jsonrpc_003_only():
     fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
     assert fails == {"ACP-JSONRPC-003"}, result.stdout
     assert "VERDICT: NOT CONFORMANT" in result.stdout, result.stdout
+
+
+def test_v2_pushes_status_notifications_passes_everything():
+    """`pushes_status_notifications.py` pushes an unsolicited `_`-prefixed notification after
+    every notification it receives, so one lands in the quiet period of `ACP-JSONRPC-003`/
+    `ACP-BATCH-202`/`ACP-EXT-201`. A notification is not a reply, so the outcome must match
+    `conforming.py`'s exactly."""
+    result = _run_cli(FIXTURES_DIR_V2, "pushes_status_notifications.py", protocol_version=2)
+    _assert_conforming_baseline(result, "pushes_status_notifications.py")
+
+
+def test_v2_pushes_status_and_answers_notifications_fails_no_reply_rows_only():
+    """`pushes_status_and_answers_notifications.py` pushes the same status notification, then
+    also replies to the notification. The leading notification must not hide the reply behind
+    it: every "a notification gets no response" row still FAILs."""
+    result = _run_cli(
+        FIXTURES_DIR_V2,
+        "pushes_status_and_answers_notifications.py",
+        protocol_version=2,
+        k="test_batch or test_jsonrpc or test_extensibility",
+    )
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-JSONRPC-003", "ACP-BATCH-202", "ACP-EXT-201"}, result.stdout
 
 
 def test_v2_result_and_error_fails_jsonrpc_002_and_schema_001_only():

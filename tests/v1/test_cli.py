@@ -504,6 +504,35 @@ def test_answers_notifications_fails_jsonrpc_003_only():
         assert statuses.get(req_id) == "PASS", f"{req_id} should still PASS:\n{result.stdout}"
 
 
+def test_pushes_status_notifications_passes_everything():
+    """`pushes_status_notifications.py` pushes an unprompted `_`-prefixed notification right
+    after `initialize` and after every notification it receives, so one lands in
+    `ACP-JSONRPC-003`'s quiet period. A notification is not a reply, so the outcome must match
+    `conforming.py`'s exactly."""
+    result = _run_cli("pushes_status_notifications.py")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    statuses = _table_statuses(result.stdout)
+    assert set(statuses) == _ALL_IDS | _INFORMATIONAL_IDS, result.stdout
+    skip_ids = _CANCEL_IDS | _CAPABILITY_GATED_IDS
+    for req_id, status in statuses.items():
+        expected = "SKIPPED" if req_id in skip_ids else "PASS"
+        assert status == expected, f"{req_id} is {status}, expected {expected}:\n{result.stdout}"
+    assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
+
+
+def test_pushes_status_and_answers_notifications_fails_jsonrpc_003_only():
+    """`pushes_status_and_answers_notifications.py` pushes the same status notification, then
+    also replies to the notification. The leading notification must not hide the reply behind
+    it."""
+    result = _run_cli("pushes_status_and_answers_notifications.py")
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-JSONRPC-003"}, result.stdout
+
+
 def test_unknown_method_no_error_only_fails_the_advisory_requirement():
     """An ADVISORY-only failure must not affect the verdict: exit code 0, `VERDICT: CONFORMANT`,
     even though ACP-JSONRPC-004 itself FAILs."""
