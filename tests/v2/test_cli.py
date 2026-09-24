@@ -2115,6 +2115,38 @@ def test_unknown_root_key_fails_schema_002_only():
     assert fails == {"ACP-SCHEMA-002"}, result.stdout
 
 
+def test_unstable_capability_key_passes_ext_202():
+    """`unstable_capability_key.py` advertises `capabilities.providers: {}` -- a root key that
+    only the Draft `schema.unstable.json` defines, not the vendored `schema.json`. This must
+    PASS `ACP-EXT-202`: an unstable-schema-typed RFD field is not an undeclared vendor
+    extension, so `find_unknown_root_keys` must recognize it rather than flag it."""
+    result = _run_cli(
+        FIXTURES_DIR_V2, "unstable_capability_key.py", protocol_version=2, k="test_extensibility or initialize"
+    )
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == set(), result.stdout
+    assert statuses.get("ACP-EXT-202") == "PASS", result.stdout
+
+
+def test_unknown_capability_root_key_fails_ext_202():
+    """`unknown_capability_root_key.py` adds `capabilities.vendorFeature`, which has no home in
+    either the stable or the Draft unstable schema -- `ACP-EXT-202` must still FAIL for a
+    genuinely unrecognized `capabilities` root key, proving the unstable-schema carve-out did
+    not turn the check into one that accepts anything."""
+    result = _run_cli(
+        FIXTURES_DIR_V2,
+        "unknown_capability_root_key.py",
+        protocol_version=2,
+        k="test_extensibility or initialize",
+    )
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-EXT-202"}, result.stdout
+
+
 def test_noisy_stderr_and_parse_error_reply_fails_nothing():
     """`noisy_stderr_and_parse_error_reply.py` logs every raw line to stderr and replies with an
     explicit `-32700` to malformed JSON instead of staying silent -- self-test only, exercising
