@@ -175,6 +175,16 @@ def _table_statuses(output: str) -> dict[str, str]:
     return statuses
 
 
+def _table_notes(output: str) -> dict[str, str]:
+    """Parse each summary-table row's trailing `(note)` text (empty if none), keyed by id."""
+    notes: dict[str, str] = {}
+    for line in output.splitlines():
+        match = _TABLE_ROW_RE.match(line)
+        if match:
+            notes[match.group(1)] = line[match.end():].strip()
+    return notes
+
+
 def test_help_works():
     result = subprocess.run(
         [sys.executable, "-m", "tck", "--help"], capture_output=True, text=True, timeout=10
@@ -506,9 +516,10 @@ def test_answers_notifications_fails_jsonrpc_003_only():
 
 def test_pushes_status_notifications_passes_everything():
     """`pushes_status_notifications.py` pushes an unprompted `_`-prefixed notification right
-    after `initialize` and after every notification it receives, so one lands in
-    `ACP-JSONRPC-003`'s quiet period. A notification is not a reply, so the outcome must match
-    `conforming.py`'s exactly."""
+    after `initialize` and before handling every later line, so one lands in `ACP-JSONRPC-003`'s
+    quiet period and ahead of every reply. A notification is not a reply, so the outcome must
+    match `conforming.py`'s exactly -- including the `ACP-INFO-*` probes' recorded behaviour,
+    which must not mistake the push for the agent's reply."""
     result = _run_cli("pushes_status_notifications.py")
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -519,6 +530,12 @@ def test_pushes_status_notifications_passes_everything():
         expected = "SKIPPED" if req_id in skip_ids else "PASS"
         assert status == expected, f"{req_id} is {status}, expected {expected}:\n{result.stdout}"
     assert "VERDICT: CONFORMANT" in result.stdout, result.stdout
+
+    notes = _table_notes(result.stdout)
+    for req_id in ("ACP-INFO-PARSE-001", "ACP-INFO-INVALIDREQ-001"):
+        assert notes[req_id].startswith("(silent;"), f"{req_id}: {notes[req_id]}"
+    for req_id, note in notes.items():
+        assert "_fixture/status_update" not in note, f"{req_id}: {note}"
 
 
 def test_pushes_status_and_answers_notifications_fails_jsonrpc_003_only():

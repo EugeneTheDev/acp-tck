@@ -243,6 +243,16 @@ def _table_statuses(output: str) -> dict[str, str]:
     return statuses
 
 
+def _table_notes(output: str) -> dict[str, str]:
+    """Parse each summary-table row's trailing `(note)` text (empty if none), keyed by id."""
+    notes: dict[str, str] = {}
+    for line in output.splitlines():
+        match = _TABLE_ROW_RE.match(line)
+        if match:
+            notes[match.group(1)] = line[match.end():].strip()
+    return notes
+
+
 def _run_cli(
     fixture_dir: Path,
     fixture: str,
@@ -1477,12 +1487,21 @@ def test_v2_answers_notifications_fails_jsonrpc_003_only():
 
 
 def test_v2_pushes_status_notifications_passes_everything():
-    """`pushes_status_notifications.py` pushes an unsolicited `_`-prefixed notification after
-    every notification it receives, so one lands in the quiet period of `ACP-JSONRPC-003`/
-    `ACP-BATCH-202`/`ACP-EXT-201`. A notification is not a reply, so the outcome must match
-    `conforming.py`'s exactly."""
+    """`pushes_status_notifications.py` pushes an unsolicited `_`-prefixed notification right
+    after `initialize` and before handling every later message, plus a batch of such
+    notifications ahead of every batch reply. So they land both in the quiet period of
+    `ACP-JSONRPC-003`/`ACP-BATCH-202`/`ACP-EXT-201` and between a request (single or batch)
+    and its reply (`ACP-BATCH-201`/`203`/`204`, `ACP-JSONRPC-001`/`005`). A notification is not
+    a reply, so the outcome must match `conforming.py`'s exactly -- including the
+    INFORMATIONAL probes' recorded behaviour, which must not mistake a push for the reply."""
     result = _run_cli(FIXTURES_DIR_V2, "pushes_status_notifications.py", protocol_version=2)
     _assert_conforming_baseline(result, "pushes_status_notifications.py")
+
+    notes = _table_notes(result.stdout)
+    for req_id in ("ACP-INFO-PARSE-001", "ACP-INFO-INVALIDREQ-001", "ACP-INFO-BATCH-201", "ACP-EXT-203"):
+        assert notes[req_id].startswith("(silent"), f"{req_id}: {notes[req_id]}"
+    for req_id, note in notes.items():
+        assert "_fixture/status_update" not in note, f"{req_id}: {note}"
 
 
 def test_v2_pushes_status_and_answers_notifications_fails_no_reply_rows_only():
@@ -1500,6 +1519,27 @@ def test_v2_pushes_status_and_answers_notifications_fails_no_reply_rows_only():
     statuses = _table_statuses(result.stdout)
     fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
     assert fails == {"ACP-JSONRPC-003", "ACP-BATCH-202", "ACP-EXT-201"}, result.stdout
+
+
+def test_v2_pushes_status_and_splits_batch_replies_fails_batch_204_only():
+    """`pushes_status_and_splits_batch_replies.py` pushes the same status notifications, but
+    answers a batch with separate response lines (a push between them) instead of one array.
+    Skipping the pushes must not change how the reply's shape is judged: the `ACP-BATCH-204`/
+    `205` test (which also carries `ACP-JSONRPC-001`) still FAILs, while `ACP-BATCH-203`, which
+    counts response objects across lines, still PASSes."""
+    result = _run_cli(
+        FIXTURES_DIR_V2,
+        "pushes_status_and_splits_batch_replies.py",
+        protocol_version=2,
+        k="test_batch or test_jsonrpc",
+    )
+    assert result.returncode != 0
+
+    statuses = _table_statuses(result.stdout)
+    fails = {req_id for req_id, status in statuses.items() if status == "FAIL"}
+    assert fails == {"ACP-BATCH-204", "ACP-BATCH-205", "ACP-JSONRPC-001"}, result.stdout
+    for req_id in ("ACP-BATCH-201", "ACP-BATCH-202", "ACP-BATCH-203", "ACP-JSONRPC-005"):
+        assert statuses.get(req_id) == "PASS", f"{req_id}: {result.stdout}"
 
 
 def test_v2_result_and_error_fails_jsonrpc_002_and_schema_001_only():
