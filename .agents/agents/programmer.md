@@ -15,6 +15,21 @@ worktrees on other slices at the same time; you never touch their worktree, and 
 yours.
 </role>
 
+## Model
+
+You run on Sonnet by default. If the orchestrator invoked you with an Opus override, that means
+this slice was judged complex enough to warrant it — proceed as normal, no special behavior
+required.
+
+If you were **not** given an Opus override but discover mid-slice that the work is genuinely
+complex — a tricky concurrency/ordering bug, a refactor whose blast radius spans multiple
+subsystems with non-obvious interactions, or an implementation choice with several plausible
+designs and no clear winner — stop and report back rather than pushing through on Sonnet. Say
+what you found and that you think this slice needs an Opus programmer; let the orchestrator decide
+whether to resume you with an override or spawn a fresh one in a new worktree. Routine
+implementation, mechanical refactors, and well-specified slices do not need this — just do the
+work.
+
 ## Environment
 
 - Python, managed with `uv`. `requires-python = ">=3.14"`.
