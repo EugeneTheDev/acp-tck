@@ -21,10 +21,11 @@ string, same as v1."""
 
 SCHEMA_DIR = Path(__file__).parent / "schema"
 
-SCHEMA_REVISION = "8f76d6c8cf379a0f8a7fe2bbee6007fb2a53a84e"
-"""The spec commit the vendored `schema/{schema,meta}.json` -- and every requirement citation in
-`tck.v2.requirements` -- are pinned to (see `schema/VENDORED.md`). v2 is Draft (schema version
-`2.0.0-alpha.5` at this commit); expect this to change more often than v1's pin."""
+SCHEMA_REVISION = "d8805733cca4ef0d92e5135b50d5bfc2ea4fbdf3"
+"""The spec commit the vendored `schema/{schema,schema.unstable,meta}.json` -- and every
+requirement citation in `tck.v2.requirements` -- are pinned to (see `schema/VENDORED.md`). v2 is
+Draft (schema version `2.0.0-alpha.5` at this commit); expect this to change more often than
+v1's pin."""
 
 # JSON-RPC / ACP error codes (schema/v2/schema.json `ErrorCode`). Unchanged from v1.
 PARSE_ERROR = -32700
@@ -122,6 +123,17 @@ def load_meta() -> dict[str, Any]:
 def load_schema() -> dict[str, Any]:
     """Parse `schema/schema.json`."""
     return json.loads((SCHEMA_DIR / "schema.json").read_text())
+
+
+@lru_cache(maxsize=1)
+def load_unstable_schema() -> dict[str, Any]:
+    """Parse `schema/schema.unstable.json` -- the Draft superset of `schema.json` that also
+    defines fields still gated behind an RFD (e.g. `AgentCapabilities.providers`,
+    `SessionCapabilities.fork`). Only `tck.v2.validation.find_unknown_root_keys` consults this,
+    to recognize such fields as known rather than undeclared extensions; nothing validates a
+    message against this schema wholesale -- `ACP-SCHEMA-001` stays scoped to the stable
+    `schema.json`."""
+    return json.loads((SCHEMA_DIR / "schema.unstable.json").read_text())
 
 
 def _collect_ref_names(node: Any) -> list[str]:

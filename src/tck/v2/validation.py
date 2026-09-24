@@ -25,6 +25,15 @@ ways this module encodes:
    fallback and the check is skipped (`[]`) instead of flagging extra fields. A missing/`null`/
    non-`_`-prefixed discriminator does not count, so a malformed discriminator can't dodge the
    check.
+4. **Unstable-schema root keys aren't "unrecognized".** `find_unknown_root_keys` also resolves
+   `#/$defs/{def_name}` against the vendored `schema.unstable.json` (a Draft superset of
+   `schema.json`) and allows any root key declared there, e.g. `AgentCapabilities.providers`
+   (RFD, `docs/rfds/custom-llm-endpoint.mdx`) or `SessionCapabilities.fork` (RFD,
+   `docs/rfds/session-fork.mdx`). Those fields are typed, spec-tracked fields of a real RFD, not
+   vendor extensions -- flagging them as unrecognized root keys was a TCK false positive, since
+   the TCK only vendors the stable schema. Full jsonschema validation (`validate_agent_message`/
+   `validate_agent_response`, `ACP-SCHEMA-001`) is unaffected and stays scoped to the stable
+   schema only.
 """
 
 from __future__ import annotations
@@ -36,7 +45,7 @@ from typing import Any
 import jsonschema
 from jsonschema import Draft202012Validator
 
-from .protocol import load_schema
+from .protocol import load_schema, load_unstable_schema
 
 _DRAFT_VALIDATORS: dict[str, type[jsonschema.protocols.Validator]] = {
     "https://json-schema.org/draft/2020-12/schema": Draft202012Validator,
@@ -335,18 +344,12 @@ def validate_response_envelope(msg: dict[str, Any]) -> list[ValidationIssue]:
     return issues
 
 
-@lru_cache(maxsize=None)
-def _allowed_root_properties(def_name: str) -> set[str] | None:
-    """The set of property names permitted at the root of `#/$defs/{def_name}`, resolved by
-    walking `allOf`/`anyOf`/`oneOf`/`$ref` (needed because the vendored schema has no
-    `additionalProperties: false` anywhere, same as v1).
-
-    Returns `None` if no branch in the composition ever declares a non-empty `properties` map
-    (e.g. `def_name` is a bare scalar/array `$def`) -- there is nothing meaningful to compare an
-    object's keys against in that case, and the caller should skip the check rather than flag
-    every key as unknown.
-    """
-    defs = load_schema()["$defs"]
+def _collect_root_properties(defs: dict[str, Any], def_name: str) -> tuple[set[str], bool]:
+    """Walk `#/$defs/{def_name}` within one schema's `$defs` map, resolving `allOf`/`anyOf`/
+    `oneOf`/`$ref` (needed because the vendored schemas have no `additionalProperties: false`
+    anywhere, same as v1). Returns the property names found plus whether any branch in the
+    composition declared a non-empty `properties` map at all -- `def_name` may be a bare
+    scalar/array `$def`, or simply absent from this particular schema's `$defs`."""
     seen: set[str] = set()
     allowed: set[str] = set()
     found_any_properties = False
@@ -372,8 +375,28 @@ def _allowed_root_properties(def_name: str) -> set[str] | None:
                     _walk(branch)
 
     _walk(defs.get(def_name, {}))
-    if not found_any_properties:
+    return allowed, found_any_properties
+
+
+@lru_cache(maxsize=None)
+def _allowed_root_properties(def_name: str) -> set[str] | None:
+    """The set of property names permitted at the root of `#/$defs/{def_name}`, unioned across
+    the stable schema (`schema.json`) and the Draft `schema.unstable.json` -- a field that only
+    the unstable schema defines (e.g. `AgentCapabilities.providers`) is still a real, spec-typed
+    field of an RFD, not a vendor extension, so it counts as known here (module docstring point
+    4). Full jsonschema validation elsewhere in this module stays scoped to the stable schema.
+
+    Returns `None` if neither schema's composition for `def_name` ever declares a non-empty
+    `properties` map -- there is nothing meaningful to compare an object's keys against in that
+    case, and the caller should skip the check rather than flag every key as unknown.
+    """
+    stable_allowed, stable_found = _collect_root_properties(load_schema()["$defs"], def_name)
+    unstable_allowed, unstable_found = _collect_root_properties(
+        load_unstable_schema()["$defs"], def_name
+    )
+    if not stable_found and not unstable_found:
         return None
+    allowed = stable_allowed | unstable_allowed
     allowed.add("_meta")
     return allowed
 
