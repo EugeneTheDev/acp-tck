@@ -31,7 +31,13 @@ import pytest
 from tck.common.harness import AgentTimeout
 from tck.v2.protocol import INVALID_REQUEST
 
-from ._helpers import first_response_within, probe_behaviour, quiet_period, v2_only_agent
+from ._helpers import (
+    first_response_within,
+    next_reply_line,
+    probe_behaviour,
+    quiet_period,
+    v2_only_agent,
+)
 
 
 @pytest.mark.requirement("ACP-BATCH-201")
@@ -39,22 +45,11 @@ async def test_empty_batch_yields_a_single_invalid_request_object(agent_launch):
     """ACP-BATCH-201 (MANDATORY). An empty array on stdin gets back a single Invalid Request
     (`-32600`) response *object* with `id: null` -- never a response array.
 
-    Reads until a response-shaped line arrives (a dict with no `method`), bounded by
-    `agent_launch.default_timeout`, rather than judging exactly one line: a single spontaneous
-    notification arriving first (e.g. a `session/update` from unrelated background activity)
-    must not fail this MANDATORY row just because it happened to be first on the wire."""
+    The agent's own notifications or requests arriving first, bare or batched, are skipped
+    (`_helpers.next_reply_line`); the first other line is judged."""
     async with v2_only_agent(agent_launch) as agent:
         await agent.send_raw("[]")
-
-        def _is_not_a_spontaneous_notification(entry) -> bool:
-            parsed = entry.parsed
-            if isinstance(parsed, dict):
-                return "method" not in parsed  # skip bare notifications only
-            return True  # anything else (a batch array, malformed JSON, ...) -- stop and judge it
-
-        entry = await agent.wait_for_message(
-            _is_not_a_spontaneous_notification, timeout=agent_launch.default_timeout
-        )
+        entry = await next_reply_line(agent, agent_launch.default_timeout)
         msg = entry.parsed
         assert isinstance(msg, dict), f"expected a single response object, got {entry.raw!r}"
         assert msg.get("id") is None, f"expected id: null, got {msg.get('id')!r}"
@@ -83,6 +78,8 @@ async def _collect_flattened_responses(agent, count: int, *, timeout: float) -> 
     """Read lines until `count` response objects have been observed, flattening both a
     conforming single response array and a non-conforming agent's separate top-level object
     lines -- this helper's own job is only to gather evidence, not to judge `ACP-BATCH-204`.
+    Lines made only of the agent's own notifications or requests are skipped
+    (`_helpers.next_reply_line`); every other line counts.
 
     `timeout` bounds the *whole* collection, not each individual read: an agent that trickles
     one response object per line, each safely within `timeout` of the last, would otherwise let
@@ -101,7 +98,7 @@ async def _collect_flattened_responses(agent, count: int, *, timeout: float) -> 
                 agent.transcript,
                 stderr=agent.stderr_text(),
             )
-        entry = await agent.read_line(timeout=remaining)
+        entry = await next_reply_line(agent, remaining)
         parsed = entry.parsed
         if isinstance(parsed, list):
             collected.extend(parsed)
@@ -167,7 +164,10 @@ async def test_batch_of_requests_replies_with_matching_responses(agent_launch):
     a client SHOULD NOT batch lifecycle-sensitive methods
     -- exactly what `ACP-BATCH-208` (this file, below) tests for -- so a probe for 204/205 must
     not itself rely on batching one. `session/list` is side-effect-free and requires no session
-    to already exist, so it needs no `skip_if_auth_gated_msg`/`tmp_path` plumbing either."""
+    to already exist, so it needs no `skip_if_auth_gated_msg`/`tmp_path` plumbing either.
+
+    The agent's own notifications or requests before the reply, bare or batched, are skipped
+    (`_helpers.next_reply_line`); the first other line must be the reply array."""
     async with v2_only_agent(agent_launch) as agent:
         await agent.send_raw(
             json.dumps(
@@ -177,7 +177,7 @@ async def test_batch_of_requests_replies_with_matching_responses(agent_launch):
                 ]
             )
         )
-        entry = await agent.read_line(timeout=agent_launch.default_timeout)
+        entry = await next_reply_line(agent, agent_launch.default_timeout)
         msg = entry.parsed
         assert isinstance(msg, list) and len(msg) == 2, (
             f"expected one array with both responses: {entry.raw!r}"
@@ -242,7 +242,7 @@ async def test_invalid_json_batch_line_behaviour(agent_launch, record_property):
             return f"other: {entry.raw!r}"
 
         behaviour = await probe_behaviour(
-            agent.read_line(timeout=quiet_period(agent_launch.default_timeout)), _on_reply
+            next_reply_line(agent, quiet_period(agent_launch.default_timeout)), _on_reply
         )
         record_property("behaviour", behaviour)
 
@@ -263,7 +263,7 @@ async def test_mixed_call_and_response_shaped_batch_behaviour(agent_launch, reco
             )
         )
         behaviour = await probe_behaviour(
-            agent.read_line(timeout=quiet_period(agent_launch.default_timeout)),
+            next_reply_line(agent, quiet_period(agent_launch.default_timeout)),
             lambda entry: f"responded: {entry.raw!r}",
         )
         record_property("behaviour", behaviour)

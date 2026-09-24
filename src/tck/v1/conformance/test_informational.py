@@ -12,7 +12,8 @@ reaction (if any) cannot contaminate a later test's connection.
 Concluding "the agent stayed silent" uses `quiet_period()`, not the full `--tck-timeout` -- a
 v1 TCK must not fail an agent for skipping malformed/non-envelope input (the reference SDK does
 exactly that), and must be prepared for "no response at all" without burning the full
-per-response deadline to conclude it.
+per-response deadline to conclude it. The agent's own notifications or requests in that window
+are not a reply and are skipped (`_helpers.next_reply_line`).
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ import pytest
 from tck.common.harness import AgentExited, AgentTimeout
 from tck.v1.protocol import PROTOCOL_VERSION
 
-from ._helpers import connected_agent, new_session, quiet_period, skip_if_auth_gated
+from ._helpers import connected_agent, new_session, next_reply_line, quiet_period, skip_if_auth_gated
 
 
 async def _probe_connection_usable_after(agent, tmp_path, timeout: float) -> str:
@@ -55,7 +56,7 @@ async def test_malformed_json_line_behaviour(agent_launch, tmp_path, record_prop
         await agent.send_raw(b"{not valid json at all")
 
         try:
-            entry = await agent.read_line(timeout=quiet_period(agent_launch.default_timeout))
+            entry = await next_reply_line(agent, quiet_period(agent_launch.default_timeout))
         except AgentTimeout:
             behaviour = "silent"
         except AgentExited as exc:
@@ -95,7 +96,7 @@ async def test_structurally_invalid_request_behaviour(agent_launch, tmp_path, re
         await agent.send_raw(b'{"foo": "bar"}')
 
         try:
-            entry = await agent.read_line(timeout=quiet_period(agent_launch.default_timeout))
+            entry = await next_reply_line(agent, quiet_period(agent_launch.default_timeout))
         except AgentTimeout:
             behaviour = "silent"
         except AgentExited as exc:

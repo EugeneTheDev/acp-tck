@@ -14,7 +14,8 @@ swallows a `session/new` failure into an "unusable" string instead.
 Concluding "the agent stayed silent" uses `quiet_period()`, not the full timeout, for the
 concurrency/parse/invalid-request probes -- except UNKNOWNSESSION-001, which uses the full
 timeout since an agent may legitimately take a normal amount of time to reject a bogus
-`sessionId`.
+`sessionId`. In the parse/invalid-request probes, the agent's own notifications or requests in
+that window are not a reply and are skipped (`_helpers.next_reply_line`).
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import pytest
 from tck.common.harness import AgentExited, AgentTimeout
 from tck.v2 import SPEC
 
-from ._helpers import connected_agent, new_session, probe_behaviour, quiet_period
+from ._helpers import connected_agent, new_session, next_reply_line, probe_behaviour, quiet_period
 
 _PROMPT_TEXT = "hi"
 
@@ -149,7 +150,7 @@ async def test_malformed_json_line_behaviour(agent_launch, tmp_path, record_prop
 
         await agent.send_raw(b"{not valid json at all")
         behaviour = await probe_behaviour(
-            agent.read_line(timeout=quiet_period(agent_launch.default_timeout)),
+            next_reply_line(agent, quiet_period(agent_launch.default_timeout)),
             _classify_reply,
         )
 
@@ -173,7 +174,7 @@ async def test_structurally_invalid_request_behaviour(agent_launch, tmp_path, re
 
         await agent.send_raw(b'{"foo": "bar"}')
         behaviour = await probe_behaviour(
-            agent.read_line(timeout=quiet_period(agent_launch.default_timeout)),
+            next_reply_line(agent, quiet_period(agent_launch.default_timeout)),
             _classify_reply,
         )
 

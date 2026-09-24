@@ -542,6 +542,33 @@ async def first_response_within(agent: AgentProcess, quiet: float) -> Transcript
         return None
 
 
+def is_agent_initiated(entry: TranscriptEntry) -> bool:
+    """True if `entry` is made only of messages the agent initiated on its own: a JSON-RPC
+    object carrying `method` (a notification or an agent -> client request), or a non-empty
+    batch array whose every element is one (`ACP-BATCH-207` lets an agent batch its own
+    notifications). Such a line may arrive at any time after `initialize`, so it is never the
+    reply a check is waiting for.
+
+    An array with even one other element (a response, a scalar) is not agent-initiated: it is
+    left for the caller to judge as a reply, malformed or not. Neither is `[]`."""
+    parsed = entry.parsed
+    if isinstance(parsed, dict):
+        return "method" in parsed
+    if isinstance(parsed, list) and parsed:
+        return all(isinstance(item, dict) and "method" in item for item in parsed)
+    return False
+
+
+async def next_reply_line(agent: AgentProcess, timeout: float) -> TranscriptEntry:
+    """Return the first line within `timeout` that is not agent-initiated
+    (`is_agent_initiated`), for the caller to judge as the reply it waits for. Anything else --
+    a response object or array, but also a non-JSON or otherwise malformed line -- is returned
+    as-is, so the caller still judges the reply's shape (one array or separate objects, one line
+    or several). Skipped lines stay in `agent.pending()`, and an agent -> client request among
+    them is left unanswered. `AgentTimeout`/`AgentExited` propagate."""
+    return await agent.wait_for_message(lambda entry: not is_agent_initiated(entry), timeout=timeout)
+
+
 async def probe_behaviour(
     read: Awaitable[TranscriptEntry],
     on_reply: Callable[[TranscriptEntry], str],

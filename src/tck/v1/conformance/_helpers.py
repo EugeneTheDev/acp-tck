@@ -176,6 +176,22 @@ async def first_response_within(agent: AgentProcess, quiet: float) -> Transcript
         return None
 
 
+def is_agent_initiated(entry: TranscriptEntry) -> bool:
+    """True if `entry` is a message the agent initiated on its own: a JSON-RPC object carrying
+    `method` (a notification or an agent -> client request). It may arrive at any time after
+    `initialize`, so it is never the reply a check is waiting for."""
+    return isinstance(entry.parsed, dict) and "method" in entry.parsed
+
+
+async def next_reply_line(agent: AgentProcess, timeout: float) -> TranscriptEntry:
+    """Return the first line within `timeout` that is not agent-initiated
+    (`is_agent_initiated`), for the caller to judge as the reply it waits for. Anything else --
+    a response object, but also a non-JSON or otherwise malformed line -- is returned as-is.
+    Skipped lines stay in `agent.pending()`, and an agent -> client request among them is left
+    unanswered. `AgentTimeout`/`AgentExited` propagate."""
+    return await agent.wait_for_message(lambda entry: not is_agent_initiated(entry), timeout=timeout)
+
+
 def cancel_race_peek(timeout: float) -> float:
     """Like `quiet_period`, but for the much shorter peek `run_prompt` does right after an
     update and before committing to send `session/cancel` (see its docstring) -- this only
